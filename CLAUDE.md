@@ -84,6 +84,7 @@ The internal mapping preserves `{ exposedName, serverName, upstreamName }`. Neve
 **Progressive disclosure** — when enabled, `tools/list` returns only bootstrap tools (`toolbox__search_tools`, `toolbox__reveal_tools`, etc.) plus previously revealed tools for the current session. When disabled, all enabled namespaced tools are returned. This is configurable and optional.
 
 **Bootstrap tools** (used when progressive disclosure is on):
+
 - `toolbox__search_tools`
 - `toolbox__reveal_tools`
 - `toolbox__hide_tools`
@@ -94,32 +95,43 @@ The internal mapping preserves `{ exposedName, serverName, upstreamName }`. Neve
 
 ## Library Documentation
 
-**Always fetch up-to-date documentation before using any library, framework, or third-party API in code.** This applies to every library — including ones you think you remember well. Training-data knowledge of library APIs is frequently stale, version-skewed, or wrong, and writing against remembered APIs produces hallucinated calls that waste a fix-and-retry loop. Fetch first, then write.
+**Before writing code that calls a library, fetch up-to-date documentation for it.** Training-data knowledge of library APIs is frequently stale or version-skewed, and writing against remembered APIs produces hallucinated calls that waste a fix-and-retry loop.
 
-This is required for:
+### When to fetch
+
+Required:
 
 - adding a new dependency to any `package.json`
-- writing code that imports or calls into an existing dependency you have not read recently
+- writing code that imports or calls into an existing dependency you have not already read in the current session
 - generating examples, snippets, or scaffolds that mention a specific library
 - debugging an error that originates inside a library
 
-Use the following sources, in order of preference:
+Exempt — training-data knowledge is reliable enough; skip the fetch unless behaviour is suspect:
 
-### 1. Context7 MCP (preferred)
+- the Node.js standard library (`node:fs`, `path`, etc.)
+- existing in-repo usage patterns — if `commander.option(...)` is already wired up the same way elsewhere, follow that pattern
+- trivial well-known calls (`JSON.parse`, `Array.from`, etc.)
 
-Context7 indexes thousands of libraries with version-specific docs and exposes them through MCP tools. If Context7 is configured in this environment, prefer it for any well-known public library.
+Always reconcile what you fetch against the version pinned in `package.json` / `pnpm-lock.yaml`. If the docs describe a newer API than the installed version, downgrade your code to match the installed version, or upgrade the dependency in a separate, intentional commit.
 
-- Set up once with `npx ctx7 setup --claude` (or `--cursor` / `--opencode`).
-- Manual MCP config: server URL `https://mcp.context7.com/mcp`, optional `CONTEXT7_API_KEY` header.
-- MCP tools:
+### Sources, in order of preference
+
+The repo does not auto-install these. Confirm availability before using each one and fall through to the next when a source isn't wired up.
+
+#### 1. Context7 MCP
+
+Context7 indexes thousands of libraries with version-specific docs and exposes them through MCP tools.
+
+- One-time setup (run by a human, not the agent): `npx ctx7 setup --claude` (or `--cursor` / `--opencode`). Manual MCP config: server URL `https://mcp.context7.com/mcp`, optional `CONTEXT7_API_KEY` header.
+- MCP tools (per `@upstash/context7-mcp@2.x`):
   - `resolve-library-id` — resolve a free-form library name to a Context7 ID (e.g. `next.js` → `/vercel/next.js`).
-  - `query-docs` (a.k.a. `get-library-docs`) — fetch docs for a Context7 ID with a specific query.
+  - `query-docs` — fetch docs for a Context7 ID. Pin a version with `/org/project/version` when the installed version matters.
 - In a prompt you can also write `use library /vercel/next.js` to pin a known ID.
 - Repo: <https://github.com/upstash/context7>.
 
-### 2. Andrew Ng's Context Hub (`chub` CLI)
+#### 2. Andrew Ng's Context Hub (`chub` CLI)
 
-Context Hub is an open-source CLI of curated, LLM-optimized API docs. Use it as the second choice, especially for libraries Context7 does not cover well.
+Curated, LLM-optimized API docs. Use when Context7 does not cover the library well.
 
 - Install: `npm install -g @aisuite/chub`.
 - Commands:
@@ -129,11 +141,23 @@ Context Hub is an open-source CLI of curated, LLM-optimized API docs. Use it as 
   - `chub feedback <pkg>/<topic> up|down` — flag doc quality.
 - Repo: <https://github.com/andrewyng/context-hub>.
 
-### 3. Web search / WebFetch (last resort)
+#### 3. WebSearch / WebFetch
 
-Only when neither Context7 nor Context Hub has the library, fall back to `WebSearch` followed by `WebFetch` against the official docs site, the GitHub README, or the package's repo. Prefer the canonical source (the project's own docs or repo) over blog posts and tutorials, and double-check the version against the version pinned in `package.json`.
+When neither of the above has the library, fall back to `WebSearch` followed by `WebFetch` against the canonical source — the project's own docs site or repo, not blog posts or tutorials.
 
-Whichever source you use, cite the specific page or doc ID you read in the commit message or PR description if it materially shaped the implementation, so reviewers can verify the API choice.
+#### 4. Local `node_modules` (offline / sandboxed fallback)
+
+If all three network sources are unavailable, read the installed copy directly. This guarantees the docs match the installed version exactly.
+
+- `node_modules/<pkg>/README.md`
+- `node_modules/<pkg>/**/*.d.ts` for the typed surface
+- the package's `package.json` `exports` field for entry points
+
+### Citing your source
+
+If a fetched doc materially shaped the implementation — you copied an API shape, picked between two options based on what the docs said, or worked around a documented gotcha — cite the specific page or doc ID in the commit message or PR description so reviewers can verify the call. Routine confirmation lookups (e.g. "yes, `commander.option` still takes a flag string") don't need citation.
+
+This rule is convention, not enforced by tooling. Treat the citation as part of "done" when it applies.
 
 ## Code Style
 
