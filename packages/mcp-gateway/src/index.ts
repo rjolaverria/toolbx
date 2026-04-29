@@ -1,1 +1,18 @@
-export {};
+export {
+  createStdioUpstreamClient,
+  resolveEnvPlaceholders,
+  UpstreamCallToolTimeoutError,
+  UpstreamConnectError,
+  UpstreamMissingEnvVarError,
+  UpstreamNotConnectedError,
+  type CallToolResult,
+  type CreateStdioUpstreamClientDeps,
+  type ListToolsResult,
+  type ResolveEnvOptions,
+  type UpstreamCallToolOptions,
+  type UpstreamClient,
+  type UpstreamClientEvent,
+  type UpstreamClientEvents,
+  type UpstreamExitInfo,
+  type UpstreamLogEntry,
+} from './upstream-client/index.js';
