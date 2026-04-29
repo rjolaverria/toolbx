@@ -123,6 +123,20 @@ describe('runInit', () => {
     expect(loaded).toEqual(DEFAULT_CONFIG);
   });
 
+  it('refuses to overwrite a directory at the target path even with --force', async () => {
+    const dir = await makeTempDir();
+    const target = path.join(dir, 'config.json');
+    await fs.mkdir(target);
+    const h = makeHarness(target);
+
+    const code = await runInit({ force: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('not a regular file');
+    const stat = await fs.stat(target);
+    expect(stat.isDirectory()).toBe(true);
+  });
+
   it('creates missing parent directories', async () => {
     const dir = await makeTempDir();
     const target = path.join(dir, 'a', 'b', 'c', 'config.json');

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 
 import { Command } from '@commander-js/extra-typings';
@@ -29,13 +30,12 @@ export function defaultInitDeps(): InitDeps {
   };
 }
 
-async function pathExists(target: string): Promise<boolean> {
+async function statIfExists(target: string): Promise<Stats | null> {
   try {
-    await fs.stat(target);
-    return true;
+    return await fs.stat(target);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
+      return null;
     }
     throw error;
   }
@@ -47,9 +47,20 @@ export async function runInit(options: InitOptions, deps: InitDeps): Promise<num
       ? path.resolve(deps.cwd(), options.path)
       : deps.resolvePath();
 
-  if (options.force !== true && (await pathExists(target))) {
-    deps.stderr(`Config already exists at ${target}. Re-run with --force to overwrite.\n`);
-    return 1;
+  const existing = await statIfExists(target);
+  if (existing !== null) {
+    if (options.force !== true) {
+      deps.stderr(`Config already exists at ${target}. Re-run with --force to overwrite.\n`);
+      return 1;
+    }
+    if (!existing.isFile()) {
+      deps.stderr(`Cannot overwrite ${target}: not a regular file.\n`);
+      return 1;
+    }
+    // Remove the existing file before saveConfig's atomic rename so that
+    // overwrites are reliable across platforms (Windows fs.rename historically
+    // refused to replace an existing target).
+    await fs.unlink(target);
   }
 
   await saveConfig(DEFAULT_CONFIG, target);
