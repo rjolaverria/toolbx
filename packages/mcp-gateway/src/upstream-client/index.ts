@@ -1,5 +1,7 @@
 export { createStdioUpstreamClient, type CreateStdioUpstreamClientDeps } from './stdio.js';
+export { createHttpUpstreamClient, type CreateHttpUpstreamClientDeps } from './http.js';
 export {
+  UpstreamAuthRequiredError,
   UpstreamCallToolTimeoutError,
   UpstreamConnectError,
   UpstreamMissingEnvVarError,
