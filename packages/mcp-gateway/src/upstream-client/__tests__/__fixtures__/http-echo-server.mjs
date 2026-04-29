@@ -9,6 +9,9 @@
 //     `Authorization: Bearer <value>` header are rejected with 401.
 //   - `requireHeaders`     — record of header name → expected value; mismatched
 //     requests are rejected with 401.
+//   - `rejectIfHeadersPresent` — array of header names that, if present, cause
+//     the request to be rejected with 401. Useful for asserting the client
+//     does *not* send a header.
 //
 // `start()` returns `{ url, close }`. The URL points at the MCP endpoint.
 import { randomUUID } from 'node:crypto';
@@ -19,7 +22,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 export async function startHttpEchoServer(options = {}) {
-  const { requireBearerToken, requireHeaders = {} } = options;
+  const { requireBearerToken, requireHeaders = {}, rejectIfHeadersPresent = [] } = options;
 
   const server = new Server(
     { name: 'fake-http-echo-server', version: '0.0.0' },
@@ -95,6 +98,15 @@ export async function startHttpEchoServer(options = {}) {
         res.statusCode = 401;
         res.setHeader('content-type', 'text/plain');
         res.end(`missing header ${name}`);
+        return;
+      }
+    }
+    for (const name of rejectIfHeadersPresent) {
+      const lower = name.toLowerCase();
+      if (req.headers[lower] !== undefined) {
+        res.statusCode = 401;
+        res.setHeader('content-type', 'text/plain');
+        res.end(`unexpected header ${name}`);
         return;
       }
     }

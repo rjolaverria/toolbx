@@ -21,6 +21,7 @@ import { startHttpEchoServer } from './__fixtures__/http-echo-server.mjs';
 interface HttpEchoServerOptions {
   requireBearerToken?: string;
   requireHeaders?: Record<string, string>;
+  rejectIfHeadersPresent?: string[];
 }
 interface HttpEchoServer {
   url: string;
@@ -182,11 +183,23 @@ describe('createHttpUpstreamClient — connect', () => {
   });
 
   it('treats `auth: { type: "none" }` as no Authorization header', async () => {
-    const server = await startTrackedServer();
+    // Fixture rejects any request that carries an Authorization header — the
+    // 401 turns into a connect failure on our side, so a successful connect
+    // proves the client did not send the header.
+    const server = await startTrackedServer({ rejectIfHeadersPresent: ['authorization'] });
     const client = track(
       createHttpUpstreamClient(httpConfig({ url: server.url, auth: { type: 'none' } }), {
         logger: createNoopLogger(),
       }),
+    );
+
+    await expect(client.connect()).resolves.toBeUndefined();
+  });
+
+  it('does not send an Authorization header when auth is omitted', async () => {
+    const server = await startTrackedServer({ rejectIfHeadersPresent: ['authorization'] });
+    const client = track(
+      createHttpUpstreamClient(httpConfig({ url: server.url }), { logger: createNoopLogger() }),
     );
 
     await expect(client.connect()).resolves.toBeUndefined();
@@ -280,6 +293,30 @@ describe('createHttpUpstreamClient — disconnect', () => {
     await client.disconnect();
 
     expect(exits).toEqual([{ intentional: true }]);
+  });
+
+  it('does not race when disconnect() runs while connect() is in flight', async () => {
+    const server = await startTrackedServer();
+    const client = track(
+      createHttpUpstreamClient(httpConfig({ url: server.url }), { logger: createNoopLogger() }),
+    );
+
+    // Start connecting, then immediately disconnect without awaiting connect.
+    // Either the connect rejects (because we tore it down mid-flight) or it
+    // resolves and the subsequent state is already closed — but in no case
+    // should we end up with a live but un-tracked transport.
+    const connectPromise = client.connect();
+    const disconnectPromise = client.disconnect();
+
+    await disconnectPromise;
+    await connectPromise.catch(() => undefined);
+
+    // After the dust settles, the client is closed and operations fail with
+    // UpstreamNotConnectedError rather than crashing on a half-initialized
+    // transport.
+    await expect(client.callTool('echo', { message: 'noop' })).rejects.toBeInstanceOf(
+      UpstreamNotConnectedError,
+    );
   });
 });
 
