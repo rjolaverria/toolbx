@@ -36,7 +36,14 @@ export class InvalidStatusTransitionError extends Error {
 }
 
 export function isValidTransition(prevKind: ServerStatusKind, nextKind: ServerStatusKind): boolean {
-  return ALLOWED_TRANSITIONS[prevKind].has(nextKind);
+  // Defensive: this is a public predicate. JS callers (or values parsed from
+  // JSON) may pass strings outside the typed union; return false rather than
+  // throwing a TypeError on a missing-key lookup.
+  const allowed = ALLOWED_TRANSITIONS[prevKind] as ReadonlySet<ServerStatusKind> | undefined;
+  if (allowed === undefined) {
+    return false;
+  }
+  return allowed.has(nextKind);
 }
 
 export function assertValidTransition(prev: ServerStatus, next: ServerStatus): void {
@@ -74,6 +81,13 @@ function nextStatusFor(prev: ServerStatus, event: ServerStatusEvent): ServerStat
     case 'failed':
       return { kind: 'error', error: event.error, nextRetryAt: event.nextRetryAt };
     case 'stop':
+      // A disabled server isn't running, so a generic `stop` event must not be
+      // able to silently move it to `stopped`. The kind→kind table can't tell
+      // `enable` and `stop` apart since both produce `stopped`; enforce the
+      // event-level invariant here. Only `enable` may leave `disabled`.
+      if (prev.kind === 'disabled') {
+        throw new InvalidStatusTransitionError('disabled', 'stopped');
+      }
       return { kind: 'stopped' };
   }
   // Exhaustiveness — TS will flag any unhandled event type.

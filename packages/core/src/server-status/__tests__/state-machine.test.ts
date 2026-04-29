@@ -84,6 +84,12 @@ describe('isValidTransition / assertValidTransition', () => {
   it('returns void on a valid transition (stopped → starting)', () => {
     expect(() => assertValidTransition(exemplar('stopped'), exemplar('starting'))).not.toThrow();
   });
+
+  it('returns false rather than throwing when given an unknown prevKind from JS callers', () => {
+    // Simulate a JS or JSON-parsed caller that bypasses the type system.
+    const badPrev = 'pending' as ServerStatusKind;
+    expect(isValidTransition(badPrev, 'starting')).toBe(false);
+  });
 });
 
 describe('transition reducer', () => {
@@ -187,9 +193,9 @@ describe('transition reducer', () => {
     ).toThrow(InvalidStatusTransitionError);
   });
 
-  it('stop: valid from every state except stopped (self-loop)', () => {
+  it('stop: valid from every running state; rejected from stopped (self-loop) and disabled', () => {
     for (const kind of ALL_KINDS) {
-      if (kind === 'stopped') {
+      if (kind === 'stopped' || kind === 'disabled') {
         expect(() => transition(exemplar(kind), { type: 'stop' })).toThrow(
           InvalidStatusTransitionError,
         );
@@ -197,6 +203,18 @@ describe('transition reducer', () => {
       }
       expect(transition(exemplar(kind), { type: 'stop' })).toEqual({ kind: 'stopped' });
     }
+  });
+
+  it('stop: rejected from disabled even though disabled → stopped is in the kind table', () => {
+    // The kind→kind table allows disabled → stopped because that is the
+    // `enable` edge. The reducer must distinguish event semantics so that
+    // generic `stop` events during shutdown/reconnect cannot silently move
+    // a disabled server out of disabled state.
+    expect(() => transition(exemplar('disabled'), { type: 'stop' })).toThrow(
+      InvalidStatusTransitionError,
+    );
+    // enable is still the legitimate way out of disabled.
+    expect(transition(exemplar('disabled'), { type: 'enable' })).toEqual({ kind: 'stopped' });
   });
 
   it('exhaustively rejects illegal (prevKind, eventType) pairs without losing typing', () => {

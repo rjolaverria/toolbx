@@ -173,6 +173,20 @@ describe('createStatusRegistry — update', () => {
     expect(registry.get('gamma')?.authStatus).toBe('required');
   });
 
+  it('rejects invalid toolCount values with a RangeError', () => {
+    const registry = createStatusRegistry(configWith({ alpha: stdioEnabled }));
+    expect(() => registry.update('alpha', { toolCount: -1 })).toThrow(RangeError);
+    expect(() => registry.update('alpha', { toolCount: 1.5 })).toThrow(RangeError);
+    expect(() => registry.update('alpha', { toolCount: Number.NaN })).toThrow(RangeError);
+    expect(() => registry.update('alpha', { toolCount: Number.POSITIVE_INFINITY })).toThrow(
+      RangeError,
+    );
+    // Zero is a valid count.
+    expect(() => registry.update('alpha', { toolCount: 0 })).not.toThrow();
+    // toolCount must be unchanged after the rejected updates.
+    expect(registry.get('alpha')?.toolCount).toBe(0);
+  });
+
   it('updates the enabled flag without coupling it to status', () => {
     const registry = createStatusRegistry(configWith({ alpha: stdioEnabled }));
     registry.update('alpha', { enabled: false });

@@ -143,6 +143,13 @@ export function createStatusRegistry(
     }
 
     const nextEnabled = patch.enabled ?? entry.enabled;
+    if (patch.toolCount !== undefined) {
+      if (!Number.isInteger(patch.toolCount) || patch.toolCount < 0) {
+        throw new RangeError(
+          `toolCount must be a non-negative integer; received ${String(patch.toolCount)}`,
+        );
+      }
+    }
     const nextToolCount = patch.toolCount ?? entry.toolCount;
 
     let nextLastConnectedAt = entry.lastConnectedAt;
