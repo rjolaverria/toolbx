@@ -92,6 +92,49 @@ The internal mapping preserves `{ exposedName, serverName, upstreamName }`. Neve
 
 **Upstream server types** — Phase 1 supports `stdio` and Streamable HTTP (`http`). Each server has a `ServerStatus` that is one of: `disabled | starting | connected | auth_required | auth_expired | error | stopped`.
 
+## Library Documentation
+
+**Always fetch up-to-date documentation before using any library, framework, or third-party API in code.** This applies to every library — including ones you think you remember well. Training-data knowledge of library APIs is frequently stale, version-skewed, or wrong, and writing against remembered APIs produces hallucinated calls that waste a fix-and-retry loop. Fetch first, then write.
+
+This is required for:
+
+- adding a new dependency to any `package.json`
+- writing code that imports or calls into an existing dependency you have not read recently
+- generating examples, snippets, or scaffolds that mention a specific library
+- debugging an error that originates inside a library
+
+Use the following sources, in order of preference:
+
+### 1. Context7 MCP (preferred)
+
+Context7 indexes thousands of libraries with version-specific docs and exposes them through MCP tools. If Context7 is configured in this environment, prefer it for any well-known public library.
+
+- Set up once with `npx ctx7 setup --claude` (or `--cursor` / `--opencode`).
+- Manual MCP config: server URL `https://mcp.context7.com/mcp`, optional `CONTEXT7_API_KEY` header.
+- MCP tools:
+  - `resolve-library-id` — resolve a free-form library name to a Context7 ID (e.g. `next.js` → `/vercel/next.js`).
+  - `query-docs` (a.k.a. `get-library-docs`) — fetch docs for a Context7 ID with a specific query.
+- In a prompt you can also write `use library /vercel/next.js` to pin a known ID.
+- Repo: <https://github.com/upstash/context7>.
+
+### 2. Andrew Ng's Context Hub (`chub` CLI)
+
+Context Hub is an open-source CLI of curated, LLM-optimized API docs. Use it as the second choice, especially for libraries Context7 does not cover well.
+
+- Install: `npm install -g @aisuite/chub`.
+- Commands:
+  - `chub search <query>` — find available docs (run with no args to list everything).
+  - `chub get <pkg>/<topic> [--lang py|js|...]` — fetch the curated doc for that topic in the chosen language.
+  - `chub annotate <pkg>/<topic> "<note>"` — save a local note when you discover a non-obvious behavior; `--list` and `--clear` manage them.
+  - `chub feedback <pkg>/<topic> up|down` — flag doc quality.
+- Repo: <https://github.com/andrewyng/context-hub>.
+
+### 3. Web search / WebFetch (last resort)
+
+Only when neither Context7 nor Context Hub has the library, fall back to `WebSearch` followed by `WebFetch` against the official docs site, the GitHub README, or the package's repo. Prefer the canonical source (the project's own docs or repo) over blog posts and tutorials, and double-check the version against the version pinned in `package.json`.
+
+Whichever source you use, cite the specific page or doc ID you read in the commit message or PR description if it materially shaped the implementation, so reviewers can verify the API choice.
+
 ## Code Style
 
 Prettier: single quotes, semicolons, trailing commas, 100-char print width, 2-space indent. ESLint uses `typescript-eslint` with full type-aware rules (`recommendedTypeChecked`). Config files (`.config.ts`, `.config.js`) have type-aware rules disabled since they sit outside tsconfig projects.
