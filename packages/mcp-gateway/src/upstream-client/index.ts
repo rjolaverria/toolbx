@@ -8,6 +8,16 @@ export {
   UpstreamNotConnectedError,
 } from './errors.js';
 export { resolveEnvPlaceholders, type ResolveEnvOptions } from './env.js';
+export {
+  createUpstreamSession,
+  type CreateUpstreamSessionDeps,
+  type UpstreamClientFactory,
+  type UpstreamSession,
+  type UpstreamSessionBackoff,
+  type UpstreamSessionEvent,
+  type UpstreamSessionEvents,
+  type UpstreamSessionScheduler,
+} from './session.js';
 export type {
   CallToolResult,
   ListToolsResult,

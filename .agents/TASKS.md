@@ -28,7 +28,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 - [x] **M1-01** — [Upstream stdio MCP client](tasks/M1-01-upstream-stdio-client.md) — closed by 69e0c5a
 - [x] **M1-02** — [Upstream Streamable HTTP MCP client](tasks/M1-02-upstream-http-client.md) — closed by a921d95
-- [ ] **M1-03** — [Upstream session lifecycle and reconnect](tasks/M1-03-upstream-session-lifecycle.md)
+- [x] **M1-03** — [Upstream session lifecycle and reconnect](tasks/M1-03-upstream-session-lifecycle.md) — closed by 4d5da9c
 - [ ] **M1-04** — [Server status registry and state machine](tasks/M1-04-server-status-registry.md)
 - [ ] **M1-05** — [`tlbx server add-stdio` and `add-http` commands](tasks/M1-05-server-add-commands.md)
 - [ ] **M1-06** — [`tlbx server list/status/enable/disable/remove/edit/inspect` commands](tasks/M1-06-server-management-commands.md)

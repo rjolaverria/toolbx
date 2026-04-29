@@ -52,3 +52,5 @@ export {
   type LogLevelWithSilent,
   type Logger,
 } from './logging/logger.js';
+
+export type { ServerStatus, ServerStatusKind } from './server-status/types.js';
