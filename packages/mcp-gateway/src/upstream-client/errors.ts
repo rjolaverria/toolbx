@@ -44,3 +44,19 @@ export class UpstreamNotConnectedError extends Error {
     super(`Upstream client${where} is not connected.`);
   }
 }
+
+export class UpstreamAuthRequiredError extends Error {
+  override readonly name = 'UpstreamAuthRequiredError';
+
+  constructor(
+    public readonly tokenEnv: string,
+    public readonly serverName: string | undefined,
+    options?: { cause?: unknown },
+  ) {
+    const where = serverName ? ` for server "${serverName}"` : '';
+    super(
+      `Authentication required${where}: bearer token environment variable "${tokenEnv}" is not set.`,
+      options,
+    );
+  }
+}
