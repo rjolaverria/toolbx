@@ -9,11 +9,11 @@ A single in-memory registry that tracks one `ServerStatus` per configured upstre
 
 ## Deliverables
 
-- `packages/core/src/status/registry.ts` exporting:
-  - `ServerStatus` type from README §2.5 (`'disabled' | 'starting' | 'connected' | 'auth_required' | 'auth_expired' | 'error' | 'stopped'`).
+- `packages/core/src/server-status/registry.ts` exporting:
+  - `ServerStatus` type from README §2.5 (`'disabled' | 'starting' | 'connected' | 'auth_required' | 'auth_expired' | 'error' | 'stopped'`) — already lives in `packages/core/src/server-status/types.ts`.
   - `ServerStatusEntry` interface holding `name`, `transport`, `enabled`, `status`, `authStatus`, `toolCount`, `lastConnectedAt`, `lastError`, `recentLogs`.
   - `createStatusRegistry(initialConfig)` returning `{ get, list, update, subscribe }`.
-- `packages/core/src/status/state-machine.ts` defining valid `ServerStatus` transitions and a `transition(prev, event)` reducer used by both the upstream session and the registry.
+- `packages/core/src/server-status/state-machine.ts` defining valid `ServerStatus` transitions and a `transition(prev, event)` reducer used by both the upstream session and the registry.
 - Integration: `createUpstreamSession` (M1-03) emits status events that the registry consumes via `update`.
 
 ## Acceptance criteria
