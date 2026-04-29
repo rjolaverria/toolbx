@@ -66,6 +66,32 @@ describe('saveConfig', () => {
     expect(leftover).toEqual([]);
   });
 
+  it('overwrites an existing config file in place', async () => {
+    const dir = await makeTempDir();
+    const file = path.join(dir, 'config.json');
+    await saveConfig(DEFAULT_CONFIG, file);
+
+    const updated = {
+      ...DEFAULT_CONFIG,
+      servers: {
+        ...DEFAULT_CONFIG.servers,
+        github: {
+          type: 'stdio' as const,
+          enabled: true,
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+        },
+      },
+    };
+    await saveConfig(updated, file);
+
+    const loaded = await loadConfig(file);
+    expect(loaded).toEqual(updated);
+
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
   it('cleans up the .tmp file when the rename target is unwritable', async () => {
     const dir = await makeTempDir();
     const file = path.join(dir, 'config.json');

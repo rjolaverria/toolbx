@@ -57,10 +57,6 @@ export async function runInit(options: InitOptions, deps: InitDeps): Promise<num
       deps.stderr(`Cannot overwrite ${target}: not a regular file.\n`);
       return 1;
     }
-    // Remove the existing file before saveConfig's atomic rename so that
-    // overwrites are reliable across platforms (Windows fs.rename historically
-    // refused to replace an existing target).
-    await fs.unlink(target);
   }
 
   await saveConfig(DEFAULT_CONFIG, target);

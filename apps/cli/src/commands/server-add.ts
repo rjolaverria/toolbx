@@ -115,15 +115,15 @@ async function loadOrReportMissing(
   }
 }
 
-function writeAndPrint(
+async function saveAndPrint(
   next: ToolboxConfig,
   name: string,
   target: string,
   deps: ServerAddDeps,
 ): Promise<void> {
+  await saveConfig(next, target);
   const entry = next.servers[name];
   deps.stdout(`${JSON.stringify(entry, null, 2)}\n`);
-  return saveConfig(next, target);
 }
 
 function rejectDuplicate(
@@ -139,7 +139,7 @@ function rejectDuplicate(
   return false;
 }
 
-function validateAndSave(
+function validateNextConfig(
   config: ToolboxConfig,
   name: string,
   entry: StdioServerConfig | HttpServerConfig,
@@ -204,11 +204,11 @@ export async function runAddStdio(
     ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
   };
 
-  const validated = validateAndSave(config, name, entry, target, deps);
+  const validated = validateNextConfig(config, name, entry, target, deps);
   if (!validated.ok) {
     return 1;
   }
-  await writeAndPrint(validated.next, name, target, deps);
+  await saveAndPrint(validated.next, name, target, deps);
   return 0;
 }
 
@@ -258,11 +258,11 @@ export async function runAddHttp(
     ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
   };
 
-  const validated = validateAndSave(config, name, entry, target, deps);
+  const validated = validateNextConfig(config, name, entry, target, deps);
   if (!validated.ok) {
     return 1;
   }
-  await writeAndPrint(validated.next, name, target, deps);
+  await saveAndPrint(validated.next, name, target, deps);
   return 0;
 }
 
@@ -301,7 +301,7 @@ export function addHttpCommand(): CommandUnknownOpts {
   return new Command('add-http')
     .description('Register a new upstream MCP server that speaks Streamable HTTP.')
     .argument('<name>', 'unique server name (alphanumeric, `-`, `_`)')
-    .requiredOption('--url <url>', 'HTTPS URL of the upstream MCP endpoint')
+    .requiredOption('--url <url>', 'http(s) URL of the upstream MCP endpoint')
     .addOption(new Option('--auth <type>', 'authentication scheme').choices(['none', 'bearer']))
     .option('--token-env <NAME>', 'environment variable holding the bearer token')
     .option('--header <KEY=VALUE>', 'set a static request header (repeatable)', appendOnce)
