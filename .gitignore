@@ -79,7 +79,7 @@ Thumbs.db
 .prettiercache
 
 # Turborepo
-.turbo/
+.turbo
 
 # Serverless
 .serverless/
