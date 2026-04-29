@@ -8,12 +8,15 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@toolbox/core": "workspace:*"
+    "@toolbox/core": "workspace:*",
+    "commander": "^14.0.3"
   },
   "devDependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
     "@types/node": "latest",
     "typescript": "latest"
   }

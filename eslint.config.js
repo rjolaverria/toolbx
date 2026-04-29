@@ -5,13 +5,12 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   js.configs.recommended,
-  prettierConfig,
   {
     ignores: ['**/dist/**', '**/node_modules/**', '**/*.d.ts'],
   },
   {
     files: ['**/*.ts', '**/*.tsx'],
-    extends: [...tseslint.configs.recommendedTypeChecked],
+    extends: tseslint.configs.recommendedTypeChecked,
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -19,4 +18,11 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Config files sit outside tsconfig projects — disable type-aware rules for them
+    files: ['**/*.config.ts', '**/*.config.js'],
+    extends: [tseslint.configs.disableTypeChecked],
+  },
+  // Must be last to override any formatting rules from configs above
+  prettierConfig,
 );
