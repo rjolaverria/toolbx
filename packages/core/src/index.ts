@@ -40,3 +40,15 @@ export {
   DEFAULT_CONFIG,
   DEFAULT_NAMESPACE_SEPARATOR,
 } from './config/defaults.js';
+
+export {
+  createLogger,
+  createNoopLogger,
+  type CreateLoggerOptions,
+  type LogBindings,
+  type LogDestination,
+  type LogFormat,
+  type LogLevel,
+  type LogLevelWithSilent,
+  type Logger,
+} from './logging/logger.js';
