@@ -141,6 +141,27 @@ describe('createStdioUpstreamClient — disconnect', () => {
       UpstreamNotConnectedError,
     );
   });
+
+  it('does not race when disconnect() runs while connect() is in flight', async () => {
+    const client = track(createStdioUpstreamClient(echoConfig(), { logger: createNoopLogger() }));
+
+    // Start connecting, then immediately disconnect without awaiting connect.
+    // Either the connect rejects (because we tore it down mid-flight) or it
+    // resolves and the subsequent state is already closed — but in no case
+    // should we end up with a live but un-tracked process.
+    const connectPromise = client.connect();
+    const disconnectPromise = client.disconnect();
+
+    await disconnectPromise;
+    await connectPromise.catch(() => undefined);
+
+    // After the dust settles, the client is closed and operations fail with
+    // UpstreamNotConnectedError rather than crashing on a half-initialized
+    // transport.
+    await expect(client.callTool('echo', { message: 'noop' })).rejects.toBeInstanceOf(
+      UpstreamNotConnectedError,
+    );
+  });
 });
 
 describe('createStdioUpstreamClient — callTool timeout', () => {

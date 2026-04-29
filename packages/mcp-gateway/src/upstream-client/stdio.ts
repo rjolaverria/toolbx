@@ -95,7 +95,7 @@ export function createStdioUpstreamClient(
   }
 
   async function connect(): Promise<void> {
-    if (state === 'connected' || state === 'connecting') {
+    if (state !== 'idle' && state !== 'closed') {
       throw new UpstreamConnectError(`Upstream client is already ${state}`, serverName);
     }
     state = 'connecting';
@@ -114,7 +114,12 @@ export function createStdioUpstreamClient(
       throw error;
     }
 
-    transport = new StdioClientTransport({
+    // Hold the transport/client in locals across the `await` boundary so that
+    // a concurrent disconnect() — which only nulls the shared slots — cannot
+    // race us into a TypeError. We only promote the locals into the shared
+    // slots after a successful connect, and only if the state machine still
+    // says we're connecting (i.e., disconnect didn't run in between).
+    const localTransport = new StdioClientTransport({
       command: config.command,
       args: config.args,
       ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
@@ -122,30 +127,32 @@ export function createStdioUpstreamClient(
       stderr: 'pipe',
     });
 
-    client = new Client(TOOLBOX_CLIENT_INFO, { capabilities: {} });
+    const localClient = new Client(TOOLBOX_CLIENT_INFO, { capabilities: {} });
 
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    localClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       emit('tools_list_changed');
     });
 
-    transport.onerror = (error) => {
+    localTransport.onerror = (error) => {
       log.debug({ err: error }, 'upstream stdio transport error');
     };
 
     const connectTimeoutMs = deps.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     try {
-      await client.connect(transport, { timeout: connectTimeoutMs });
+      await localClient.connect(localTransport, { timeout: connectTimeoutMs });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to connect to upstream stdio server';
       try {
-        await transport.close();
+        await localTransport.close();
       } catch {
         // best effort
       }
-      transport = null;
-      client = null;
-      state = 'closed';
+      // Don't clobber a 'closing' or 'closed' state set by a concurrent
+      // disconnect — let its own state machine drive completion.
+      if (state === 'connecting') {
+        state = 'closed';
+      }
       emitExitOnce();
       throw new UpstreamConnectError(
         `Failed to connect to upstream stdio server${serverName ? ` "${serverName}"` : ''}: ${message}`,
@@ -154,7 +161,21 @@ export function createStdioUpstreamClient(
       );
     }
 
-    const stderr = transport.stderr;
+    // If disconnect() ran while we were awaiting connect, abandon this attempt.
+    if (state !== 'connecting') {
+      try {
+        await localClient.close();
+      } catch {
+        // best effort
+      }
+      emitExitOnce();
+      throw new UpstreamConnectError(
+        `Upstream client was disconnected during connect${serverName ? ` to "${serverName}"` : ''}`,
+        serverName,
+      );
+    }
+
+    const stderr = localTransport.stderr;
     if (stderr) {
       const lines = readline.createInterface({ input: stderr as unknown as Readable });
       lines.on('line', (line) => {
@@ -166,18 +187,24 @@ export function createStdioUpstreamClient(
       });
     }
 
-    const previousOnClose = transport.onclose;
-    transport.onclose = () => {
+    const previousOnClose = localTransport.onclose;
+    localTransport.onclose = () => {
       previousOnClose?.();
       if (state !== 'closing') {
         log.debug('upstream stdio transport closed unexpectedly');
       }
       state = 'closed';
-      client = null;
-      transport = null;
+      if (client === localClient) {
+        client = null;
+      }
+      if (transport === localTransport) {
+        transport = null;
+      }
       emitExitOnce();
     };
 
+    transport = localTransport;
+    client = localClient;
     state = 'connected';
   }
 
