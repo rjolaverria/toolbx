@@ -40,7 +40,7 @@ export const HttpServerConfigSchema = z
   .object({
     type: z.literal('http'),
     enabled: z.boolean(),
-    url: z.url(),
+    url: z.url({ protocol: /^https?$/ }),
     headers: z.record(z.string().min(1), z.string()).optional(),
     auth: AuthSchema.optional(),
     timeoutMs: TimeoutMsSchema.optional(),

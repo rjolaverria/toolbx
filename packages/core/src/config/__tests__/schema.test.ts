@@ -140,6 +140,32 @@ describe('ServerConfig discriminated union', () => {
     expect(result.success).toBe(false);
   });
 
+  it.each([
+    'mailto:user@example.com',
+    'file:///etc/passwd',
+    'ftp://example.com',
+    'ws://example.com',
+  ])('rejects an http server whose url is the non-http(s) scheme %s', (url) => {
+    const result = HttpServerConfigSchema.safeParse({
+      type: 'http',
+      enabled: true,
+      url,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it.each(['http://localhost:3000/mcp', 'https://jira.example.com/mcp'])(
+    'accepts an http server with the http(s) url %s',
+    (url) => {
+      const result = HttpServerConfigSchema.safeParse({
+        type: 'http',
+        enabled: true,
+        url,
+      });
+      expect(result.success).toBe(true);
+    },
+  );
+
   it('rejects a stdio server missing command', () => {
     const result = StdioServerConfigSchema.safeParse({
       type: 'stdio',
