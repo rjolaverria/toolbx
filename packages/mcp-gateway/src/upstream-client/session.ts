@@ -148,10 +148,12 @@ export function createUpstreamSession(
     | { kind: 'stopped' };
 
   let phase: Phase = { kind: 'idle' };
-  let status: ServerStatus = { kind: 'disabled' };
+  let status: ServerStatus = { kind: 'stopped' };
   let pingHandle: unknown = null;
   let cached: ListToolsResult | undefined;
   let activeListeners: { client: UpstreamClient; off: () => void } | null = null;
+  let pendingStart: Promise<void> | null = null;
+  let pendingRestart: Promise<void> | null = null;
 
   function setStatus(next: ServerStatus): void {
     status = next;
@@ -317,27 +319,48 @@ export function createUpstreamSession(
     startPing(client);
   }
 
-  async function start(): Promise<void> {
-    if (phase.kind !== 'idle') {
-      return;
+  function start(): Promise<void> {
+    if (pendingStart) {
+      return pendingStart;
     }
-    await runConnectAttempt(1);
+    if (phase.kind !== 'idle') {
+      return Promise.resolve();
+    }
+    const promise = runConnectAttempt(1).finally(() => {
+      if (pendingStart === promise) {
+        pendingStart = null;
+      }
+    });
+    pendingStart = promise;
+    return promise;
   }
 
-  async function restart(): Promise<void> {
-    if (phase.kind === 'stopped') {
-      return;
+  function restart(): Promise<void> {
+    if (pendingRestart) {
+      return pendingRestart;
     }
-    await teardown({ keepStopped: false });
-    phase = { kind: 'idle' };
-    await runConnectAttempt(1);
+    if (phase.kind === 'stopped') {
+      return Promise.resolve();
+    }
+    const promise = (async () => {
+      await teardown({ keepStopped: false });
+      await runConnectAttempt(1);
+    })().finally(() => {
+      if (pendingRestart === promise) {
+        pendingRestart = null;
+      }
+    });
+    pendingRestart = promise;
+    return promise;
   }
 
   async function teardown(opts: { keepStopped: boolean }): Promise<void> {
+    // Snapshot the current phase and transition synchronously *before* any
+    // await so that concurrent `listTools` / `callTool` / `ping` calls during
+    // the disconnect see a non-connected state and fail fast rather than
+    // racing against a client that's actively being torn down.
     const previous = phase;
-    if (opts.keepStopped) {
-      phase = { kind: 'stopped' };
-    }
+    phase = opts.keepStopped ? { kind: 'stopped' } : { kind: 'idle' };
     clearPing();
     detachClientListeners();
     if (previous.kind === 'waiting') {

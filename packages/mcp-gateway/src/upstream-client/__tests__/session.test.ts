@@ -317,6 +317,53 @@ describe('createUpstreamSession — auth_required', () => {
   });
 });
 
+describe('createUpstreamSession — restart race', () => {
+  it('rejects callTool issued while a restart is tearing down the active client', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.status.kind).toBe('connected');
+
+    // Kick off a restart — teardown() must transition phase away from
+    // `connected` synchronously so a concurrent call cannot reach the
+    // disconnecting client.
+    const restartPromise = session.restart();
+    await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
+      UpstreamNotConnectedError,
+    );
+
+    await flushMicrotasks();
+    controls[1]!.resolveConnect();
+    await restartPromise;
+    expect(session.status.kind).toBe('connected');
+    await session.dispose();
+  });
+
+  it('returns the same in-flight promise for concurrent start() callers', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const first = session.start();
+    const second = session.start();
+    expect(first).toBe(second);
+    expect(controls).toHaveLength(1);
+
+    controls[0]!.resolveConnect();
+    await first;
+    expect(session.status.kind).toBe('connected');
+    await session.dispose();
+  });
+});
+
 describe('createUpstreamSession — dispose', () => {
   it('is idempotent and tears down timers and listeners', async () => {
     const { controls, factory } = fixture();
