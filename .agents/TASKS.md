@@ -22,7 +22,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 - [x] **M0-01** — [Config schema, loader, and validator](tasks/M0-01-config-schema-and-loader.md) — closed by 7fdaf2f
 - [x] **M0-02** — [Logger module](tasks/M0-02-logger-module.md) — closed by 66ad626
-- [ ] **M0-03** — [`tlbx init` command](tasks/M0-03-cli-init-command.md)
+- [x] **M0-03** — [`tlbx init` command](tasks/M0-03-cli-init-command.md) — closed by 585455a
 
 ## Milestone 1 — Upstream Connection Manager
 
