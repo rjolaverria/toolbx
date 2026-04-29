@@ -26,7 +26,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 ## Milestone 1 — Upstream Connection Manager
 
-- [ ] **M1-01** — [Upstream stdio MCP client](tasks/M1-01-upstream-stdio-client.md)
+- [x] **M1-01** — [Upstream stdio MCP client](tasks/M1-01-upstream-stdio-client.md) — closed by 69e0c5a
 - [ ] **M1-02** — [Upstream Streamable HTTP MCP client](tasks/M1-02-upstream-http-client.md)
 - [ ] **M1-03** — [Upstream session lifecycle and reconnect](tasks/M1-03-upstream-session-lifecycle.md)
 - [ ] **M1-04** — [Server status registry and state machine](tasks/M1-04-server-status-registry.md)
