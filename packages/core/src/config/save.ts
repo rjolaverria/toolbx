@@ -31,7 +31,22 @@ export async function saveConfig(config: ToolboxConfig, filePath?: string): Prom
   try {
     await fs.rename(tmp, target);
   } catch (error) {
+    if (isRenameOverwriteFailure(error)) {
+      try {
+        await fs.unlink(target);
+        await fs.rename(tmp, target);
+        return;
+      } catch (retryError) {
+        await fs.unlink(tmp).catch(() => undefined);
+        throw retryError;
+      }
+    }
     await fs.unlink(tmp).catch(() => undefined);
     throw error;
   }
+}
+
+function isRenameOverwriteFailure(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === 'EEXIST' || code === 'EPERM' || code === 'EACCES';
 }
