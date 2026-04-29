@@ -109,3 +109,31 @@ Use discriminated unions (sum types) when modelling objects that have distinct c
 ## Tests
 
 Write a test for every function that contains non-trivial logic. Skip tests that would only verify what TypeScript or ESLint already enforce statically (type correctness, exhaustiveness, lint rules).
+
+## Task Workflow
+
+All planned work for this repo is tracked in `.agents/TASKS.md` (master todo list) with one detail file per task in `.agents/tasks/<task-id>.md`. Every task is derived from `README.md` and is a deliverable.
+
+Before starting work:
+
+1. Open `.agents/TASKS.md`. Pick an unchecked task and read the linked task file end to end.
+2. The task file states the goal, deliverables, acceptance criteria, out-of-scope items, and the explicit definition of done.
+3. If the task description is wrong or out of date relative to the README, fix the task file first in its own commit, then proceed.
+
+While working:
+
+- Each task corresponds to its own set of commits. Do not bundle multiple unrelated tasks into one commit.
+- Reference the task ID (e.g. `M2-05`) in commit messages so the audit trail is obvious.
+- If you discover follow-up work that is out of scope for the current task, add it as a new task file under `.agents/tasks/` and a new entry in `.agents/TASKS.md` rather than expanding the current task.
+
+A task is **only** complete when **all** of the following are true:
+
+1. Every acceptance criterion in the task file is met.
+2. New and existing tests pass: `pnpm test:run` is green.
+3. Type checking passes: `pnpm typecheck` is green.
+4. Linting passes: `pnpm lint` is green.
+5. Formatting passes: `pnpm format:check` is green.
+6. The pre-commit hook ran successfully on the final commit (the lint-staged hook auto-fixes ESLint and Prettier on staged files — never bypass it with `--no-verify`).
+7. The work is committed (and pushed, if the branch is shared).
+
+Only after all seven hold, flip the task's checkbox in `.agents/TASKS.md` from `[ ]` to `[x]` and append a short note pointing at the closing commit or PR. A green typecheck alone is not "done" — the manual acceptance criteria from the task file must also be verified.
