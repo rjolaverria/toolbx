@@ -84,6 +84,7 @@ The internal mapping preserves `{ exposedName, serverName, upstreamName }`. Neve
 **Progressive disclosure** — when enabled, `tools/list` returns only bootstrap tools (`toolbox__search_tools`, `toolbox__reveal_tools`, etc.) plus previously revealed tools for the current session. When disabled, all enabled namespaced tools are returned. This is configurable and optional.
 
 **Bootstrap tools** (used when progressive disclosure is on):
+
 - `toolbox__search_tools`
 - `toolbox__reveal_tools`
 - `toolbox__hide_tools`
