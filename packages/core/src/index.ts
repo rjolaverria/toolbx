@@ -54,3 +54,25 @@ export {
 } from './logging/logger.js';
 
 export type { ServerStatus, ServerStatusKind } from './server-status/types.js';
+
+export {
+  assertValidTransition,
+  InvalidStatusTransitionError,
+  isValidTransition,
+  transition,
+  type ServerStatusEvent,
+  type ServerStatusEventType,
+} from './server-status/state-machine.js';
+
+export {
+  createStatusRegistry,
+  UnknownServerError,
+  type AuthStatus,
+  type CreateStatusRegistryOptions,
+  type LogLine,
+  type ServerLogLevel,
+  type ServerStatusEntry,
+  type StatusRegistry,
+  type StatusRegistryListener,
+  type StatusRegistryUpdate,
+} from './server-status/registry.js';
