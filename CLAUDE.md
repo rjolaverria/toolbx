@@ -95,3 +95,17 @@ The internal mapping preserves `{ exposedName, serverName, upstreamName }`. Neve
 ## Code Style
 
 Prettier: single quotes, semicolons, trailing commas, 100-char print width, 2-space indent. ESLint uses `typescript-eslint` with full type-aware rules (`recommendedTypeChecked`). Config files (`.config.ts`, `.config.js`) have type-aware rules disabled since they sit outside tsconfig projects.
+
+Always use curly braces on every block statement (`if`, `for`, `while`, etc.) — never braceless single-line bodies.
+
+## Functions and State
+
+Prefer pure functions. Avoid mutating in-memory state unless there is no reasonable alternative (e.g. managing an active process registry).
+
+Use Zod only at IO boundaries: config file reads, CLI argument parsing, MCP message parsing, HTTP responses. Inside the system, pass regular typed TypeScript objects — do not re-validate data that is already typed.
+
+Use discriminated unions (sum types) when modelling objects that have distinct combinations of fields depending on a variant. For example, `ServerConfig` with `type: 'stdio'` vs `type: 'http'` should be a union, not a single interface with optional fields.
+
+## Tests
+
+Write a test for every function that contains non-trivial logic. Skip tests that would only verify what TypeScript or ESLint already enforce statically (type correctness, exhaustiveness, lint rules).
