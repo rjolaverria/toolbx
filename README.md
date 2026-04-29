@@ -179,13 +179,13 @@ Possible server states:
 
 ```ts
 type ServerStatus =
-  | "disabled"
-  | "starting"
-  | "connected"
-  | "auth_required"
-  | "auth_expired"
-  | "error"
-  | "stopped";
+  | 'disabled'
+  | 'starting'
+  | 'connected'
+  | 'auth_required'
+  | 'auth_expired'
+  | 'error'
+  | 'stopped';
 ```
 
 Status should include:
@@ -757,24 +757,21 @@ Example custom tool:
  * @toolbox-tool namespace personal
  */
 
-import { z } from "zod";
+import { z } from 'zod';
 
 export const inputSchema = z.object({
-  channel: z.string().describe("Slack channel ID or name"),
-  summary: z.string().describe("Summary text to send")
+  channel: z.string().describe('Slack channel ID or name'),
+  summary: z.string().describe('Summary text to send'),
 });
 
-export default async function sendSlackSummary(input: {
-  channel: string;
-  summary: string;
-}) {
+export default async function sendSlackSummary(input: { channel: string; summary: string }) {
   return {
     content: [
       {
-        type: "text",
-        text: `Sent summary to ${input.channel}`
-      }
-    ]
+        type: 'text',
+        text: `Sent summary to ${input.channel}`,
+      },
+    ],
   };
 }
 ```
