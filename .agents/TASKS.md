@@ -31,7 +31,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 - [x] **M1-03** — [Upstream session lifecycle and reconnect](tasks/M1-03-upstream-session-lifecycle.md) — closed by 4d5da9c
 - [x] **M1-04** — [Server status registry and state machine](tasks/M1-04-server-status-registry.md) — closed by 0e5bb61
 - [x] **M1-05** — [`tlbx server add-stdio` and `add-http` commands](tasks/M1-05-server-add-commands.md) — closed by 3dbb09f
-- [ ] **M1-06** — [`tlbx server list/status/enable/disable/remove/edit/inspect` commands](tasks/M1-06-server-management-commands.md)
+- [x] **M1-06** — [`tlbx server list/status/enable/disable/remove/edit/inspect` commands](tasks/M1-06-server-management-commands.md) — closed by 6dc77d6
 
 ## Milestone 2 — Downstream Toolbox MCP Server
 
