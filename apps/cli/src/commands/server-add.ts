@@ -1,41 +1,24 @@
-import * as path from 'node:path';
-
+import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
-  Command,
-  InvalidArgumentError,
-  Option,
-  type CommandUnknownOpts,
-} from '@commander-js/extra-typings';
-import {
-  ConfigLoadError,
-  ConfigValidationError,
-  loadConfig,
-  resolveConfigPath,
   saveConfig,
-  ToolboxConfigSchema,
   type HttpServerConfig,
   type StdioServerConfig,
   type ToolboxConfig,
 } from '@toolbox/core';
 
-export interface ServerAddDeps {
-  resolvePath: () => string;
-  cwd: () => string;
-  stdout: (msg: string) => void;
-  stderr: (msg: string) => void;
-}
+import {
+  defaultServerCommandDeps,
+  loadOrReportMissing,
+  parsePositiveInt,
+  resolveTargetPath,
+  validateNextConfig,
+  type ServerCommandDeps,
+} from './server-shared.js';
+
+export type ServerAddDeps = ServerCommandDeps;
 
 export function defaultServerAddDeps(): ServerAddDeps {
-  return {
-    resolvePath: () => resolveConfigPath(),
-    cwd: () => process.cwd(),
-    stdout: (msg) => {
-      process.stdout.write(msg);
-    },
-    stderr: (msg) => {
-      process.stderr.write(msg);
-    },
-  };
+  return defaultServerCommandDeps();
 }
 
 interface CommonOptions {
@@ -56,13 +39,6 @@ export interface AddHttpOptions extends CommonOptions {
   tokenEnv?: string;
   header?: string[];
   timeout?: number;
-}
-
-function resolveTargetPath(deps: ServerAddDeps, override: string | undefined): string {
-  if (override !== undefined && override.length > 0) {
-    return path.resolve(deps.cwd(), override);
-  }
-  return deps.resolvePath();
 }
 
 function parseKeyValuePairs(
@@ -91,30 +67,6 @@ function parseKeyValuePairs(
   return { ok: true, map };
 }
 
-async function loadOrReportMissing(
-  target: string,
-  deps: ServerAddDeps,
-): Promise<ToolboxConfig | null> {
-  try {
-    return await loadConfig(target);
-  } catch (error) {
-    if (error instanceof ConfigLoadError) {
-      const cause = error.cause as NodeJS.ErrnoException | undefined;
-      if (cause?.code === 'ENOENT') {
-        deps.stderr(`No Toolbox config found at ${target}. Run \`tlbx init\` first.\n`);
-        return null;
-      }
-      deps.stderr(`${error.message}\n`);
-      return null;
-    }
-    if (error instanceof ConfigValidationError) {
-      deps.stderr(`${error.message}\n`);
-      return null;
-    }
-    throw error;
-  }
-}
-
 async function saveAndPrint(
   next: ToolboxConfig,
   name: string,
@@ -139,23 +91,15 @@ function rejectDuplicate(
   return false;
 }
 
-function validateNextConfig(
+function buildCandidate(
   config: ToolboxConfig,
   name: string,
   entry: StdioServerConfig | HttpServerConfig,
-  target: string,
-  deps: ServerAddDeps,
-): { ok: true; next: ToolboxConfig } | { ok: false } {
-  const candidate = {
+): ToolboxConfig {
+  return {
     ...config,
     servers: { ...config.servers, [name]: entry },
   };
-  const result = ToolboxConfigSchema.safeParse(candidate);
-  if (!result.success) {
-    deps.stderr(`${new ConfigValidationError(result.error, target).message}\n`);
-    return { ok: false };
-  }
-  return { ok: true, next: result.data };
 }
 
 export async function runAddStdio(
@@ -204,7 +148,7 @@ export async function runAddStdio(
     ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
   };
 
-  const validated = validateNextConfig(config, name, entry, target, deps);
+  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
   if (!validated.ok) {
     return 1;
   }
@@ -258,20 +202,12 @@ export async function runAddHttp(
     ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
   };
 
-  const validated = validateNextConfig(config, name, entry, target, deps);
+  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
   if (!validated.ok) {
     return 1;
   }
   await saveAndPrint(validated.next, name, target, deps);
   return 0;
-}
-
-function parsePositiveInt(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== value.trim()) {
-    throw new InvalidArgumentError('must be a positive integer');
-  }
-  return parsed;
 }
 
 function appendOnce(value: string, previous: string[] | undefined): string[] {
