@@ -35,7 +35,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 ## Milestone 2 — Downstream Toolbox MCP Server
 
-- [ ] **M2-01** — [Downstream MCP server over stdio](tasks/M2-01-downstream-stdio-server.md)
+- [x] **M2-01** — [Downstream MCP server over stdio](tasks/M2-01-downstream-stdio-server.md) — closed by 9d6a608
 - [ ] **M2-02** — [Downstream MCP server over Streamable HTTP](tasks/M2-02-downstream-http-server.md)
 - [ ] **M2-03** — [`initialize`, `notifications/initialized`, `ping` handlers](tasks/M2-03-initialize-and-ping-handlers.md)
 - [ ] **M2-04** — [`tools/list` handler (non-disclosure mode)](tasks/M2-04-tools-list-handler.md)

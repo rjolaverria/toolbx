@@ -27,3 +27,10 @@ export {
   type UpstreamSessionEvents,
   type UpstreamSessionScheduler,
 } from './upstream-client/index.js';
+
+export {
+  createDownstreamStdioServer,
+  type CreateDownstreamStdioServerDeps,
+  type DownstreamStdioServer,
+  type RegisterDownstreamHandlers,
+} from './downstream-server/index.js';
