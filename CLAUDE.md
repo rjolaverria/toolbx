@@ -204,3 +204,7 @@ A task is **only** complete when **all** of the following are true:
 7. The work is committed (and pushed, if the branch is shared).
 
 Only after all seven hold, flip the task's checkbox in `.agents/TASKS.md` from `[ ]` to `[x]` and append a short note pointing at the closing commit or PR. A green typecheck alone is not "done" — the manual acceptance criteria from the task file must also be verified.
+
+## PR Review Comments
+
+Always reply to PR review comments after addressing them. After making the change (or deciding not to), post a reply on the comment thread that says what you did — e.g. the commit SHA that fixed it, or why you pushed back. Do not silently resolve threads; reviewers should be able to see the response without having to diff the branch themselves. If a comment can't be acted on or you disagree, still reply with the reasoning.
