@@ -98,7 +98,7 @@ describe('createDownstreamStdioServer — protocol surface (in-memory transport)
 });
 
 describe('createDownstreamStdioServer — lifecycle', () => {
-  it('invokes registerHandlers with the SDK server before connect', async () => {
+  it('invokes registerHandlers synchronously at construction time', () => {
     let registered: unknown = null;
     const downstream = track(
       createDownstreamStdioServer({
@@ -110,13 +110,11 @@ describe('createDownstreamStdioServer — lifecycle', () => {
       }),
     );
 
-    await downstream.start();
     expect(registered).toBe(downstream.server);
-    await downstream.stop();
   });
 
-  it('rejects start() and resolves done when registerHandlers throws', async () => {
-    const downstream = track(
+  it('factory throws synchronously when registerHandlers throws', () => {
+    expect(() =>
       createDownstreamStdioServer({
         logger: createNoopLogger(),
         registerHandlers: () => {
@@ -124,10 +122,7 @@ describe('createDownstreamStdioServer — lifecycle', () => {
         },
         ...lifecycleDeps(),
       }),
-    );
-
-    await expect(downstream.start()).rejects.toThrow('register boom');
-    await expect(downstream.done).resolves.toBeUndefined();
+    ).toThrow('register boom');
   });
 
   it('stop() is idempotent and resolves done', async () => {
@@ -216,5 +211,32 @@ describe('createDownstreamStdioServer — lifecycle', () => {
 
     await downstream.start();
     await expect(downstream.start()).rejects.toThrow(/already/);
+  });
+
+  it('rejects start() if a concurrent stop() runs while connect() is in flight', async () => {
+    const downstream = track(
+      createDownstreamStdioServer({
+        logger: createNoopLogger(),
+        ...lifecycleDeps(),
+      }),
+    );
+
+    const startPromise = downstream.start();
+    const stopPromise = downstream.stop();
+    await expect(startPromise).rejects.toThrow(/stopped during start/);
+    await expect(stopPromise).resolves.toBeUndefined();
+    await expect(downstream.done).resolves.toBeUndefined();
+  });
+
+  it('stop() before start() resolves done so unconditional teardown does not hang', async () => {
+    const downstream = track(
+      createDownstreamStdioServer({
+        logger: createNoopLogger(),
+        ...lifecycleDeps(),
+      }),
+    );
+
+    await downstream.stop();
+    await expect(downstream.done).resolves.toBeUndefined();
   });
 });

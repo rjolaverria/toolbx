@@ -39,6 +39,14 @@ export function createDownstreamStdioServer(
     log.warn({ err: error }, 'downstream MCP server error');
   };
 
+  // Install protocol handlers up front so that callers connecting the SDK
+  // server directly (e.g. tests using InMemoryTransport) exercise the same
+  // handler set as start(), and so any wiring failures surface
+  // deterministically at construction time rather than during start().
+  if (deps.registerHandlers) {
+    deps.registerHandlers(server);
+  }
+
   let state: LifecycleState = 'idle';
   let resolveDone!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -82,15 +90,6 @@ export function createDownstreamStdioServer(
     }
     state = 'starting';
 
-    if (deps.registerHandlers) {
-      try {
-        deps.registerHandlers(server);
-      } catch (error) {
-        finalizeStopped();
-        throw error;
-      }
-    }
-
     server.onclose = () => {
       finalizeStopped();
     };
@@ -109,9 +108,18 @@ export function createDownstreamStdioServer(
       throw error;
     }
 
-    if ((state as LifecycleState) === 'stopping' || (state as LifecycleState) === 'stopped') {
-      // A concurrent stop() ran while connect() was in flight. Bail out.
-      return;
+    if ((state as LifecycleState) !== 'starting') {
+      // A concurrent stop() ran while connect() was in flight (e.g. SIGINT,
+      // SIGTERM, or stdin EOF arrived during startup). Let the in-progress
+      // stop settle, defensively close the freshly-attached transport, and
+      // surface a deterministic error so callers can react instead of
+      // believing start() succeeded.
+      if (pendingStop) {
+        await pendingStop.catch(() => undefined);
+      }
+      await server.close().catch(() => undefined);
+      finalizeStopped();
+      throw new Error('downstream stdio server stopped during start');
     }
     state = 'started';
     log.debug('downstream stdio server started');
@@ -121,7 +129,14 @@ export function createDownstreamStdioServer(
     if (pendingStop) {
       return pendingStop;
     }
-    if (state === 'idle' || state === 'stopped') {
+    if (state === 'stopped') {
+      return Promise.resolve();
+    }
+    if (state === 'idle') {
+      // start() was never called (or it failed before reaching the transport).
+      // Resolve `done` so unconditional `await stop(); await done` teardown
+      // patterns don't hang.
+      finalizeStopped();
       return Promise.resolve();
     }
     state = 'stopping';
