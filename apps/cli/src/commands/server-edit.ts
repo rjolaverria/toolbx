@@ -1,0 +1,133 @@
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import { saveConfig, type ServerConfig, type ToolboxConfig } from '@toolbox/core';
+
+import {
+  defaultServerCommandDeps,
+  loadOrReportMissing,
+  requireExistingServer,
+  resolveTargetPath,
+  validateNextConfig,
+  type ServerCommandDeps,
+} from './server-shared.js';
+
+export interface EditOptions {
+  config?: string;
+  editor?: string;
+}
+
+export interface EditDeps extends ServerCommandDeps {
+  /** Resolves the editor command. Tests stub this; default reads $EDITOR or 'vi'. */
+  resolveEditor: () => string;
+  /** Spawns the editor on the given file path; resolves with the exit code. */
+  spawnEditor: (editor: string, file: string) => Promise<number>;
+  /** Returns a unique temp file path. Tests stub this for determinism. */
+  tempFilePath: (name: string) => string;
+}
+
+export function defaultEditDeps(): EditDeps {
+  const base = defaultServerCommandDeps();
+  return {
+    ...base,
+    resolveEditor: () => process.env['EDITOR'] ?? 'vi',
+    spawnEditor: (editor, file) =>
+      new Promise<number>((resolve, reject) => {
+        const child = spawn(editor, [file], { stdio: 'inherit' });
+        child.on('error', reject);
+        child.on('exit', (code) => {
+          resolve(code ?? 0);
+        });
+      }),
+    tempFilePath: (name) => path.join(os.tmpdir(), `toolbox-server-${name}-${randomUUID()}.json`),
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export async function runServerEdit(
+  name: string,
+  options: EditOptions,
+  deps: EditDeps,
+): Promise<number> {
+  const target = resolveTargetPath(deps, options.config);
+  const config = await loadOrReportMissing(target, deps);
+  if (config === null) {
+    return 1;
+  }
+  const entry = requireExistingServer(config, name, target, deps);
+  if (entry === null) {
+    return 1;
+  }
+
+  const editor = options.editor ?? deps.resolveEditor();
+  const tempFile = deps.tempFilePath(name);
+
+  await fs.writeFile(tempFile, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
+
+  try {
+    let exitCode: number;
+    try {
+      exitCode = await deps.spawnEditor(editor, tempFile);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.stderr(`Failed to launch editor "${editor}": ${message}\n`);
+      return 1;
+    }
+    if (exitCode !== 0) {
+      deps.stderr(`Editor exited with code ${exitCode}. Aborting; config not changed.\n`);
+      return 1;
+    }
+
+    const raw = await fs.readFile(tempFile, 'utf8');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.stderr(`Invalid JSON: ${message}\n`);
+      return 1;
+    }
+
+    if (!isPlainObject(parsed)) {
+      deps.stderr('Edited content must be a JSON object representing the server entry.\n');
+      return 1;
+    }
+
+    const candidate: ToolboxConfig = {
+      ...config,
+      servers: { ...config.servers, [name]: parsed as ServerConfig },
+    };
+    const validated = validateNextConfig(candidate, target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+
+    await saveConfig(validated.next, target);
+    const updated = validated.next.servers[name];
+    deps.stdout(`${JSON.stringify(updated, null, 2)}\n`);
+    return 0;
+  } finally {
+    await fs.unlink(tempFile).catch(() => undefined);
+  }
+}
+
+export function editCommand(): CommandUnknownOpts {
+  return new Command('edit')
+    .description('Open the server entry in $EDITOR; validate and save on exit.')
+    .argument('<name>', 'server name')
+    .option('--editor <command>', 'override the editor command (defaults to $EDITOR or vi)')
+    .option('-c, --config <path>', 'override the resolved config path')
+    .action(async (name, opts) => {
+      const code = await runServerEdit(name, opts, defaultEditDeps());
+      if (code !== 0) {
+        process.exit(code);
+      }
+    });
+}

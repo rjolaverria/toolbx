@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@toolbox/core": "workspace:*",
+    "@toolbox/mcp-gateway": "workspace:*",
     "commander": "^14.0.3"
   },
   "devDependencies": {
