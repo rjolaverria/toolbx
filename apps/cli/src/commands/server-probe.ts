@@ -91,8 +91,10 @@ export async function probeServer(
     return classifyError(error);
   }
 
+  let connectedAt: Date;
   try {
     await client.connect();
+    connectedAt = new Date();
   } catch (error) {
     return classifyError(error);
   }
@@ -103,7 +105,7 @@ export async function probeServer(
       return { kind: 'error', error: new Error(`probe timed out after ${timeoutMs}ms`) };
     }
     const result = await withTimeout(client.listTools(), remaining, 'listTools');
-    return { kind: 'connected', tools: result.tools, connectedAt: new Date() };
+    return { kind: 'connected', tools: result.tools, connectedAt };
   } catch (error) {
     return classifyError(error);
   } finally {

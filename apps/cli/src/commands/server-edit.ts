@@ -21,11 +21,18 @@ export interface EditOptions {
   editor?: string;
 }
 
+export interface EditorExit {
+  /** Exit code reported by the child process, or null if the child was killed by a signal. */
+  code: number | null;
+  /** Signal that terminated the child, or null if it exited normally. */
+  signal: NodeJS.Signals | null;
+}
+
 export interface EditDeps extends ServerCommandDeps {
   /** Resolves the editor command. Tests stub this; default reads $EDITOR or 'vi'. */
   resolveEditor: () => string;
-  /** Spawns the editor on the given file path; resolves with the exit code. */
-  spawnEditor: (editor: string, file: string) => Promise<number>;
+  /** Spawns the editor on the given file path; resolves with how the child exited. */
+  spawnEditor: (editor: string, file: string) => Promise<EditorExit>;
   /** Returns a unique temp file path. Tests stub this for determinism. */
   tempFilePath: (name: string) => string;
 }
@@ -55,12 +62,12 @@ export function defaultEditDeps(): EditDeps {
     ...base,
     resolveEditor: () => process.env['EDITOR'] ?? 'vi',
     spawnEditor: (editor, file) =>
-      new Promise<number>((resolve, reject) => {
+      new Promise<EditorExit>((resolve, reject) => {
         const { command, args } = splitEditorCommand(editor);
         const child = spawn(command, [...args, file], { stdio: 'inherit' });
         child.on('error', reject);
-        child.on('exit', (code) => {
-          resolve(code ?? 0);
+        child.on('exit', (code, signal) => {
+          resolve({ code, signal });
         });
       }),
     tempFilePath: (name) => path.join(os.tmpdir(), `toolbox-server-${name}-${randomUUID()}.json`),
@@ -92,16 +99,22 @@ export async function runServerEdit(
   await fs.writeFile(tempFile, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600 });
 
   try {
-    let exitCode: number;
+    let exit: EditorExit;
     try {
-      exitCode = await deps.spawnEditor(editor, tempFile);
+      exit = await deps.spawnEditor(editor, tempFile);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deps.stderr(`Failed to launch editor "${editor}": ${message}\n`);
       return 1;
     }
-    if (exitCode !== 0) {
-      deps.stderr(`Editor exited with code ${exitCode}. Aborting; config not changed.\n`);
+    if (exit.signal !== null) {
+      deps.stderr(`Editor was terminated by ${exit.signal}. Aborting; config not changed.\n`);
+      return 1;
+    }
+    if (exit.code !== 0) {
+      deps.stderr(
+        `Editor exited with code ${exit.code ?? 'unknown'}. Aborting; config not changed.\n`,
+      );
       return 1;
     }
 

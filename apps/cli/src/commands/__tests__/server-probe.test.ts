@@ -61,6 +61,27 @@ describe('probeServer', () => {
     }
   });
 
+  it('captures connectedAt at connect time, not after listTools', async () => {
+    const listToolsAfterMs = 30;
+    const client = fakeClient({ listToolsAfterMs, tools: [{ name: 'a' }] });
+    const before = Date.now();
+    const result = await probeServer(
+      'github',
+      { type: 'stdio', enabled: true, command: 'true', args: [] },
+      { timeoutMs: 1000, clientFactory: fixedFactory(client) },
+    );
+    const after = Date.now();
+
+    expect(result.kind).toBe('connected');
+    if (result.kind === 'connected') {
+      const connectedAtMs = result.connectedAt.getTime();
+      // connectedAt must precede the listTools resolution by at least most of
+      // its delay — i.e. it represents connect time, not probe-finish time.
+      expect(connectedAtMs).toBeGreaterThanOrEqual(before);
+      expect(connectedAtMs).toBeLessThan(after - listToolsAfterMs / 2);
+    }
+  });
+
   it('enforces the timeout for the listTools phase', async () => {
     const stalled = fakeClient({});
     const result = await probeServer(

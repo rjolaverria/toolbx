@@ -33,6 +33,8 @@ interface HarnessOptions {
   edit?: (file: string) => Promise<void> | void;
   /** Editor exit code (default 0). */
   exitCode?: number;
+  /** Signal that terminated the editor (when set, code is forced to null). */
+  signal?: NodeJS.Signals;
   /** Throw from spawnEditor instead of returning. */
   throwOnSpawn?: Error;
 }
@@ -61,7 +63,10 @@ function makeHarness(target: string, opts: HarnessOptions = {}): Harness {
       if (opts.edit) {
         await opts.edit(file);
       }
-      return opts.exitCode ?? 0;
+      if (opts.signal !== undefined) {
+        return { code: null, signal: opts.signal };
+      }
+      return { code: opts.exitCode ?? 0, signal: null };
     },
     tempFilePath: () => tempFile,
   };
@@ -232,6 +237,34 @@ describe('runServerEdit', () => {
 
     expect(code).toBe(1);
     expect(h.stderr.value).toContain('Editor exited with code 130');
+    expect(after).toEqual(before);
+  });
+
+  it('aborts when the editor is killed by a signal (e.g. SIGINT)', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      signal: 'SIGINT',
+      // Even if the editor wrote something before being killed, we should not
+      // proceed to parse/save.
+      edit: async (file) => {
+        await fs.writeFile(
+          file,
+          JSON.stringify({ type: 'stdio', enabled: false, command: 'true', args: [] }),
+        );
+      },
+    });
+
+    const before = await loadConfig(cfg.target);
+    const code = await runServerEdit('github', {}, h.deps);
+    const after = await loadConfig(cfg.target);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('SIGINT');
     expect(after).toEqual(before);
   });
 
