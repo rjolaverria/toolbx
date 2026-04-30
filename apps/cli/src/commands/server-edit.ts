@@ -30,6 +30,25 @@ export interface EditDeps extends ServerCommandDeps {
   tempFilePath: (name: string) => string;
 }
 
+/**
+ * Split an editor command string into argv tokens so values like
+ * `EDITOR="code --wait"` work the same as a bare `vi`. Whitespace-split is
+ * sufficient for the cases that actually appear in $EDITOR — editor args with
+ * embedded spaces or shell metacharacters are vanishingly rare and the costs
+ * of a full shell parser outweigh the benefit.
+ */
+export function splitEditorCommand(editor: string): { command: string; args: string[] } {
+  const tokens = editor
+    .trim()
+    .split(/\s+/u)
+    .filter((t) => t.length > 0);
+  const [command, ...args] = tokens;
+  if (command === undefined) {
+    throw new Error('editor command is empty');
+  }
+  return { command, args };
+}
+
 export function defaultEditDeps(): EditDeps {
   const base = defaultServerCommandDeps();
   return {
@@ -37,7 +56,8 @@ export function defaultEditDeps(): EditDeps {
     resolveEditor: () => process.env['EDITOR'] ?? 'vi',
     spawnEditor: (editor, file) =>
       new Promise<number>((resolve, reject) => {
-        const child = spawn(editor, [file], { stdio: 'inherit' });
+        const { command, args } = splitEditorCommand(editor);
+        const child = spawn(command, [...args, file], { stdio: 'inherit' });
         child.on('error', reject);
         child.on('exit', (code) => {
           resolve(code ?? 0);

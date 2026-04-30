@@ -6,6 +6,7 @@ import { probeServer, type ProbeResult, type ProbeServerFn } from './server-prob
 import {
   defaultServerCommandDeps,
   loadOrReportMissing,
+  parsePositiveInt,
   requireExistingServer,
   resolveTargetPath,
   type ServerCommandDeps,
@@ -201,13 +202,7 @@ export function inspectCommand(): CommandUnknownOpts {
     .option(
       '--timeout <ms>',
       'override the probe timeout (defaults to the server timeoutMs)',
-      (v) => {
-        const n = Number.parseInt(v, 10);
-        if (!Number.isInteger(n) || n <= 0) {
-          throw new Error('--timeout must be a positive integer');
-        }
-        return n;
-      },
+      parsePositiveInt,
     )
     .option('-c, --config <path>', 'override the resolved config path')
     .action(async (name, opts) => {

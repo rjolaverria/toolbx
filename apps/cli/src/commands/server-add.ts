@@ -1,9 +1,4 @@
-import {
-  Command,
-  InvalidArgumentError,
-  Option,
-  type CommandUnknownOpts,
-} from '@commander-js/extra-typings';
+import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
   saveConfig,
   type HttpServerConfig,
@@ -14,6 +9,7 @@ import {
 import {
   defaultServerCommandDeps,
   loadOrReportMissing,
+  parsePositiveInt,
   resolveTargetPath,
   validateNextConfig,
   type ServerCommandDeps,
@@ -212,14 +208,6 @@ export async function runAddHttp(
   }
   await saveAndPrint(validated.next, name, target, deps);
   return 0;
-}
-
-function parsePositiveInt(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== value.trim()) {
-    throw new InvalidArgumentError('must be a positive integer');
-  }
-  return parsed;
 }
 
 function appendOnce(value: string, previous: string[] | undefined): string[] {

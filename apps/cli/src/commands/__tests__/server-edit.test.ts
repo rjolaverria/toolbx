@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG, loadConfig, type ToolboxConfig } from '@toolbox/core';
 
-import { runServerEdit, type EditDeps } from '../server-edit.js';
+import { runServerEdit, splitEditorCommand, type EditDeps } from '../server-edit.js';
 
 import { makeTempConfig, type ConfigHarness } from './harness.js';
 
@@ -72,7 +72,58 @@ function configWith(servers: ToolboxConfig['servers']): ToolboxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 
+describe('splitEditorCommand', () => {
+  it('handles a bare command', () => {
+    expect(splitEditorCommand('vi')).toEqual({ command: 'vi', args: [] });
+  });
+
+  it('splits a command with arguments (e.g. EDITOR="code --wait")', () => {
+    expect(splitEditorCommand('code --wait')).toEqual({
+      command: 'code',
+      args: ['--wait'],
+    });
+    expect(splitEditorCommand('vim -f -p')).toEqual({
+      command: 'vim',
+      args: ['-f', '-p'],
+    });
+  });
+
+  it('collapses surrounding and internal whitespace', () => {
+    expect(splitEditorCommand('  code   --wait  ')).toEqual({
+      command: 'code',
+      args: ['--wait'],
+    });
+  });
+
+  it('throws when the editor string is empty or whitespace-only', () => {
+    expect(() => splitEditorCommand('')).toThrow();
+    expect(() => splitEditorCommand('   ')).toThrow();
+  });
+});
+
 describe('runServerEdit', () => {
+  it('passes the temp file as the final argv to the editor command', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      edit: async (file) => {
+        await fs.writeFile(
+          file,
+          JSON.stringify({ type: 'stdio', enabled: true, command: 'true', args: [] }),
+        );
+      },
+    });
+
+    const code = await runServerEdit('github', { editor: 'fake-editor' }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.editorInvocations).toEqual([{ editor: 'fake-editor', file: h.tempFile }]);
+  });
+
   it('saves valid edits back to the config', async () => {
     const cfg = await makeTempConfig(
       configWith({

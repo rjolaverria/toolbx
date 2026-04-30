@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 
+import { InvalidArgumentError } from '@commander-js/extra-typings';
 import {
   ConfigLoadError,
   ConfigValidationError,
@@ -73,6 +74,31 @@ export function requireExistingServer(
     return null;
   }
   return entry;
+}
+
+export async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+export function parsePositiveInt(value: string): number {
+  const trimmed = value.trim();
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== trimmed) {
+    throw new InvalidArgumentError('must be a positive integer');
+  }
+  return parsed;
 }
 
 export function validateNextConfig(
