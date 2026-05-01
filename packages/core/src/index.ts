@@ -67,6 +67,16 @@ export {
 } from './server-status/state-machine.js';
 
 export {
+  detectCollisions,
+  formatExposedName,
+  parseExposedName,
+  UnsupportedNamespacingOptionError,
+  type NamespaceCollision,
+  type NamespaceOptions,
+  type ParsedExposedName,
+} from './namespace/index.js';
+
+export {
   createStatusRegistry,
   UnknownServerError,
   type AuthStatus,

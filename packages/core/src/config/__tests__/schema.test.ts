@@ -205,6 +205,36 @@ describe('ServerConfig discriminated union', () => {
   });
 });
 
+describe('Server name validation', () => {
+  it('rejects a server name containing the namespacing separator `__`', () => {
+    const result = ToolboxConfigSchema.safeParse({
+      ...README_EXAMPLE,
+      servers: {
+        jira__bad: {
+          type: 'http',
+          enabled: true,
+          url: 'https://jira.example.com/mcp',
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a server name with single underscores', () => {
+    const result = ToolboxConfigSchema.safeParse({
+      ...README_EXAMPLE,
+      servers: {
+        my_server: {
+          type: 'http',
+          enabled: true,
+          url: 'https://example.com/mcp',
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('HttpServerSettings host validation', () => {
   it.each(['127.0.0.1', '::1', 'localhost'])('accepts loopback host %s', (host) => {
     const result = HttpServerSettingsSchema.safeParse({
