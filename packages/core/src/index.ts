@@ -1,3 +1,5 @@
+export { getToolboxVersion } from './version.js';
+
 export {
   AuthSchema,
   BearerAuthSchema,

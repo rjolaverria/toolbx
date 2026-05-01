@@ -29,7 +29,7 @@ const SHUTDOWN_RESPONSE_HEADERS = {
 
 type LifecycleState = 'idle' | 'starting' | 'started' | 'stopping' | 'stopped';
 
-interface Session {
+interface HttpSessionEntry {
   server: McpServer;
   transport: StreamableHTTPServerTransport;
 }
@@ -45,11 +45,11 @@ export function createDownstreamHttpServer(
   const registerHandlers = deps.registerHandlers;
   const { host, port, path } = deps.http;
 
-  const sessions = new Map<string, Session>();
+  const sessions = new Map<string, HttpSessionEntry>();
   // Sessions whose transport hasn't yet emitted onsessioninitialized (i.e. the
   // first POST is still being processed). Tracked so stop() can close them
   // even though they aren't keyed by sessionId yet.
-  const pendingSessions = new Set<Session>();
+  const pendingSessions = new Set<HttpSessionEntry>();
 
   let httpServer: HttpListener | null = null;
   let state: LifecycleState = 'idle';
@@ -178,20 +178,27 @@ export function createDownstreamHttpServer(
     }
   }
 
-  function createSession(handlers: RegisterDownstreamHandlers | undefined): Session {
+  function createHttpSession(handlers: RegisterDownstreamHandlers | undefined): HttpSessionEntry {
+    // Pre-generate the session id so it can be threaded into both the SDK
+    // transport (which expects a `sessionIdGenerator`) and the per-session
+    // `DownstreamSession` state created by `buildToolboxMcpServer`. This
+    // keeps the Toolbox-level DownstreamSession.id and the MCP transport
+    // session id identical.
+    const sessionId = sessionIdGenerator();
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator,
-      onsessioninitialized: (sessionId) => {
-        sessions.set(sessionId, session);
+      sessionIdGenerator: () => sessionId,
+      onsessioninitialized: (id) => {
+        sessions.set(id, session);
         pendingSessions.delete(session);
-        log.debug({ sessionId }, 'http session initialized');
+        log.debug({ sessionId: id }, 'http session initialized');
       },
     });
-    const server = buildToolboxMcpServer({
+    const { server } = buildToolboxMcpServer({
       logger: log,
+      sessionId,
       registerHandlers: handlers,
     });
-    const session: Session = { server, transport };
+    const session: HttpSessionEntry = { server, transport };
     pendingSessions.add(session);
 
     transport.onclose = () => {
@@ -256,7 +263,7 @@ export function createDownstreamHttpServer(
         return;
       }
 
-      const session = createSession(registerHandlers);
+      const session = createHttpSession(registerHandlers);
       try {
         // The SDK declares `StreamableHTTPServerTransport.onclose` as a
         // getter/setter typed `(() => void) | undefined`, which under

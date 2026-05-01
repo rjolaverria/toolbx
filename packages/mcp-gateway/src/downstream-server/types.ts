@@ -5,12 +5,16 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 import type { Logger } from '@toolbox/core';
 
+import type { DownstreamSession } from './session.js';
+
 /**
- * Hook seam for M2-03 / M2-04 / M2-05 to wire request handlers onto the SDK
- * server. M2-01 only delivers the lifecycle scaffold; the protocol handlers
- * (initialize, ping, tools/list, tools/call) plug in here.
+ * Hook seam for M2-04 / M2-05 to wire request handlers onto the SDK server.
+ * Lifecycle wiring (`oninitialized`) is handled by `buildToolboxMcpServer`
+ * itself; this seam is for the application-level handlers — `tools/list`,
+ * `tools/call`, and the M4 progressive-disclosure bootstrap tools — that
+ * need access to the per-session state.
  */
-export type RegisterDownstreamHandlers = (server: Server) => void;
+export type RegisterDownstreamHandlers = (server: Server, session: DownstreamSession) => void;
 
 export interface CreateDownstreamStdioServerDeps {
   logger: Logger;
