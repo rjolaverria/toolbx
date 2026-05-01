@@ -103,7 +103,7 @@ describe('ToolboxConfigSchema', () => {
     }
   });
 
-  it('accepts an explicit non-default namespacing.separator override', () => {
+  it('rejects an explicit non-`__` namespacing.separator override (Phase 1 constraint)', () => {
     const result = ToolboxConfigSchema.safeParse({
       ...README_EXAMPLE,
       namespacing: {
@@ -111,10 +111,7 @@ describe('ToolboxConfigSchema', () => {
         separator: '::',
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.namespacing.separator).toBe('::');
-    }
+    expect(result.success).toBe(false);
   });
 });
 

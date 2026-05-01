@@ -20,10 +20,13 @@ describe('formatExposedName', () => {
     expect(formatExposedName(server, upstream, OPTS)).toBe(expected);
   });
 
-  it('throws on an unsupported separator', () => {
-    expect(() => formatExposedName('s', 't', { separator: '::', format: 'server__tool' })).toThrow(
-      UnsupportedNamespacingOptionError,
-    );
+  it('throws on an unsupported separator (defense-in-depth for callers bypassing the schema)', () => {
+    expect(() =>
+      formatExposedName('s', 't', {
+        separator: '::' as unknown as NamespaceOptions['separator'],
+        format: 'server__tool',
+      }),
+    ).toThrow(UnsupportedNamespacingOptionError);
   });
 
   it('throws on an unsupported format', () => {
@@ -91,23 +94,18 @@ describe('detectCollisions', () => {
     ).toEqual([]);
   });
 
-  it('reports the collision when two servers define the same exposed name', () => {
-    // Construct toolsByServer so two distinct (serverName, upstreamName) pairs
-    // produce the same exposedName. Because server names cannot contain `__`,
-    // this only happens if the same serverName appears twice — which in
-    // production it cannot, but the function still groups defensively.
-    const collisions = detectCollisions(
-      {
-        // Same server name appearing in both keys would be deduped by the
-        // input map; collisions arise when two distinct upstream names happen
-        // to format identically. With the supported options that cannot
-        // happen via formatExposedName, so verify the empty-result branch.
-        jira: ['search_issues'],
-        github: ['search_issues'],
-      },
-      OPTS,
-    );
-    expect(collisions).toEqual([]);
+  it('does not report a collision when two distinct servers expose tools with the same upstream name', () => {
+    // Distinct (serverName, upstreamName) pairs format to distinct exposed
+    // names under the `server__tool` format, so there is no conflict.
+    expect(
+      detectCollisions(
+        {
+          jira: ['search_issues'],
+          github: ['search_issues'],
+        },
+        OPTS,
+      ),
+    ).toEqual([]);
   });
 
   it('groups by exposedName when callers seed duplicate (server, upstream) pairs', () => {

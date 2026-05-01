@@ -43,6 +43,14 @@ interface InternalEntry {
   readonly status: ServerStatus;
   readonly enabled: boolean;
   readonly tools: readonly RegisteredTool[];
+  /**
+   * Stable serialization of the visible tool set, used to decide whether
+   * `setServerEntry` calls warrant a `notify()`. Captures every field of the
+   * exposed `Tool` (name, description, inputSchema, annotations, …) so a
+   * metadata-only change still fires subscribers, and is computed from a
+   * sorted copy so input-order churn from upstream does not.
+   */
+  readonly fingerprint: string;
 }
 
 function isServerVisible(entry: InternalEntry): boolean {
@@ -62,29 +70,24 @@ function buildRegisteredTools(
   }));
 }
 
+function fingerprintTools(tools: readonly RegisteredTool[]): string {
+  // Sort by exposedName (byte order) so identical sets in different upstream
+  // orders fingerprint identically.
+  const sorted = [...tools].sort((a, b) => (a.exposedName < b.exposedName ? -1 : 1));
+  return JSON.stringify(sorted.map((t) => t.tool));
+}
+
 function entriesEqualForVisibility(prev: InternalEntry, next: InternalEntry): boolean {
-  if (prev.enabled !== next.enabled) {
-    return false;
-  }
-  if (prev.status.kind !== next.status.kind) {
-    return false;
-  }
   // If neither was visible before nor after, the visible-tool set is unchanged
-  // regardless of the upstream tool list contents.
+  // regardless of enabled flips, status churn (e.g. starting → error during
+  // reconnect), or the upstream tool list contents.
   if (!isServerVisible(prev) && !isServerVisible(next)) {
     return true;
   }
-  if (prev.tools.length !== next.tools.length) {
+  if (isServerVisible(prev) !== isServerVisible(next)) {
     return false;
   }
-  for (let i = 0; i < prev.tools.length; i += 1) {
-    const a = prev.tools[i];
-    const b = next.tools[i];
-    if (a === undefined || b === undefined || a.exposedName !== b.exposedName) {
-      return false;
-    }
-  }
-  return true;
+  return prev.fingerprint === next.fingerprint;
 }
 
 export interface CreateToolRegistryOptions {
@@ -106,11 +109,13 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
   }
 
   function setServerEntry(entry: ServerToolEntry): void {
+    const tools = buildRegisteredTools(entry.serverName, entry.tools, options.namespacing);
     const next: InternalEntry = {
       serverName: entry.serverName,
       status: entry.status,
       enabled: entry.enabled,
-      tools: buildRegisteredTools(entry.serverName, entry.tools, options.namespacing),
+      tools,
+      fingerprint: fingerprintTools(tools),
     };
     const prev = entries.get(entry.serverName);
     entries.set(entry.serverName, next);
@@ -140,12 +145,16 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
         visible.push(tool);
       }
     }
+    // Use byte-order comparison (not `localeCompare`) so the sort is
+    // deterministic across machines/runtimes irrespective of process locale.
     visible.sort((a, b) => {
-      const byServer = a.serverName.localeCompare(b.serverName);
-      if (byServer !== 0) {
-        return byServer;
+      if (a.serverName !== b.serverName) {
+        return a.serverName < b.serverName ? -1 : 1;
       }
-      return a.upstreamName.localeCompare(b.upstreamName);
+      if (a.upstreamName === b.upstreamName) {
+        return 0;
+      }
+      return a.upstreamName < b.upstreamName ? -1 : 1;
     });
     return visible;
   }

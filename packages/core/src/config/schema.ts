@@ -106,7 +106,10 @@ export const ProgressiveDisclosureSchema = z
 
 export const NamespacingSchema = z
   .object({
-    separator: z.string().min(1).default('__'),
+    // Phase 1 only supports the `__` separator (M3-01). Other values are
+    // rejected at config load so the namespace module never has to handle
+    // them at runtime.
+    separator: z.literal('__').default('__'),
     format: z.enum(['server__tool']),
     collisionStrategy: z.enum(['error', 'rename', 'first-wins']),
   })

@@ -81,12 +81,15 @@ export interface NamespaceCollision {
 }
 
 /**
- * Detects pairs of upstream tools that would resolve to the same namespaced
- * exposed name. Server names containing the separator are pre-empted at
- * config load, so a collision here always means two distinct servers chose
- * the same `(serverName, upstreamName)` pair after formatting — which is
- * impossible unless `formatExposedName` is bypassed, but the function still
- * groups by exposed name defensively so callers can surface the conflict.
+ * Detects upstream tools that would resolve to the same namespaced exposed
+ * name.
+ *
+ * With the supported `server__tool` format and validated server names,
+ * distinct `(serverName, upstreamName)` pairs do not collide. In practice,
+ * collisions can still be reported when an upstream server returns duplicate
+ * tool names for the same server, or when callers provide invalid /
+ * unvalidated input that violates those assumptions. The function groups by
+ * exposed name defensively so callers can surface those conflicts.
  */
 export function detectCollisions(
   toolsByServer: Readonly<Record<string, readonly string[]>>,

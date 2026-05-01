@@ -189,4 +189,74 @@ describe('createToolRegistry', () => {
     });
     expect(listener).toHaveBeenCalledTimes(2);
   });
+
+  it('notifies subscribers when only tool metadata changes (e.g. description)', () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues', 'old description')],
+    });
+
+    const listener = vi.fn();
+    registry.subscribe(listener);
+
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues', 'new description')],
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not notify when upstream returns the same tools in a different order', () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('a'), tool('b')],
+    });
+
+    const listener = vi.fn();
+    registry.subscribe(listener);
+
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('b'), tool('a')],
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when a non-visible server transitions between non-visible statuses', () => {
+    const registry = createToolRegistry({ namespacing: NS });
+
+    // Start in `starting` (non-visible).
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: { kind: 'starting', attempt: 1 },
+      enabled: true,
+      tools: [],
+    });
+
+    const listener = vi.fn();
+    registry.subscribe(listener);
+
+    // starting → error (still non-visible). Visible tool set is unchanged,
+    // so subscribers should not be notified during reconnect/auth churn.
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: { kind: 'error', error: new Error('boom'), nextRetryAt: null },
+      enabled: true,
+      tools: [],
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
 });
