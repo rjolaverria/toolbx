@@ -60,10 +60,23 @@ export const StdioServerSettingsSchema = z
   })
   .strict();
 
+// Phase 1 binds the downstream Toolbox HTTP server to loopback only. Allowing
+// `0.0.0.0` or LAN IPs would expose Toolbox without auth (Phase 1 has none),
+// so non-loopback hosts are rejected at config load. Future tasks may relax
+// this once auth ships.
+export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
+
+export const LoopbackHostSchema = z
+  .string()
+  .min(1)
+  .refine((value) => (LOOPBACK_HOSTS as readonly string[]).includes(value), {
+    message: `host must be one of ${LOOPBACK_HOSTS.join(', ')} (Phase 1 binds loopback only)`,
+  });
+
 export const HttpServerSettingsSchema = z
   .object({
     enabled: z.boolean(),
-    host: z.string().min(1),
+    host: LoopbackHostSchema,
     port: z.number().int().min(1).max(65535),
     path: z.string().startsWith('/'),
   })
