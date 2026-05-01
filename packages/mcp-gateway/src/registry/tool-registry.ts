@@ -72,8 +72,17 @@ function buildRegisteredTools(
 
 function fingerprintTools(tools: readonly RegisteredTool[]): string {
   // Sort by exposedName (byte order) so identical sets in different upstream
-  // orders fingerprint identically.
-  const sorted = [...tools].sort((a, b) => (a.exposedName < b.exposedName ? -1 : 1));
+  // orders fingerprint identically. Comparator must return 0 on equality to
+  // honour the Array.prototype.sort contract.
+  const sorted = [...tools].sort((a, b) => {
+    if (a.exposedName < b.exposedName) {
+      return -1;
+    }
+    if (a.exposedName > b.exposedName) {
+      return 1;
+    }
+    return 0;
+  });
   return JSON.stringify(sorted.map((t) => t.tool));
 }
 
@@ -119,7 +128,10 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
     };
     const prev = entries.get(entry.serverName);
     entries.set(entry.serverName, next);
-    if (prev === undefined || !entriesEqualForVisibility(prev, next)) {
+    // First insert of a non-visible server doesn't change the exposed set
+    // (empty before, empty after), so skip notify(). For existing entries,
+    // delegate to entriesEqualForVisibility.
+    if (prev === undefined ? isServerVisible(next) : !entriesEqualForVisibility(prev, next)) {
       notify();
     }
   }

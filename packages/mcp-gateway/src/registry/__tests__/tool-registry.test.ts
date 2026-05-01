@@ -104,7 +104,7 @@ describe('createToolRegistry', () => {
     expect(registry.list()).toEqual([]);
   });
 
-  it('produces deterministic locale-aware ordering across server and tool boundaries', () => {
+  it('produces deterministic byte-order sorting across server and tool boundaries', () => {
     const registry = createToolRegistry({ namespacing: NS });
 
     // Insert in a deliberately scrambled order; expect alphabetic by
@@ -229,6 +229,35 @@ describe('createToolRegistry', () => {
       status: CONNECTED,
       enabled: true,
       tools: [tool('b'), tool('a')],
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('does not notify on the first insert of a non-visible server', () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    const listener = vi.fn();
+    registry.subscribe(listener);
+
+    // First inserts in non-visible states (disabled, starting, auth_required,
+    // …). Visible tool set is empty before AND after, so no notification.
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: { kind: 'starting', attempt: 1 },
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    registry.setServerEntry({
+      serverName: 'github',
+      status: { kind: 'auth_required', reason: 'oauth pending' },
+      enabled: true,
+      tools: [tool('create_pull_request')],
+    });
+    registry.setServerEntry({
+      serverName: 'gitlab',
+      status: { kind: 'connected', since: new Date() },
+      enabled: false,
+      tools: [tool('search')],
     });
 
     expect(listener).not.toHaveBeenCalled();
