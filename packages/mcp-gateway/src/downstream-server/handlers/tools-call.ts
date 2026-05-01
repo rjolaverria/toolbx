@@ -40,7 +40,7 @@ export function registerToolsCallHandler(
 
     const { name, arguments: args } = request.params;
 
-    const entry = registry.list().find((t) => t.exposedName === name);
+    const entry = registry.find(name);
     if (entry === undefined) {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}"`);
     }

@@ -35,6 +35,13 @@ export interface ToolRegistry {
   setServerEntry(entry: ServerToolEntry): void;
   removeServer(serverName: string): void;
   list(): RegisteredTool[];
+  /**
+   * O(1) lookup of a visible tool by its exposed (namespaced) name. Returns
+   * `undefined` for unknown names and for tools whose owning server is not
+   * currently visible (disabled, disconnected, etc.). `tools/call` uses this
+   * so each call avoids the `list()` allocation + sort.
+   */
+  find(exposedName: string): RegisteredTool | undefined;
   subscribe(listener: () => void): () => void;
 }
 
@@ -105,6 +112,10 @@ export interface CreateToolRegistryOptions {
 
 export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegistry {
   const entries = new Map<string, InternalEntry>();
+  // Mirrors the visible subset of `entries` keyed by exposedName for O(1)
+  // lookup from `find()`. Kept in sync inside `setServerEntry` /
+  // `removeServer`; only visible servers contribute keys.
+  const visibleByExposedName = new Map<string, RegisteredTool>();
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -114,6 +125,24 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
       } catch {
         // Listeners must not be able to break the registry.
       }
+    }
+  }
+
+  function dropFromIndex(entry: InternalEntry): void {
+    if (!isServerVisible(entry)) {
+      return;
+    }
+    for (const tool of entry.tools) {
+      visibleByExposedName.delete(tool.exposedName);
+    }
+  }
+
+  function addToIndex(entry: InternalEntry): void {
+    if (!isServerVisible(entry)) {
+      return;
+    }
+    for (const tool of entry.tools) {
+      visibleByExposedName.set(tool.exposedName, tool);
     }
   }
 
@@ -127,6 +156,10 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
       fingerprint: fingerprintTools(tools),
     };
     const prev = entries.get(entry.serverName);
+    if (prev !== undefined) {
+      dropFromIndex(prev);
+    }
+    addToIndex(next);
     entries.set(entry.serverName, next);
     // First insert of a non-visible server doesn't change the exposed set
     // (empty before, empty after), so skip notify(). For existing entries,
@@ -141,6 +174,7 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
     if (prev === undefined) {
       return;
     }
+    dropFromIndex(prev);
     entries.delete(serverName);
     if (isServerVisible(prev)) {
       notify();
@@ -171,6 +205,10 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
     return visible;
   }
 
+  function find(exposedName: string): RegisteredTool | undefined {
+    return visibleByExposedName.get(exposedName);
+  }
+
   function subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => {
@@ -178,5 +216,5 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
     };
   }
 
-  return { setServerEntry, removeServer, list, subscribe };
+  return { setServerEntry, removeServer, list, find, subscribe };
 }

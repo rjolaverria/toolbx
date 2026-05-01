@@ -288,4 +288,83 @@ describe('createToolRegistry', () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  describe('find', () => {
+    it('returns a visible tool by its exposed name', () => {
+      const registry = createToolRegistry({ namespacing: NS });
+      registry.setServerEntry({
+        serverName: 'jira',
+        status: CONNECTED,
+        enabled: true,
+        tools: [tool('search_issues', 'Search')],
+      });
+
+      const found = registry.find('jira__search_issues');
+      expect(found?.serverName).toBe('jira');
+      expect(found?.upstreamName).toBe('search_issues');
+      expect(found?.tool.name).toBe('jira__search_issues');
+      expect(found?.tool.description).toBe('Search');
+    });
+
+    it('returns undefined for an unknown exposed name', () => {
+      const registry = createToolRegistry({ namespacing: NS });
+      registry.setServerEntry({
+        serverName: 'jira',
+        status: CONNECTED,
+        enabled: true,
+        tools: [tool('search_issues')],
+      });
+
+      expect(registry.find('jira__nope')).toBeUndefined();
+      expect(registry.find('search_issues')).toBeUndefined();
+    });
+
+    it('does not surface tools from a disabled server', () => {
+      const registry = createToolRegistry({ namespacing: NS });
+      registry.setServerEntry({
+        serverName: 'jira',
+        status: CONNECTED,
+        enabled: false,
+        tools: [tool('search_issues')],
+      });
+
+      expect(registry.find('jira__search_issues')).toBeUndefined();
+    });
+
+    it('does not surface tools from a server stuck in auth_required', () => {
+      const registry = createToolRegistry({ namespacing: NS });
+      registry.setServerEntry({
+        serverName: 'jira',
+        status: { kind: 'auth_required', reason: 'oauth pending' },
+        enabled: true,
+        tools: [tool('search_issues')],
+      });
+
+      expect(registry.find('jira__search_issues')).toBeUndefined();
+    });
+
+    it('reflects mutations: tools come and go as setServerEntry / removeServer fire', () => {
+      const registry = createToolRegistry({ namespacing: NS });
+      registry.setServerEntry({
+        serverName: 'jira',
+        status: CONNECTED,
+        enabled: true,
+        tools: [tool('search_issues'), tool('create_issue')],
+      });
+      expect(registry.find('jira__search_issues')).toBeDefined();
+      expect(registry.find('jira__create_issue')).toBeDefined();
+
+      registry.setServerEntry({
+        serverName: 'jira',
+        status: CONNECTED,
+        enabled: true,
+        tools: [tool('search_issues')],
+      });
+      expect(registry.find('jira__search_issues')).toBeDefined();
+      expect(registry.find('jira__create_issue')).toBeUndefined();
+
+      registry.removeServer('jira');
+      expect(registry.find('jira__search_issues')).toBeUndefined();
+    });
+  });
 });
