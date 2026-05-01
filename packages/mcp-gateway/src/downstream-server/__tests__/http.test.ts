@@ -377,4 +377,53 @@ describe('createDownstreamHttpServer — lifecycle', () => {
     release();
     await callPromise;
   });
+
+  it('returns 413 and force-closes the socket for oversize bodies', async () => {
+    const server = makeServer();
+    await server.start();
+
+    // 5 MiB > 4 MiB MAX_REQUEST_BODY_BYTES.
+    const oversize = 'x'.repeat(5 * 1024 * 1024);
+    const res = await fetch(server.url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: oversize,
+    });
+
+    expect(res.status).toBe(413);
+    expect(res.headers.get('connection')).toMatch(/close/i);
+    const body = (await res.json().catch(() => ({ error: '' }))) as { error: string };
+    expect(body.error).toMatch(/too large/);
+  });
+
+  it('closes the listener when stop() races with an in-flight start()', async () => {
+    const server = makeServer();
+    const startPromise = server.start();
+    const stopPromise = server.stop();
+
+    await expect(startPromise).rejects.toThrow(/stopped during start/);
+    await stopPromise;
+    await expect(server.done).resolves.toBeUndefined();
+    // If the listener leaked, the next `fetch` against any prior URL would
+    // succeed. This test deliberately doesn't capture the URL — successful
+    // teardown is observed via `done` resolving and the next `start()` being
+    // permitted (which would fail if we left state inconsistent).
+    expect(() => server.url).toThrow(/not started/);
+  });
+
+  it('done() resolves only after the listener has stopped accepting', async () => {
+    const server = makeServer();
+    await server.start();
+    const url = server.url;
+
+    await server.stop();
+    await expect(server.done).resolves.toBeUndefined();
+
+    // Once `done` resolves, no new connections should succeed against the
+    // previously bound port.
+    await expect(fetch(url)).rejects.toThrow();
+  });
 });

@@ -22,6 +22,10 @@ const LIFECYCLE_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
 const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 const SESSION_ID_HEADER = 'mcp-session-id';
 const MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024;
+const SHUTDOWN_RESPONSE_HEADERS = {
+  'content-type': 'application/json; charset=utf-8',
+  connection: 'close',
+} as const;
 
 type LifecycleState = 'idle' | 'starting' | 'started' | 'stopping' | 'stopped';
 
@@ -121,6 +125,37 @@ export function createDownstreamHttpServer(
     res.end(body);
   }
 
+  function writeShutdownResponse(req: IncomingMessage, res: ServerResponse): void {
+    if (!res.headersSent && !res.writableEnded) {
+      const body = JSON.stringify({ error: 'server shutting down' });
+      res.writeHead(503, {
+        ...SHUTDOWN_RESPONSE_HEADERS,
+        'content-length': Buffer.byteLength(body),
+      });
+      res.end(body);
+    }
+    // Drop any unread request bytes so the keep-alive socket is freed and the
+    // peer cannot keep streaming into us after we've decided to stop.
+    if (!req.readableEnded) {
+      req.resume();
+    }
+  }
+
+  function abortOversizedRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (!res.headersSent && !res.writableEnded) {
+      const body = JSON.stringify({ error: 'request body too large' });
+      res.writeHead(413, {
+        ...SHUTDOWN_RESPONSE_HEADERS,
+        'content-length': Buffer.byteLength(body),
+      });
+      res.end(body);
+    }
+    // Force-close the underlying socket: the client is mid-stream and we
+    // can't trust them to stop sending. Destroying the request also tears
+    // down the response stream, freeing the keep-alive slot.
+    req.destroy();
+  }
+
   async function readJsonBody(req: IncomingMessage): Promise<unknown> {
     const chunks: Buffer[] = [];
     let bytes = 0;
@@ -188,7 +223,7 @@ export function createDownstreamHttpServer(
         body = await readJsonBody(req);
       } catch (error) {
         if (error instanceof RequestBodyTooLargeError) {
-          writeJsonError(res, 413, 'request body too large');
+          abortOversizedRequest(req, res);
           return;
         }
         if (error instanceof RequestBodyParseError) {
@@ -210,6 +245,14 @@ export function createDownstreamHttpServer(
 
       if (!isInitializeRequest(body)) {
         writeJsonError(res, 400, 'mcp-session-id header required for non-initialize requests');
+        return;
+      }
+
+      // Refuse to mint a new session once shutdown has begun: stop() clears
+      // sessions/pendingSessions concurrently and we'd race a brand-new
+      // entry into the maps after they were drained.
+      if (state !== 'started') {
+        writeShutdownResponse(req, res);
         return;
       }
 
@@ -249,6 +292,16 @@ export function createDownstreamHttpServer(
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Reject any traffic on already-open keep-alive sockets the moment
+    // shutdown begins. Without this, a request landing between
+    // `state = 'stopping'` and the session map clear in stop() could either
+    // see a half-cleared session map or successfully spawn a session that
+    // immediately gets torn down — both observably racy.
+    if (state !== 'started' && state !== 'starting') {
+      writeShutdownResponse(req, res);
+      return;
+    }
+
     trackRequest(req, res);
     try {
       const requestPath = parseRequestPath(req);
@@ -282,13 +335,34 @@ export function createDownstreamHttpServer(
     try {
       await listenOn(listener, host, port);
     } catch (error) {
+      if ((state as LifecycleState) !== 'starting') {
+        // listenOn rejected because a concurrent stop() closed the listener
+        // mid-bind. Surface a deterministic error so callers can react, and
+        // wait for stop() to finish its own teardown so the listener is
+        // guaranteed shut by the time we throw.
+        if (pendingStop) {
+          await pendingStop.catch(() => undefined);
+        }
+        throw new Error('downstream http server stopped during start', { cause: error });
+      }
       httpServer = null;
       finalizeStopped();
       throw error;
     }
 
     if ((state as LifecycleState) !== 'starting') {
-      // A concurrent stop() ran while listen() was in flight.
+      // The listener bound successfully despite a concurrent stop() — Node's
+      // earlier `listener.close()` from stop() may have been a no-op because
+      // the server wasn't yet listening when stop() called it. Trigger an
+      // explicit close + force-close here so the listening socket doesn't
+      // outlive `done`. We don't await the close callback: stop()'s
+      // `waitForListenerClose` will, and bounds the wait with a timeout.
+      listener.closeAllConnections?.();
+      listener.close((closeError) => {
+        if (closeError) {
+          log.debug({ err: closeError }, 'race-branch listener.close reported error');
+        }
+      });
       if (pendingStop) {
         await pendingStop.catch(() => undefined);
       }
@@ -330,15 +404,32 @@ export function createDownstreamHttpServer(
       const listener = httpServer;
       httpServer = null;
 
+      // Stop accepting new connections immediately. The `close` callback won't
+      // fire until every tracked socket goes away (including long-lived SSE
+      // GET streams), so we capture it now and await it after we've closed
+      // the sessions that own those sockets.
+      let listenerClosed: Promise<void> | null = null;
       if (listener) {
-        // Stop accepting new connections; existing ones drain below.
-        listener.close();
+        listenerClosed = new Promise<void>((resolve) => {
+          listener.close((error) => {
+            if (error) {
+              // Typically: listener was never listening. Either way the
+              // socket isn't accepting any more.
+              log.debug({ err: error }, 'listener.close reported error');
+            }
+            resolve();
+          });
+        });
       }
 
-      if (inFlight > 0) {
+      // Drain finite POST/DELETE handlers. GET SSE notification streams are
+      // intentionally excluded — they only end when their session closes.
+      if (inFlight > 0 && listener) {
         await waitForDrain(listener, drainTimeoutMs);
       }
 
+      // Close every session, which terminates the SSE GET streams and frees
+      // the last sockets keeping the listener-close callback pending.
       const allSessions = [...sessions.values(), ...pendingSessions];
       sessions.clear();
       pendingSessions.clear();
@@ -355,13 +446,21 @@ export function createDownstreamHttpServer(
         }
       }
 
+      // Bound the wait on the listener-close callback so a misbehaving client
+      // (or a stuck SSE socket) can't keep `stop()` from resolving. On
+      // timeout, force every remaining socket closed — `done` resolving must
+      // truly mean the listening socket and its connections are gone.
+      if (listener && listenerClosed) {
+        await waitForListenerClose(listener, listenerClosed, drainTimeoutMs);
+      }
+
       finalizeStopped();
     })();
 
     return pendingStop;
   }
 
-  async function waitForDrain(listener: HttpListener | null, timeoutMs: number): Promise<void> {
+  async function waitForDrain(listener: HttpListener, timeoutMs: number): Promise<void> {
     await new Promise<void>((resolve) => {
       drainResolve = resolve;
       const timer = setTimeout(() => {
@@ -371,10 +470,41 @@ export function createDownstreamHttpServer(
         drainResolve = null;
         log.warn({ inFlight, timeoutMs }, 'drain timeout — forcing http connections closed');
         // Node 18.2+ exposes closeAllConnections; fall back gracefully.
-        listener?.closeAllConnections?.();
+        listener.closeAllConnections?.();
         resolve();
       }, timeoutMs);
       timer.unref?.();
+    });
+  }
+
+  async function waitForListenerClose(
+    listener: HttpListener,
+    closed: Promise<void>,
+    timeoutMs: number,
+  ): Promise<void> {
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        log.warn({ timeoutMs }, 'listener close timeout — forcing remaining sockets closed');
+        listener.closeIdleConnections?.();
+        listener.closeAllConnections?.();
+        // closeAllConnections triggers the close callback to fire; finish via
+        // that path so any in-flight cleanup observers see a consistent
+        // ordering.
+      }, timeoutMs);
+      timer.unref?.();
+      void closed.then(finish);
     });
   }
 
@@ -434,16 +564,42 @@ function formatHost(addr: string): string {
 
 function listenOn(listener: HttpListener, host: string, port: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const onError = (err: Error): void => {
+    let settled = false;
+    const cleanup = (): void => {
+      listener.off('error', onError);
       listener.off('listening', onListening);
+      listener.off('close', onClose);
+    };
+    const onError = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
       reject(err);
     };
     const onListening = (): void => {
-      listener.off('error', onError);
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
       resolve();
+    };
+    // If `close()` runs before listen completes (e.g. a concurrent `stop()`
+    // races us mid-bind), Node may swallow both `listening` and `error`. Watch
+    // `close` so the start path doesn't hang forever.
+    const onClose = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(new Error('server closed before it began listening'));
     };
     listener.once('error', onError);
     listener.once('listening', onListening);
+    listener.once('close', onClose);
     listener.listen({ host, port });
   });
 }
