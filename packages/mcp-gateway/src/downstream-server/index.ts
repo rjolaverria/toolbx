@@ -8,7 +8,11 @@ export {
   type BuildToolboxMcpServerResult,
 } from './server.js';
 export { createDownstreamSession, type DownstreamSession } from './session.js';
-export { registerLifecycleHandlers, requireReady } from './handlers/index.js';
+export {
+  registerLifecycleHandlers,
+  registerToolsListHandler,
+  requireReady,
+} from './handlers/index.js';
 export type {
   CreateDownstreamHttpServerDeps,
   CreateDownstreamStdioServerDeps,
