@@ -34,6 +34,7 @@ export {
   createDownstreamStdioServer,
   createDownstreamSession,
   registerLifecycleHandlers,
+  registerToolsCallHandler,
   registerToolsListHandler,
   requireReady,
   TOOLBOX_SERVER_CAPABILITIES,
@@ -47,6 +48,7 @@ export {
   type DownstreamStdioServer,
   type DownstreamSession,
   type RegisterDownstreamHandlers,
+  type UpstreamSessionLookup,
 } from './downstream-server/index.js';
 
 export {

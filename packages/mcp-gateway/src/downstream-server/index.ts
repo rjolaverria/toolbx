@@ -10,8 +10,10 @@ export {
 export { createDownstreamSession, type DownstreamSession } from './session.js';
 export {
   registerLifecycleHandlers,
+  registerToolsCallHandler,
   registerToolsListHandler,
   requireReady,
+  type UpstreamSessionLookup,
 } from './handlers/index.js';
 export type {
   CreateDownstreamHttpServerDeps,
