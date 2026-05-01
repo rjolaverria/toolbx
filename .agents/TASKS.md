@@ -39,7 +39,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 - [x] **M2-02** — [Downstream MCP server over Streamable HTTP](tasks/M2-02-downstream-http-server.md) — closed by 4156c86
 - [x] **M2-03** — [`initialize`, `notifications/initialized`, `ping` handlers](tasks/M2-03-initialize-and-ping-handlers.md) — closed by 0747abb
 - [x] **M2-04** — [`tools/list` handler (non-disclosure mode)](tasks/M2-04-tools-list-handler.md) — closed by 01ca332
-- [ ] **M2-05** — [`tools/call` handler with upstream routing](tasks/M2-05-tools-call-handler.md)
+- [x] **M2-05** — [`tools/call` handler with upstream routing](tasks/M2-05-tools-call-handler.md) — closed by 6c0f2a5
 - [ ] **M2-06** — [`tlbx serve` command (stdio + http modes)](tasks/M2-06-cli-serve-command.md)
 
 ## Milestone 3 — Proxy Routing
