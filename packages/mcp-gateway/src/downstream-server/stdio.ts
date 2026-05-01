@@ -3,19 +3,10 @@
 // with a stderr destination (see `createLogger` in @toolbox/core). Do not
 // `console.log` or `process.stdout.write` from this module.
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
+import { buildToolboxMcpServer } from './server.js';
 import type { CreateDownstreamStdioServerDeps, DownstreamStdioServer } from './types.js';
-
-const TOOLBOX_SERVER_INFO = {
-  name: 'toolbox',
-  version: '0.0.0',
-} as const;
-
-const TOOLBOX_SERVER_CAPABILITIES = {
-  tools: { listChanged: true },
-} as const;
 
 const LIFECYCLE_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
 
@@ -29,23 +20,14 @@ export function createDownstreamStdioServer(
   const stdin = deps.stdin ?? proc.stdin;
   const stdout = deps.stdout ?? proc.stdout;
 
-  const server = new Server(TOOLBOX_SERVER_INFO, {
-    capabilities: TOOLBOX_SERVER_CAPABILITIES,
-  });
-
-  // Out-of-band protocol errors only. Handler throws are converted to
-  // JSON-RPC error responses by the SDK before this fires.
-  server.onerror = (error) => {
-    log.warn({ err: error }, 'downstream MCP server error');
-  };
-
-  // Install protocol handlers up front so that callers connecting the SDK
-  // server directly (e.g. tests using InMemoryTransport) exercise the same
-  // handler set as start(), and so any wiring failures surface
+  // Build the SDK server up front so that callers connecting it directly
+  // (e.g. tests using InMemoryTransport) exercise the same handler set as
+  // start(), and so any registerHandlers wiring failures surface
   // deterministically at construction time rather than during start().
-  if (deps.registerHandlers) {
-    deps.registerHandlers(server);
-  }
+  const server = buildToolboxMcpServer({
+    logger: log,
+    registerHandlers: deps.registerHandlers,
+  });
 
   let state: LifecycleState = 'idle';
   let resolveDone!: () => void;

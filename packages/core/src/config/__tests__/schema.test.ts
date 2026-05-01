@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   HttpServerConfigSchema,
+  HttpServerSettingsSchema,
   StdioServerConfigSchema,
   ToolboxConfigSchema,
   type HttpServerConfig,
@@ -202,4 +203,32 @@ describe('ServerConfig discriminated union', () => {
     });
     expect(result.success).toBe(false);
   });
+});
+
+describe('HttpServerSettings host validation', () => {
+  it.each(['127.0.0.1', '::1', 'localhost'])('accepts loopback host %s', (host) => {
+    const result = HttpServerSettingsSchema.safeParse({
+      enabled: true,
+      host,
+      port: 7331,
+      path: '/mcp',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it.each(['0.0.0.0', '::', '192.168.1.10', 'example.com', '10.0.0.5'])(
+    'rejects non-loopback host %s',
+    (host) => {
+      const result = HttpServerSettingsSchema.safeParse({
+        enabled: true,
+        host,
+        port: 7331,
+        path: '/mcp',
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0]?.message).toMatch(/loopback/);
+      }
+    },
+  );
 });

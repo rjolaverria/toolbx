@@ -29,8 +29,16 @@ export {
 } from './upstream-client/index.js';
 
 export {
+  buildToolboxMcpServer,
+  createDownstreamHttpServer,
   createDownstreamStdioServer,
+  TOOLBOX_SERVER_CAPABILITIES,
+  TOOLBOX_SERVER_INFO,
+  type BuildToolboxMcpServerDeps,
+  type CreateDownstreamHttpServerDeps,
   type CreateDownstreamStdioServerDeps,
+  type DownstreamHttpBinding,
+  type DownstreamHttpServer,
   type DownstreamStdioServer,
   type RegisterDownstreamHandlers,
 } from './downstream-server/index.js';
