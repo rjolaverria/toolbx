@@ -2,17 +2,17 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, TOOLBOX_VERSION } from '@toolbox/core';
+import { createNoopLogger, getToolboxVersion } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
 import { buildToolboxMcpServer } from '../../server.js';
-import { createSession } from '../../session.js';
+import { createDownstreamSession } from '../../session.js';
 import { requireReady } from '../lifecycle.js';
 
 async function connectPair(register?: (server: unknown, session: unknown) => void): Promise<{
   client: Client;
   closeAll: () => Promise<void>;
-  session: ReturnType<typeof createSession>;
+  session: ReturnType<typeof createDownstreamSession>;
 }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const built = buildToolboxMcpServer({
@@ -41,7 +41,7 @@ async function connectPair(register?: (server: unknown, session: unknown) => voi
 describe('lifecycle handlers — initialize', () => {
   it('reports serverInfo with name=toolbox and version from @toolbox/core package.json', async () => {
     const { client, closeAll } = await connectPair();
-    expect(client.getServerVersion()).toEqual({ name: 'toolbox', version: TOOLBOX_VERSION });
+    expect(client.getServerVersion()).toEqual({ name: 'toolbox', version: getToolboxVersion() });
     await closeAll();
   });
 
@@ -76,7 +76,7 @@ describe('lifecycle handlers — notifications/initialized', () => {
 
 describe('lifecycle handlers — pre-init guard', () => {
   it('rejects tools/call with InvalidRequest if invoked before initialized', () => {
-    const session = createSession('guard-test');
+    const session = createDownstreamSession('guard-test');
     expect(() => requireReady(session)).toThrow(McpError);
     try {
       requireReady(session);

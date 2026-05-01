@@ -32,7 +32,7 @@ export {
   buildToolboxMcpServer,
   createDownstreamHttpServer,
   createDownstreamStdioServer,
-  createSession,
+  createDownstreamSession,
   registerLifecycleHandlers,
   requireReady,
   TOOLBOX_SERVER_CAPABILITIES,
@@ -44,6 +44,6 @@ export {
   type DownstreamHttpBinding,
   type DownstreamHttpServer,
   type DownstreamStdioServer,
+  type DownstreamSession,
   type RegisterDownstreamHandlers,
-  type Session,
 } from './downstream-server/index.js';

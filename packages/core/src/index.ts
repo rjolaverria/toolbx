@@ -1,4 +1,4 @@
-export { TOOLBOX_VERSION } from './version.js';
+export { getToolboxVersion } from './version.js';
 
 export {
   AuthSchema,

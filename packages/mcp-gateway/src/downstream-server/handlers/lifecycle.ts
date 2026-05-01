@@ -16,15 +16,15 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import type { Session } from '../session.js';
+import type { DownstreamSession } from '../session.js';
 
-export function registerLifecycleHandlers(server: Server, session: Session): void {
+export function registerLifecycleHandlers(server: Server, session: DownstreamSession): void {
   server.oninitialized = () => {
     session.ready = true;
   };
 }
 
-export function requireReady(session: Session): void {
+export function requireReady(session: DownstreamSession): void {
   if (!session.ready) {
     throw new McpError(
       ErrorCode.InvalidRequest,

@@ -178,11 +178,12 @@ export function createDownstreamHttpServer(
     }
   }
 
-  function createSession(handlers: RegisterDownstreamHandlers | undefined): HttpSessionEntry {
+  function createHttpSession(handlers: RegisterDownstreamHandlers | undefined): HttpSessionEntry {
     // Pre-generate the session id so it can be threaded into both the SDK
     // transport (which expects a `sessionIdGenerator`) and the per-session
-    // `Session` state created by `buildToolboxMcpServer`. This keeps the
-    // Toolbox-level Session.id and the MCP transport session id identical.
+    // `DownstreamSession` state created by `buildToolboxMcpServer`. This
+    // keeps the Toolbox-level DownstreamSession.id and the MCP transport
+    // session id identical.
     const sessionId = sessionIdGenerator();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => sessionId,
@@ -262,7 +263,7 @@ export function createDownstreamHttpServer(
         return;
       }
 
-      const session = createSession(registerHandlers);
+      const session = createHttpSession(registerHandlers);
       try {
         // The SDK declares `StreamableHTTPServerTransport.onclose` as a
         // getter/setter typed `(() => void) | undefined`, which under

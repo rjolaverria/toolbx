@@ -1,9 +1,9 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import { type Logger, TOOLBOX_VERSION } from '@toolbox/core';
+import { getToolboxVersion, type Logger } from '@toolbox/core';
 
 import { registerLifecycleHandlers } from './handlers/lifecycle.js';
-import { createSession, type Session } from './session.js';
+import { createDownstreamSession, type DownstreamSession } from './session.js';
 import type { RegisterDownstreamHandlers } from './types.js';
 
 export const TOOLBOX_SERVER_NAME = 'toolbox' as const;
@@ -26,7 +26,7 @@ export interface BuildToolboxMcpServerDeps {
 
 export interface BuildToolboxMcpServerResult {
   server: Server;
-  session: Session;
+  session: DownstreamSession;
 }
 
 /**
@@ -39,11 +39,11 @@ export function buildToolboxMcpServer(
   deps: BuildToolboxMcpServerDeps,
 ): BuildToolboxMcpServerResult {
   const server = new Server(
-    { name: TOOLBOX_SERVER_NAME, version: TOOLBOX_VERSION },
+    { name: TOOLBOX_SERVER_NAME, version: getToolboxVersion() },
     { capabilities: TOOLBOX_SERVER_CAPABILITIES },
   );
 
-  const session = createSession(deps.sessionId);
+  const session = createDownstreamSession(deps.sessionId);
   registerLifecycleHandlers(server, session);
 
   // Out-of-band protocol errors only. Handler throws are converted to

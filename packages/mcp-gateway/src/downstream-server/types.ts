@@ -5,7 +5,7 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 import type { Logger } from '@toolbox/core';
 
-import type { Session } from './session.js';
+import type { DownstreamSession } from './session.js';
 
 /**
  * Hook seam for M2-04 / M2-05 to wire request handlers onto the SDK server.
@@ -14,7 +14,7 @@ import type { Session } from './session.js';
  * `tools/call`, and the M4 progressive-disclosure bootstrap tools — that
  * need access to the per-session state.
  */
-export type RegisterDownstreamHandlers = (server: Server, session: Session) => void;
+export type RegisterDownstreamHandlers = (server: Server, session: DownstreamSession) => void;
 
 export interface CreateDownstreamStdioServerDeps {
   logger: Logger;
