@@ -38,13 +38,13 @@ This is the master todo list for delivering the Toolbox product as described in 
 - [x] **M2-01** — [Downstream MCP server over stdio](tasks/M2-01-downstream-stdio-server.md) — closed by 9d6a608
 - [x] **M2-02** — [Downstream MCP server over Streamable HTTP](tasks/M2-02-downstream-http-server.md) — closed by 4156c86
 - [x] **M2-03** — [`initialize`, `notifications/initialized`, `ping` handlers](tasks/M2-03-initialize-and-ping-handlers.md) — closed by 0747abb
-- [ ] **M2-04** — [`tools/list` handler (non-disclosure mode)](tasks/M2-04-tools-list-handler.md)
+- [x] **M2-04** — [`tools/list` handler (non-disclosure mode)](tasks/M2-04-tools-list-handler.md) — closed by 01ca332
 - [ ] **M2-05** — [`tools/call` handler with upstream routing](tasks/M2-05-tools-call-handler.md)
 - [ ] **M2-06** — [`tlbx serve` command (stdio + http modes)](tasks/M2-06-cli-serve-command.md)
 
 ## Milestone 3 — Proxy Routing
 
-- [ ] **M3-01** — [Namespacing module (separator, format, collision strategy)](tasks/M3-01-namespacing-module.md)
+- [x] **M3-01** — [Namespacing module (separator, format, collision strategy)](tasks/M3-01-namespacing-module.md) — closed by 74fe794
 - [ ] **M3-02** — [Tool routing engine: namespaced call → upstream call](tasks/M3-02-tool-routing-engine.md)
 - [ ] **M3-03** — [Timeout, error, and disabled-server handling for proxied calls](tasks/M3-03-proxy-error-and-timeout-handling.md)
 
