@@ -103,7 +103,7 @@ describe('ToolboxConfigSchema', () => {
     }
   });
 
-  it('accepts an explicit non-default namespacing.separator override', () => {
+  it('rejects an explicit non-`__` namespacing.separator override (Phase 1 constraint)', () => {
     const result = ToolboxConfigSchema.safeParse({
       ...README_EXAMPLE,
       namespacing: {
@@ -111,10 +111,7 @@ describe('ToolboxConfigSchema', () => {
         separator: '::',
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.namespacing.separator).toBe('::');
-    }
+    expect(result.success).toBe(false);
   });
 });
 
@@ -202,6 +199,36 @@ describe('ServerConfig discriminated union', () => {
       auth: { type: 'bearer' },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('Server name validation', () => {
+  it('rejects a server name containing the namespacing separator `__`', () => {
+    const result = ToolboxConfigSchema.safeParse({
+      ...README_EXAMPLE,
+      servers: {
+        jira__bad: {
+          type: 'http',
+          enabled: true,
+          url: 'https://jira.example.com/mcp',
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a server name with single underscores', () => {
+    const result = ToolboxConfigSchema.safeParse({
+      ...README_EXAMPLE,
+      servers: {
+        my_server: {
+          type: 'http',
+          enabled: true,
+          url: 'https://example.com/mcp',
+        },
+      },
+    });
+    expect(result.success).toBe(true);
   });
 });
 

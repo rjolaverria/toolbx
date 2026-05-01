@@ -3,7 +3,12 @@ import { z } from 'zod';
 const ServerNameSchema = z
   .string()
   .min(1)
-  .regex(/^[a-z0-9][a-z0-9_-]*$/i, 'server names must be alphanumeric with `-` or `_`');
+  .regex(/^[a-z0-9][a-z0-9_-]*$/i, 'server names must be alphanumeric with `-` or `_`')
+  // The `__` substring is reserved as the namespacing separator (M3-01); a
+  // server name that contains it makes `parseExposedName` ambiguous.
+  .refine((value) => !value.includes('__'), {
+    message: 'server names must not contain the `__` namespacing separator',
+  });
 
 const TimeoutMsSchema = z.number().int().positive();
 
@@ -101,7 +106,10 @@ export const ProgressiveDisclosureSchema = z
 
 export const NamespacingSchema = z
   .object({
-    separator: z.string().min(1).default('__'),
+    // Phase 1 only supports the `__` separator (M3-01). Other values are
+    // rejected at config load so the namespace module never has to handle
+    // them at runtime.
+    separator: z.literal('__').default('__'),
     format: z.enum(['server__tool']),
     collisionStrategy: z.enum(['error', 'rename', 'first-wins']),
   })
