@@ -1,4 +1,4 @@
-import { McpError } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import { parseExposedName, type NamespaceOptions } from '../namespace/index.js';
 import type { ServerStatus } from '../server-status/types.js';
@@ -73,11 +73,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// `McpError.code` is typed as `number`, but `ErrorCode.RequestTimeout` is an
+// enum member, so a direct `===` trips `no-unsafe-enum-comparison`. Compare
+// via the enum's underlying numeric value to keep the rule satisfied without
+// hard-coding `-32001` (the original Copilot review point).
+const REQUEST_TIMEOUT_CODE: number = ErrorCode.RequestTimeout;
+
 function isUpstreamTimeoutError(err: unknown): boolean {
   return (
     err instanceof Error &&
     (err.name === 'UpstreamCallToolTimeoutError' ||
-      (err instanceof McpError && err.code === -32001))
+      (err instanceof McpError && err.code === REQUEST_TIMEOUT_CODE))
   );
 }
 
@@ -193,47 +199,75 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
     }
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
-  if (timeoutMs !== undefined) {
-    timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-  }
-
   const callOpts: { signal: AbortSignal; timeoutMs?: number } = { signal: controller.signal };
   if (timeoutMs !== undefined) {
     callOpts.timeoutMs = timeoutMs;
   }
 
-  try {
-    const result = await session.callTool(entry.upstreamName, args, callOpts);
-    return { kind: 'ok', result };
-  } catch (err) {
-    if (timedOut && timeoutMs !== undefined) {
-      const message = err instanceof Error ? err.message : `timed out after ${timeoutMs}ms`;
-      return {
-        kind: 'upstream_error',
-        error: {
-          code: 'timeout',
-          server: entry.serverName,
-          tool: entry.upstreamName,
-          timeoutMs,
-          message,
-        },
-      };
-    }
-    return {
-      kind: 'upstream_error',
-      error: describeUpstreamError(err, entry.serverName, entry.upstreamName, timeoutMs),
-    };
-  } finally {
+  // Wrap callTool so it never rejects — we discriminate on `kind` after the
+  // race. Without this, an unawaited rejection (e.g. when a slow upstream
+  // finally errors after the timeout has already been reported) would surface
+  // as an unhandled promise rejection.
+  type CallOutcome = { kind: 'ok'; result: RoutedCallToolResult } | { kind: 'err'; err: unknown };
+  const callPromise: Promise<CallOutcome> = session
+    .callTool(entry.upstreamName, args, callOpts)
+    .then(
+      (result) => ({ kind: 'ok' as const, result }),
+      (err: unknown) => ({ kind: 'err' as const, err }),
+    );
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = (): void => {
     if (timer !== undefined) {
       clearTimeout(timer);
     }
     if (signal !== undefined) {
       signal.removeEventListener('abort', onCallerAbort);
     }
+  };
+
+  try {
+    let outcome: CallOutcome | { kind: 'timeout' };
+    if (timeoutMs === undefined) {
+      outcome = await callPromise;
+    } else {
+      const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
+        timer = setTimeout(() => {
+          // Abort the controller so the upstream can terminate cooperatively,
+          // but do not wait for it — the router resolves the timeout result
+          // immediately so the deadline is enforced even if the session
+          // ignores the signal.
+          controller.abort();
+          resolve({ kind: 'timeout' });
+        }, timeoutMs);
+      });
+      outcome = await Promise.race([callPromise, timeoutPromise]);
+      // Drain any later rejection from the abandoned call to keep Node from
+      // logging an unhandled rejection. `callPromise` is already wrapped to
+      // never reject, so this is belt-and-braces.
+      void callPromise.catch(() => undefined);
+    }
+
+    if (outcome.kind === 'ok') {
+      return { kind: 'ok', result: outcome.result };
+    }
+    if (outcome.kind === 'timeout') {
+      return {
+        kind: 'upstream_error',
+        error: {
+          code: 'timeout',
+          server: entry.serverName,
+          tool: entry.upstreamName,
+          timeoutMs: timeoutMs as number,
+          message: `Upstream tool "${entry.upstreamName}" on server "${entry.serverName}" timed out after ${String(timeoutMs)}ms`,
+        },
+      };
+    }
+    return {
+      kind: 'upstream_error',
+      error: describeUpstreamError(outcome.err, entry.serverName, entry.upstreamName, timeoutMs),
+    };
+  } finally {
+    cleanup();
   }
 }

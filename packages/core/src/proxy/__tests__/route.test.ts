@@ -388,17 +388,55 @@ describe('routeToolCall', () => {
         await vi.advanceTimersByTimeAsync(50);
         const result = await promise;
 
-        expect(result).toEqual({
-          kind: 'upstream_error',
-          error: {
-            code: 'timeout',
-            server: 'jira',
-            tool: 'search',
-            timeoutMs: 50,
-            message: 'aborted',
-          },
-        });
+        expect(result.kind).toBe('upstream_error');
+        if (result.kind === 'upstream_error' && result.error.code === 'timeout') {
+          expect(result.error.server).toBe('jira');
+          expect(result.error.tool).toBe('search');
+          expect(result.error.timeoutMs).toBe(50);
+          expect(result.error.message).toContain('timed out after 50ms');
+        }
         expect(observedSignal?.aborted).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('resolves at the deadline even when the upstream session ignores abort', async () => {
+      vi.useFakeTimers();
+      try {
+        const jiraEntry = entry('jira', 'search');
+        const registry = makeRegistry([jiraEntry]);
+
+        // Session that never resolves and never observes the abort signal.
+        const session: SessionView = {
+          status: CONNECTED,
+          callTool() {
+            return new Promise(() => {
+              // intentionally never settles
+            });
+          },
+        };
+
+        const promise = routeToolCall({
+          exposedName: 'jira__search',
+          args: undefined,
+          registry,
+          sessions: makeSessions({ jira: session }),
+          namespacing: NS,
+          timeoutMs: 50,
+        });
+
+        await vi.advanceTimersByTimeAsync(50);
+        const result = await promise;
+
+        expect(result.kind).toBe('upstream_error');
+        if (result.kind === 'upstream_error') {
+          expect(result.error.code).toBe('timeout');
+          if (result.error.code === 'timeout') {
+            expect(result.error.timeoutMs).toBe(50);
+            expect(result.error.message).toContain('timed out after 50ms');
+          }
+        }
       } finally {
         vi.useRealTimers();
       }
