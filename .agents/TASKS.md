@@ -50,7 +50,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 ## Milestone 4 — Progressive Disclosure
 
-- [ ] **M4-01** — [Deterministic tool search ranking](tasks/M4-01-tool-search-ranking.md)
+- [x] **M4-01** — [Deterministic tool search ranking](tasks/M4-01-tool-search-ranking.md) — closed by 7b97dc8
 - [ ] **M4-02** — [Session-visible tool registry](tasks/M4-02-session-visible-tool-registry.md)
 - [ ] **M4-03** — [Bootstrap tool: `toolbox__search_tools`](tasks/M4-03-bootstrap-search-tools.md)
 - [ ] **M4-04** — [Bootstrap tools: `toolbox__reveal_tools` and `toolbox__hide_tools`](tasks/M4-04-bootstrap-reveal-and-hide-tools.md)
