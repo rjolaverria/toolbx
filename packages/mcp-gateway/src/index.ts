@@ -58,3 +58,10 @@ export {
   type ServerToolEntry,
   type ToolRegistry,
 } from './registry/index.js';
+
+export {
+  createGatewayRuntime,
+  type CreateGatewayRuntimeDeps,
+  type CreateUpstreamSessionForRuntime,
+  type GatewayRuntime,
+} from './runtime/index.js';

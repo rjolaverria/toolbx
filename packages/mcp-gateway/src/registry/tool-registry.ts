@@ -7,11 +7,11 @@ import { formatExposedName, type NamespaceOptions, type ServerStatus } from '@to
  * `tools/list` results from each upstream session and projects them into
  * namespaced exposed tools for the downstream `tools/list` handler (M2-04).
  *
- * The registry is a passive data structure. Wiring (subscribing to upstream
+ * The registry is a passive data structure. Wiring — subscribing to upstream
  * sessions' `tools_list_changed` events, mirroring server status changes,
- * removing servers on config edits) lives in the gateway entry point —
- * M2-06's `tlbx serve` will install the listeners. Tests for M2-04 drive
- * the registry directly.
+ * and removing servers on config edits — lives in `createGatewayRuntime`
+ * (`../runtime/runtime.ts`), which `tlbx serve` and other gateway entry
+ * points instantiate. Tests for M2-04 drive the registry directly.
  *
  * Servers in `disabled`, `error`, `auth_required`, `auth_expired`, `stopped`,
  * or `starting` status do not contribute tools. Only `connected` does.
