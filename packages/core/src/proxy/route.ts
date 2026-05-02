@@ -73,10 +73,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// `McpError.code` is typed as `number`, but `ErrorCode.RequestTimeout` is an
-// enum member, so a direct `===` trips `no-unsafe-enum-comparison`. Compare
-// via the enum's underlying numeric value to keep the rule satisfied without
-// hard-coding `-32001` (the original Copilot review point).
+// `McpError.code` is typed as `number` while `ErrorCode.RequestTimeout` is an
+// enum member, so a direct `===` trips `no-unsafe-enum-comparison`. Bind it
+// to a typed numeric alias so the comparison stays number↔number.
 const REQUEST_TIMEOUT_CODE: number = ErrorCode.RequestTimeout;
 
 function isUpstreamTimeoutError(err: unknown): boolean {
