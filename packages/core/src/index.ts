@@ -102,3 +102,10 @@ export {
   type SessionLookup,
   type SessionView,
 } from './proxy/index.js';
+
+export {
+  searchTools,
+  type SearchMatchedField,
+  type ToolSearchOptions,
+  type ToolSearchResult,
+} from './disclosure/index.js';
