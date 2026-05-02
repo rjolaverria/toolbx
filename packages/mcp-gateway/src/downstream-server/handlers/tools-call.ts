@@ -58,11 +58,13 @@ export function registerToolsCallHandler(
         return result.result;
       case 'unknown_tool':
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}"`);
-      case 'server_unavailable':
+      case 'server_unavailable': {
+        const reason = 'reason' in result.status ? `: ${result.status.reason}` : '';
         throw new McpError(
           ErrorCode.InternalError,
-          `Upstream server "${result.server}" is not connected`,
+          `Upstream server "${result.server}" is unavailable (status: ${result.status.kind}${reason})`,
         );
+      }
       case 'invalid_args':
         throw new McpError(
           ErrorCode.InvalidParams,

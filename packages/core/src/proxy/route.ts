@@ -42,7 +42,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Decision tree:
  *
  * 1. If `exposedName` cannot be parsed under the configured namespacing
- *    options, returns `unknown_tool`.
+ *    options, returns `unknown_tool`. Unsupported namespacing options (which
+ *    `parseExposedName` would normally throw on) are also coerced to
+ *    `unknown_tool` so the router's non-throwing contract holds for callers
+ *    that bypass config schema validation.
  * 2. If the registry has no entry for the exposed name, the router uses the
  *    parsed server name to consult the session lookup:
  *    - no session for that server → `unknown_tool`.
@@ -58,7 +61,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export async function routeToolCall(params: RouteToolCallParams): Promise<RouteResult> {
   const { exposedName, args, registry, sessions, namespacing, signal } = params;
 
-  const parsed = parseExposedName(exposedName, namespacing);
+  let parsed: ReturnType<typeof parseExposedName>;
+  try {
+    parsed = parseExposedName(exposedName, namespacing);
+  } catch {
+    return { kind: 'unknown_tool' };
+  }
   if (parsed === null) {
     return { kind: 'unknown_tool' };
   }

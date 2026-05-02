@@ -140,6 +140,22 @@ describe('routeToolCall', () => {
     expect(result).toEqual({ kind: 'unknown_tool' });
   });
 
+  it('returns unknown_tool when namespacing options are unsupported (parseExposedName would throw)', async () => {
+    const unsupported: NamespaceOptions = {
+      separator: '::' as unknown as '__',
+      format: 'server__tool',
+    };
+    const result = await routeToolCall({
+      exposedName: 'jira__search',
+      args: undefined,
+      registry: makeRegistry([entry('jira', 'search')]),
+      sessions: makeSessions({ jira: makeSession({}) }),
+      namespacing: unsupported,
+    });
+
+    expect(result).toEqual({ kind: 'unknown_tool' });
+  });
+
   it('returns unknown_tool when neither registry nor sessions know the server', async () => {
     const result = await routeToolCall({
       exposedName: 'ghost__tool',
