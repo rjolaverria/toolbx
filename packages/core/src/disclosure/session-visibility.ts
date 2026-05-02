@@ -183,7 +183,13 @@ export function createSessionVisibility(options: SessionVisibilityOptions): Sess
     notify(state, { kind: BOOTSTRAP_RESET_REASON });
   }
 
-  function on(_event: 'change', listener: SessionVisibilityChangeListener): () => void {
+  function on(event: 'change', listener: SessionVisibilityChangeListener): () => void {
+    if (event !== 'change') {
+      // The TS type narrows this to `'change'`, but a JS consumer could pass
+      // anything. Throw on unknown events so a typo surfaces immediately
+      // instead of silently subscribing to nothing.
+      throw new TypeError(`Unknown event: ${String(event)}`);
+    }
     state.listeners.add(listener);
     return () => {
       state.listeners.delete(listener);

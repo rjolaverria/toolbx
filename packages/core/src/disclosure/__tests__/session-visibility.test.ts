@@ -204,6 +204,15 @@ describe('createSessionVisibility — listener lifecycle', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('throws TypeError when subscribing to an unknown event name', () => {
+    const v = createSessionVisibility({ mode: 'session', bootstrapToolNames: BOOTSTRAP });
+    expect(() =>
+      // Cast to bypass the TS narrowing; the runtime guard exists for JS
+      // consumers and typo'd event names.
+      v.on('not-a-real-event' as 'change', () => undefined),
+    ).toThrow(TypeError);
+  });
+
   it('does not let a throwing listener break the registry or block other listeners', () => {
     const v = createSessionVisibility({ mode: 'session', bootstrapToolNames: BOOTSTRAP });
     const ok = vi.fn();
