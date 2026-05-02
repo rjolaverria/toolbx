@@ -186,6 +186,82 @@ describe('searchTools — band 5 input schema keywords', () => {
     // And confirm the keyword-overlap behavior with `jql`:
     expect(results[0]?.tool.exposedName).toBe('jira__search_issues');
   });
+
+  it('indexes property names nested inside an object property', () => {
+    const tool: RegisteredToolView = {
+      exposedName: 'svc__query',
+      serverName: 'svc',
+      upstreamName: 'query',
+      tool: {
+        name: 'svc__query',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            filter: {
+              type: 'object',
+              properties: {
+                status: { description: 'ticket status' },
+              },
+            },
+          },
+        },
+      },
+    };
+    const results = searchTools('status', [tool]);
+    expect(results[0]?.score).toBe(200);
+    expect(results[0]?.matchedFields).toEqual(['inputSchema']);
+  });
+
+  it('indexes property names inside array item schemas', () => {
+    const tool: RegisteredToolView = {
+      exposedName: 'svc__bulk',
+      serverName: 'svc',
+      upstreamName: 'bulk',
+      tool: {
+        name: 'svc__bulk',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            entries: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  priority: { description: 'urgency level' },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    const results = searchTools('priority', [tool]);
+    expect(results[0]?.score).toBe(200);
+  });
+
+  it('indexes property names inside oneOf branches', () => {
+    const tool: RegisteredToolView = {
+      exposedName: 'svc__choose',
+      serverName: 'svc',
+      upstreamName: 'choose',
+      tool: {
+        name: 'svc__choose',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            payload: {
+              oneOf: [
+                { type: 'object', properties: { webhookUrl: {} } },
+                { type: 'object', properties: { emailAddress: {} } },
+              ],
+            },
+          },
+        },
+      },
+    };
+    const results = searchTools('webhookurl', [tool]);
+    expect(results[0]?.score).toBe(200);
+  });
 });
 
 describe('searchTools — band 6 fuzzy substring fallback', () => {

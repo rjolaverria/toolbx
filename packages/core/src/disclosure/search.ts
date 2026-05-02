@@ -208,23 +208,50 @@ function tokenize(text: string): string[] {
   return text.split(/[^a-z0-9]+/).filter((token) => token.length > 0);
 }
 
+// Cap recursion to keep pathological / cyclic schemas bounded. JSON Schema
+// nesting deeper than this in practice is exotic; the cap is a safety net,
+// not a feature constraint.
+const SCHEMA_MAX_DEPTH = 8;
+
 function collectSchemaText(schema: unknown): string {
-  if (schema === null || typeof schema !== 'object') {
-    return '';
-  }
-  const properties = (schema as { properties?: unknown }).properties;
-  if (properties === null || typeof properties !== 'object') {
-    return '';
-  }
   const parts: string[] = [];
-  for (const [name, value] of Object.entries(properties as Record<string, unknown>)) {
-    parts.push(name.toLowerCase());
-    if (value !== null && typeof value === 'object') {
-      const description = (value as { description?: unknown }).description;
-      if (typeof description === 'string') {
-        parts.push(description.toLowerCase());
+  walkSchema(schema, parts, 0);
+  return parts.join(' ');
+}
+
+function walkSchema(schema: unknown, parts: string[], depth: number): void {
+  if (depth > SCHEMA_MAX_DEPTH || schema === null || typeof schema !== 'object') {
+    return;
+  }
+  const node = schema as Record<string, unknown>;
+
+  if (typeof node.description === 'string') {
+    parts.push(node.description.toLowerCase());
+  }
+
+  const properties = node.properties;
+  if (properties !== null && typeof properties === 'object') {
+    for (const [name, value] of Object.entries(properties as Record<string, unknown>)) {
+      parts.push(name.toLowerCase());
+      walkSchema(value, parts, depth + 1);
+    }
+  }
+
+  const items = node.items;
+  if (Array.isArray(items)) {
+    for (const child of items) {
+      walkSchema(child, parts, depth + 1);
+    }
+  } else if (items !== undefined) {
+    walkSchema(items, parts, depth + 1);
+  }
+
+  for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
+    const branch = node[key];
+    if (Array.isArray(branch)) {
+      for (const child of branch) {
+        walkSchema(child, parts, depth + 1);
       }
     }
   }
-  return parts.join(' ');
 }
