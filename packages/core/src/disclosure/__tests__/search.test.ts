@@ -239,6 +239,28 @@ describe('searchTools — band 5 input schema keywords', () => {
     expect(results[0]?.score).toBe(200);
   });
 
+  it('skips a malformed array-shaped properties block', () => {
+    // JSON Schema `properties` MUST be an object; an array is invalid. Without
+    // an `Array.isArray` guard, `Object.entries` would yield numeric keys
+    // ('0', '1', ...) and pollute the search index. Cast through `unknown` so
+    // the test can construct the malformed shape past the SDK's `Tool` types.
+    const malformedSchema = {
+      type: 'object',
+      properties: ['noise', 'more_noise'],
+    } as unknown as Tool['inputSchema'];
+    const tool: RegisteredToolView = {
+      exposedName: 'svc__bad',
+      serverName: 'svc',
+      upstreamName: 'bad',
+      tool: {
+        name: 'svc__bad',
+        inputSchema: malformedSchema,
+      },
+    };
+    expect(searchTools('0', [tool])).toEqual([]);
+    expect(searchTools('1', [tool])).toEqual([]);
+  });
+
   it('indexes property names inside oneOf branches', () => {
     const tool: RegisteredToolView = {
       exposedName: 'svc__choose',
@@ -317,6 +339,15 @@ describe('searchTools — limit option', () => {
     }
     const results = searchTools('bulk', many);
     expect(results).toHaveLength(20);
+  });
+
+  it.each([
+    ['zero', 0],
+    ['negative', -3],
+    ['fractional', 1.7],
+  ])('clamps a %s limit to a non-negative integer', (_label, limit) => {
+    const results = searchTools('github', FIXTURES, { limit });
+    expect(results).toHaveLength(Math.max(0, Math.floor(limit)));
   });
 });
 

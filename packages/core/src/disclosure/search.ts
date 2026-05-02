@@ -97,7 +97,11 @@ export function searchTools(
     return a.tool.exposedName < b.tool.exposedName ? -1 : 1;
   });
 
-  const limit = options?.limit ?? DEFAULT_LIMIT;
+  // Clamp to a non-negative integer so a caller-supplied limit cannot trigger
+  // `Array.prototype.slice`'s negative-index behaviour (which returns
+  // `length - n` items instead of an empty list) or fractional truncation.
+  const rawLimit = options?.limit ?? DEFAULT_LIMIT;
+  const limit = Math.max(0, Math.floor(rawLimit));
   return results.slice(0, limit);
 }
 
@@ -230,7 +234,7 @@ function walkSchema(schema: unknown, parts: string[], depth: number): void {
   }
 
   const properties = node.properties;
-  if (properties !== null && typeof properties === 'object') {
+  if (properties !== null && typeof properties === 'object' && !Array.isArray(properties)) {
     for (const [name, value] of Object.entries(properties as Record<string, unknown>)) {
       parts.push(name.toLowerCase());
       walkSchema(value, parts, depth + 1);
