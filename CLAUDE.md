@@ -165,6 +165,8 @@ Prettier: single quotes, semicolons, trailing commas, 100-char print width, 2-sp
 
 Always use curly braces on every block statement (`if`, `for`, `while`, etc.) — never braceless single-line bodies.
 
+Do not reference PR review comments, reviewers, or review threads inside code comments (e.g. "addresses Copilot's review", "per the PR feedback"). PR-review context belongs in the commit message or PR thread reply, not in the source — it rots and leaks process noise into the codebase. Code comments should explain the code on its own terms.
+
 ## Functions and State
 
 Prefer pure functions. Avoid mutating in-memory state unless there is no reasonable alternative (e.g. managing an active process registry).
