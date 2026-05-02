@@ -157,23 +157,23 @@ describe('runServe', () => {
     expect(h.loadConfig).not.toHaveBeenCalled();
   });
 
-  it('defaults to stdio mode when neither flag is set', async () => {
+  it('defaults to http mode when neither flag is set', async () => {
     const h = makeHarness();
     const promise = runServe({}, h.deps);
     // Allow runServe to reach the await downstream.done
     await Promise.resolve();
     await Promise.resolve();
-    h.stdioControls.finishDone();
+    h.httpControls.finishDone();
     const code = await promise;
 
     expect(code).toBe(0);
-    expect(h.createStdio).toHaveBeenCalledTimes(1);
-    expect(h.createHttp).not.toHaveBeenCalled();
+    expect(h.createHttp).toHaveBeenCalledTimes(1);
+    expect(h.createStdio).not.toHaveBeenCalled();
   });
 
   it('honors --config over the resolved default path', async () => {
     const h = makeHarness();
-    const promise = runServe({ config: '/custom/config.json' }, h.deps);
+    const promise = runServe({ stdio: true, config: '/custom/config.json' }, h.deps);
     await Promise.resolve();
     await Promise.resolve();
     h.stdioControls.finishDone();
@@ -184,7 +184,7 @@ describe('runServe', () => {
 
   it('falls back to resolvePath() when --config is omitted', async () => {
     const h = makeHarness();
-    const promise = runServe({}, h.deps);
+    const promise = runServe({ stdio: true }, h.deps);
     await Promise.resolve();
     await Promise.resolve();
     h.stdioControls.finishDone();
@@ -195,7 +195,7 @@ describe('runServe', () => {
 
   it('forces JSON log format on stderr in stdio mode', async () => {
     const h = makeHarness();
-    const promise = runServe({}, h.deps);
+    const promise = runServe({ stdio: true }, h.deps);
     await Promise.resolve();
     await Promise.resolve();
     h.stdioControls.finishDone();
@@ -212,7 +212,7 @@ describe('runServe', () => {
 
   it('honors --log-level and --log-format overrides', async () => {
     const h = makeHarness();
-    const promise = runServe({ logLevel: 'debug', logFormat: 'pretty' }, h.deps);
+    const promise = runServe({ stdio: true, logLevel: 'debug', logFormat: 'pretty' }, h.deps);
     await Promise.resolve();
     await Promise.resolve();
     h.stdioControls.finishDone();
@@ -223,7 +223,24 @@ describe('runServe', () => {
     );
   });
 
-  it('uses HTTP downstream and reports the bound URL on --http', async () => {
+  it('uses the stdio downstream when --stdio is passed explicitly', async () => {
+    const h = makeHarness();
+    const onStarted = vi.fn();
+    h.deps.onStarted = onStarted;
+
+    const promise = runServe({ stdio: true }, h.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    h.stdioControls.finishDone();
+    const code = await promise;
+
+    expect(code).toBe(0);
+    expect(h.createStdio).toHaveBeenCalledTimes(1);
+    expect(h.createHttp).not.toHaveBeenCalled();
+    expect(onStarted).toHaveBeenCalledWith(expect.objectContaining({ mode: 'stdio' }));
+  });
+
+  it('reports the bound URL on the default http path', async () => {
     const h = makeHarness();
     const onStarted = vi.fn();
     h.deps.onStarted = onStarted;
@@ -269,14 +286,14 @@ describe('runServe', () => {
     expect(code).toBe(1);
     expect(h.stderr.value).toMatch(/failed to load config/);
     expect(h.stderr.value).toMatch(/not json/);
-    expect(h.createStdio).not.toHaveBeenCalled();
+    expect(h.createHttp).not.toHaveBeenCalled();
   });
 
   it('disposes the runtime if the downstream fails to start', async () => {
     const h = makeHarness();
     h.stdioControls.server.start = vi.fn(() => Promise.reject(new Error('bind failed')));
 
-    const code = await runServe({}, h.deps);
+    const code = await runServe({ stdio: true }, h.deps);
     expect(code).toBe(1);
     expect(h.disposeSpy).toHaveBeenCalledTimes(1);
     expect(h.stderr.value).toMatch(/failed to start stdio server/);
@@ -285,7 +302,7 @@ describe('runServe', () => {
 
   it('disposes the runtime after the downstream done resolves', async () => {
     const h = makeHarness();
-    const promise = runServe({}, h.deps);
+    const promise = runServe({ stdio: true }, h.deps);
     await Promise.resolve();
     await Promise.resolve();
     expect(h.disposeSpy).not.toHaveBeenCalled();

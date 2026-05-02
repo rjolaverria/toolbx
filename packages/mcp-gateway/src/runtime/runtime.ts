@@ -88,6 +88,14 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     }
   }
 
+  // Tracks the per-session listener detach hooks so `dispose()` can clear
+  // them before tearing down sessions. Without this, late `status` /
+  // `tools_list_changed` events emitted after dispose would still fire into
+  // closures referencing the runtime/registries, and any consumer holding a
+  // session reference (via `runtime.upstreams.get`) would keep that closure
+  // graph alive — preventing GC.
+  const detachers: Array<() => void> = [];
+
   for (const [name, server] of Object.entries(deps.config.servers)) {
     if (!server.enabled) {
       continue;
@@ -99,12 +107,12 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     });
     sessions.set(name, session);
 
-    session.on('status', (status) => {
+    const onStatus = (status: ServerStatus): void => {
       syncStatusRegistry(name, session, status);
       syncToolRegistry(name, session, status);
-    });
+    };
 
-    session.on('tools_list_changed', () => {
+    const onToolsListChanged = (): void => {
       const status = session.status;
       if (status.kind !== 'connected') {
         return;
@@ -118,6 +126,13 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
         log.warn({ err: error, server: name }, 'failed to update status registry tool count');
       }
       syncToolRegistry(name, session, status);
+    };
+
+    session.on('status', onStatus);
+    session.on('tools_list_changed', onToolsListChanged);
+    detachers.push(() => {
+      session.off('status', onStatus);
+      session.off('tools_list_changed', onToolsListChanged);
     });
   }
 
@@ -143,6 +158,11 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     async dispose() {
       const entries = [...sessions.entries()];
       sessions.clear();
+      // Drive each session's own teardown first so its final status
+      // transition (-> `stopped`) is mirrored into the registries, then
+      // detach the listeners so any reference held by an external consumer
+      // (e.g. via `runtime.upstreams.get`) cannot keep the runtime/registry
+      // closures alive past dispose.
       await Promise.all(
         entries.map(async ([name, session]) => {
           try {
@@ -152,6 +172,14 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
           }
         }),
       );
+      while (detachers.length > 0) {
+        const detach = detachers.pop();
+        try {
+          detach?.();
+        } catch (error) {
+          log.warn({ err: error }, 'error detaching upstream session listener');
+        }
+      }
     },
   };
 }

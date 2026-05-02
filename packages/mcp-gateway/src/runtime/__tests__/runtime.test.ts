@@ -222,7 +222,7 @@ describe('createGatewayRuntime', () => {
     expect(exposed).toEqual(['jira__create_issue', 'jira__search_issues']);
   });
 
-  it('drops a server tools when its status leaves connected', () => {
+  it("drops a server's tools when its status leaves connected", () => {
     const controls = new Map<string, FakeSessionControls>();
     const runtime = createGatewayRuntime({
       config: makeConfig({ jira: STDIO_SERVER }),
@@ -316,5 +316,42 @@ describe('createGatewayRuntime', () => {
 
     expect(controls.get('jira')?.disposeCalls).toBe(1);
     expect(controls.get('github')?.disposeCalls).toBe(1);
+  });
+
+  it('detaches its session listeners on dispose so post-dispose events are ignored', async () => {
+    const controls = new Map<string, FakeSessionControls>();
+    const runtime = createGatewayRuntime({
+      config: makeConfig({ jira: STDIO_SERVER }),
+      logger: createNoopLogger(),
+      createSession: (name) => {
+        const c = makeFakeSession(name);
+        controls.set(name, c);
+        return c.session;
+      },
+    });
+
+    const jira = controls.get('jira');
+    if (!jira) {
+      throw new Error('jira session not created');
+    }
+    jira.setCachedTools([tool('echo')]);
+    jira.emitStatus({ kind: 'connected', since: new Date() });
+    expect(runtime.toolRegistry.list()).toHaveLength(1);
+
+    await runtime.dispose();
+    // Snapshot the registries' post-dispose state so we can assert it
+    // didn't move when stray events fire afterwards.
+    const toolsAfterDispose = runtime.toolRegistry.list();
+    const statusAfterDispose = runtime.statusRegistry.get('jira')?.status;
+
+    // After dispose, a stray status event from a session reference held by
+    // a consumer must not mutate the registries — listeners are detached
+    // and the closure graph between session and registries is broken.
+    jira.setCachedTools([tool('echo'), tool('shout')]);
+    jira.emitStatus({ kind: 'starting', attempt: 1 });
+    jira.emitToolsListChanged();
+
+    expect(runtime.toolRegistry.list()).toEqual(toolsAfterDispose);
+    expect(runtime.statusRegistry.get('jira')?.status).toEqual(statusAfterDispose);
   });
 });

@@ -90,7 +90,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     deps.stderr('tlbx serve: --stdio and --http are mutually exclusive\n');
     return 2;
   }
-  const mode: ServeMode = options.http === true ? 'http' : 'stdio';
+  const mode: ServeMode = options.stdio === true ? 'stdio' : 'http';
 
   const configPath =
     options.config !== undefined && options.config.length > 0 ? options.config : deps.resolvePath();
@@ -181,8 +181,8 @@ function errorMessage(error: unknown): string {
 export function serveCommand(): Command {
   const cmd = new Command('serve')
     .description('Start the Toolbox MCP gateway in stdio or HTTP mode.')
-    .option('-s, --stdio', 'serve over stdio (default)')
-    .option('-H, --http', 'serve over Streamable HTTP using config.server.http')
+    .option('-s, --stdio', 'serve over stdio')
+    .option('-H, --http', 'serve over Streamable HTTP using config.server.http (default)')
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))
     .addOption(new Option('--log-format <format>', 'logger output format').choices(LOG_FORMATS))
