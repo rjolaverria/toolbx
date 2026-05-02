@@ -109,3 +109,12 @@ export {
   type ToolSearchOptions,
   type ToolSearchResult,
 } from './disclosure/index.js';
+
+export {
+  createSessionVisibility,
+  type SessionVisibility,
+  type SessionVisibilityChangeListener,
+  type SessionVisibilityChangeReason,
+  type SessionVisibilityOptions,
+  type VisibilityMode,
+} from './disclosure/index.js';
