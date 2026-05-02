@@ -10,4 +10,5 @@ export {
   type RouteIssue,
   type RouteResult,
   type RouteToolCallParams,
+  type RouteUpstreamError,
 } from './route.js';

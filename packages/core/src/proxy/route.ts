@@ -1,3 +1,5 @@
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+
 import { parseExposedName, type NamespaceOptions } from '../namespace/index.js';
 import type { ServerStatus } from '../server-status/types.js';
 
@@ -10,6 +12,33 @@ export interface RouteIssue {
 }
 
 /**
+ * Structured payload for `upstream_error`. Two tagged variants:
+ *
+ * - `timeout`: the upstream call exceeded the configured `timeoutMs`. Either
+ *   the router's race timer fired, or the upstream client surfaced its own
+ *   `UpstreamCallToolTimeoutError` (matched by `error.name`).
+ * - `upstream`: the upstream session threw any other error. When the throw is
+ *   an MCP `McpError`, the protocol `code` and any `data` payload are
+ *   preserved for downstream consumers.
+ */
+export type RouteUpstreamError =
+  | {
+      readonly code: 'timeout';
+      readonly server: string;
+      readonly tool: string;
+      readonly timeoutMs: number;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'upstream';
+      readonly server: string;
+      readonly tool: string;
+      readonly message: string;
+      readonly upstreamCode?: number;
+      readonly upstreamData?: unknown;
+    };
+
+/**
  * Discriminated outcome of a proxied `tools/call`. The router never throws on
  * the call paths below — every routing decision is one of these variants. The
  * downstream `tools/call` handler converts each variant into the appropriate
@@ -20,7 +49,7 @@ export type RouteResult =
   | { readonly kind: 'unknown_tool' }
   | { readonly kind: 'server_unavailable'; readonly server: string; readonly status: ServerStatus }
   | { readonly kind: 'invalid_args'; readonly issues: readonly RouteIssue[] }
-  | { readonly kind: 'upstream_error'; readonly server: string; readonly error: Error };
+  | { readonly kind: 'upstream_error'; readonly error: RouteUpstreamError };
 
 export interface RouteToolCallParams {
   readonly exposedName: string;
@@ -30,10 +59,64 @@ export interface RouteToolCallParams {
   readonly sessions: SessionLookup;
   readonly namespacing: NamespaceOptions;
   readonly signal?: AbortSignal;
+  /**
+   * Per-server call-tool timeout. When provided, the router races the upstream
+   * call against this deadline using its own `AbortController`. If the timer
+   * fires, the call is aborted and the route resolves to a `timeout` variant.
+   * Independently, the value is also forwarded to the session so the upstream
+   * client's own timeout enforcement runs as a fallback.
+   */
+  readonly timeoutMs?: number;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// `McpError.code` is typed as `number` while `ErrorCode.RequestTimeout` is an
+// enum member, so a direct `===` trips `no-unsafe-enum-comparison`. Bind it
+// to a typed numeric alias so the comparison stays number↔number.
+const REQUEST_TIMEOUT_CODE: number = ErrorCode.RequestTimeout;
+
+function isUpstreamTimeoutError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === 'UpstreamCallToolTimeoutError' ||
+      (err instanceof McpError && err.code === REQUEST_TIMEOUT_CODE))
+  );
+}
+
+function describeUpstreamError(
+  err: unknown,
+  server: string,
+  tool: string,
+  timeoutMs: number | undefined,
+): RouteUpstreamError {
+  if (isUpstreamTimeoutError(err) && timeoutMs !== undefined) {
+    return {
+      code: 'timeout',
+      server,
+      tool,
+      timeoutMs,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (err instanceof McpError) {
+    const base: RouteUpstreamError = {
+      code: 'upstream',
+      server,
+      tool,
+      message: err.message,
+      upstreamCode: err.code,
+    };
+    return err.data === undefined ? base : { ...base, upstreamData: err.data };
+  }
+  return {
+    code: 'upstream',
+    server,
+    tool,
+    message: err instanceof Error ? err.message : String(err),
+  };
 }
 
 /**
@@ -55,11 +138,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *    - session is connected but the tool is genuinely absent → `unknown_tool`.
  * 3. If the registry has the entry, the router validates the argument shape,
  *    re-resolves the session (race-safe recheck after `find`), and forwards
- *    the call. Upstream throws are wrapped as `upstream_error`; non-`Error`
- *    throws are coerced into `Error` instances so the result type is uniform.
+ *    the call. Upstream throws are wrapped as `upstream_error`. When
+ *    `timeoutMs` is set and exceeded, the call is aborted and reported as a
+ *    `timeout` variant.
  */
 export async function routeToolCall(params: RouteToolCallParams): Promise<RouteResult> {
-  const { exposedName, args, registry, sessions, namespacing, signal } = params;
+  const { exposedName, args, registry, sessions, namespacing, signal, timeoutMs } = params;
 
   let parsed: ReturnType<typeof parseExposedName>;
   try {
@@ -102,17 +186,87 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
     return { kind: 'server_unavailable', server: entry.serverName, status: session.status };
   }
 
+  const controller = new AbortController();
+  const onCallerAbort = (): void => {
+    controller.abort();
+  };
+  if (signal !== undefined) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+  }
+
+  const callOpts: { signal: AbortSignal; timeoutMs?: number } = { signal: controller.signal };
+  if (timeoutMs !== undefined) {
+    callOpts.timeoutMs = timeoutMs;
+  }
+
+  // Wrap callTool so it never rejects — we discriminate on `kind` after the
+  // race. Without this, an unawaited rejection (e.g. when a slow upstream
+  // finally errors after the timeout has already been reported) would surface
+  // as an unhandled promise rejection.
+  type CallOutcome = { kind: 'ok'; result: RoutedCallToolResult } | { kind: 'err'; err: unknown };
+  const callPromise: Promise<CallOutcome> = session
+    .callTool(entry.upstreamName, args, callOpts)
+    .then(
+      (result) => ({ kind: 'ok' as const, result }),
+      (err: unknown) => ({ kind: 'err' as const, err }),
+    );
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    if (signal !== undefined) {
+      signal.removeEventListener('abort', onCallerAbort);
+    }
+  };
+
   try {
-    const result =
-      signal !== undefined
-        ? await session.callTool(entry.upstreamName, args, { signal })
-        : await session.callTool(entry.upstreamName, args);
-    return { kind: 'ok', result };
-  } catch (err) {
+    let outcome: CallOutcome | { kind: 'timeout' };
+    if (timeoutMs === undefined) {
+      outcome = await callPromise;
+    } else {
+      const timeoutPromise = new Promise<{ kind: 'timeout' }>((resolve) => {
+        timer = setTimeout(() => {
+          // Abort the controller so the upstream can terminate cooperatively,
+          // but do not wait for it — the router resolves the timeout result
+          // immediately so the deadline is enforced even if the session
+          // ignores the signal.
+          controller.abort();
+          resolve({ kind: 'timeout' });
+        }, timeoutMs);
+      });
+      outcome = await Promise.race([callPromise, timeoutPromise]);
+      // Drain any later rejection from the abandoned call to keep Node from
+      // logging an unhandled rejection. `callPromise` is already wrapped to
+      // never reject, so this is belt-and-braces.
+      void callPromise.catch(() => undefined);
+    }
+
+    if (outcome.kind === 'ok') {
+      return { kind: 'ok', result: outcome.result };
+    }
+    if (outcome.kind === 'timeout') {
+      return {
+        kind: 'upstream_error',
+        error: {
+          code: 'timeout',
+          server: entry.serverName,
+          tool: entry.upstreamName,
+          timeoutMs: timeoutMs as number,
+          message: `Upstream tool "${entry.upstreamName}" on server "${entry.serverName}" timed out after ${String(timeoutMs)}ms`,
+        },
+      };
+    }
     return {
       kind: 'upstream_error',
-      server: entry.serverName,
-      error: err instanceof Error ? err : new Error(String(err)),
+      error: describeUpstreamError(outcome.err, entry.serverName, entry.upstreamName, timeoutMs),
     };
+  } finally {
+    cleanup();
   }
 }

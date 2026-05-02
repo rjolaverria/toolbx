@@ -1,5 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
-import { describe, expect, it } from 'vitest';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { NamespaceOptions } from '../../namespace/index.js';
 import type { ServerStatus, ServerStatusKind } from '../../server-status/types.js';
@@ -89,10 +90,12 @@ describe('routeToolCall', () => {
     });
 
     expect(result).toEqual({ kind: 'ok', result: upstreamResult });
-    expect(jira.calls).toEqual([{ name: 'search', args: { jql: 'x' }, opts: undefined }]);
+    expect(jira.calls).toHaveLength(1);
+    expect(jira.calls[0]?.name).toBe('search');
+    expect(jira.calls[0]?.args).toEqual({ jql: 'x' });
   });
 
-  it('passes the abort signal through to the upstream session when provided', async () => {
+  it('forwards a router-managed signal to the upstream session when the caller passes one', async () => {
     const jiraEntry = entry('jira', 'search');
     const registry = makeRegistry([jiraEntry]);
     const jira = makeSession({});
@@ -108,7 +111,8 @@ describe('routeToolCall', () => {
     });
 
     expect(jira.calls).toHaveLength(1);
-    expect(jira.calls[0]?.opts).toEqual({ signal: ac.signal });
+    expect(jira.calls[0]?.opts?.signal).toBeInstanceOf(AbortSignal);
+    expect(jira.calls[0]?.opts?.signal?.aborted).toBe(false);
   });
 
   it('treats undefined args as a valid empty call (does not flag invalid_args)', async () => {
@@ -125,7 +129,9 @@ describe('routeToolCall', () => {
     });
 
     expect(result.kind).toBe('ok');
-    expect(jira.calls).toEqual([{ name: 'search', args: undefined, opts: undefined }]);
+    expect(jira.calls).toHaveLength(1);
+    expect(jira.calls[0]?.name).toBe('search');
+    expect(jira.calls[0]?.args).toBeUndefined();
   });
 
   it('returns unknown_tool when the exposed name cannot be parsed', async () => {
@@ -274,7 +280,7 @@ describe('routeToolCall', () => {
     expect(jira.calls).toEqual([]);
   });
 
-  it('returns upstream_error when the session throws an Error', async () => {
+  it('returns upstream_error with code "upstream" when the session throws a plain Error', async () => {
     const jiraEntry = entry('jira', 'search');
     const registry = makeRegistry([jiraEntry]);
     const boom = new Error('upstream blew up');
@@ -288,10 +294,45 @@ describe('routeToolCall', () => {
       namespacing: NS,
     });
 
-    expect(result).toEqual({ kind: 'upstream_error', server: 'jira', error: boom });
+    expect(result).toEqual({
+      kind: 'upstream_error',
+      error: {
+        code: 'upstream',
+        server: 'jira',
+        tool: 'search',
+        message: 'upstream blew up',
+      },
+    });
   });
 
-  it('coerces non-Error throws into Error instances in upstream_error', async () => {
+  it('preserves the McpError code and data in the upstream_error payload', async () => {
+    const jiraEntry = entry('jira', 'search');
+    const registry = makeRegistry([jiraEntry]);
+    const mcpErr = new McpError(ErrorCode.InvalidParams, 'bad jql', { field: 'jql' });
+    const jira = makeSession({ throwValue: mcpErr });
+
+    const result = await routeToolCall({
+      exposedName: 'jira__search',
+      args: { jql: 'x' },
+      registry,
+      sessions: makeSessions({ jira }),
+      namespacing: NS,
+    });
+
+    expect(result.kind).toBe('upstream_error');
+    if (result.kind === 'upstream_error') {
+      expect(result.error.code).toBe('upstream');
+      expect(result.error.server).toBe('jira');
+      expect(result.error.tool).toBe('search');
+      expect(result.error.message).toContain('bad jql');
+      if (result.error.code === 'upstream') {
+        expect(result.error.upstreamCode).toBe(ErrorCode.InvalidParams);
+        expect(result.error.upstreamData).toEqual({ field: 'jql' });
+      }
+    }
+  });
+
+  it('coerces non-Error throws into upstream_error messages', async () => {
     const jiraEntry = entry('jira', 'search');
     const registry = makeRegistry([jiraEntry]);
     const jira = makeSession({ throwValue: 'string boom' });
@@ -304,12 +345,188 @@ describe('routeToolCall', () => {
       namespacing: NS,
     });
 
-    expect(result.kind).toBe('upstream_error');
-    if (result.kind === 'upstream_error') {
-      expect(result.server).toBe('jira');
-      expect(result.error).toBeInstanceOf(Error);
-      expect(result.error.message).toBe('string boom');
-    }
+    expect(result).toEqual({
+      kind: 'upstream_error',
+      error: {
+        code: 'upstream',
+        server: 'jira',
+        tool: 'search',
+        message: 'string boom',
+      },
+    });
+  });
+
+  describe('timeout handling', () => {
+    it('aborts the upstream call and returns code "timeout" when timeoutMs elapses', async () => {
+      vi.useFakeTimers();
+      try {
+        const jiraEntry = entry('jira', 'search');
+        const registry = makeRegistry([jiraEntry]);
+
+        let observedSignal: AbortSignal | undefined;
+        const session: SessionView = {
+          status: CONNECTED,
+          callTool(_name, _args, opts) {
+            observedSignal = opts?.signal;
+            return new Promise((_resolve, reject) => {
+              opts?.signal?.addEventListener('abort', () => {
+                reject(new Error('aborted'));
+              });
+            });
+          },
+        };
+
+        const promise = routeToolCall({
+          exposedName: 'jira__search',
+          args: { jql: 'x' },
+          registry,
+          sessions: makeSessions({ jira: session }),
+          namespacing: NS,
+          timeoutMs: 50,
+        });
+
+        await vi.advanceTimersByTimeAsync(50);
+        const result = await promise;
+
+        expect(result.kind).toBe('upstream_error');
+        if (result.kind === 'upstream_error' && result.error.code === 'timeout') {
+          expect(result.error.server).toBe('jira');
+          expect(result.error.tool).toBe('search');
+          expect(result.error.timeoutMs).toBe(50);
+          expect(result.error.message).toContain('timed out after 50ms');
+        }
+        expect(observedSignal?.aborted).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('resolves at the deadline even when the upstream session ignores abort', async () => {
+      vi.useFakeTimers();
+      try {
+        const jiraEntry = entry('jira', 'search');
+        const registry = makeRegistry([jiraEntry]);
+
+        // Session that never resolves and never observes the abort signal.
+        const session: SessionView = {
+          status: CONNECTED,
+          callTool() {
+            return new Promise(() => {
+              // intentionally never settles
+            });
+          },
+        };
+
+        const promise = routeToolCall({
+          exposedName: 'jira__search',
+          args: undefined,
+          registry,
+          sessions: makeSessions({ jira: session }),
+          namespacing: NS,
+          timeoutMs: 50,
+        });
+
+        await vi.advanceTimersByTimeAsync(50);
+        const result = await promise;
+
+        expect(result.kind).toBe('upstream_error');
+        if (result.kind === 'upstream_error') {
+          expect(result.error.code).toBe('timeout');
+          if (result.error.code === 'timeout') {
+            expect(result.error.timeoutMs).toBe(50);
+            expect(result.error.message).toContain('timed out after 50ms');
+          }
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('classifies a thrown UpstreamCallToolTimeoutError as code "timeout"', async () => {
+      const jiraEntry = entry('jira', 'search');
+      const registry = makeRegistry([jiraEntry]);
+      const upstreamTimeout = Object.assign(new Error('upstream timed out'), {
+        name: 'UpstreamCallToolTimeoutError',
+      });
+      const jira = makeSession({ throwValue: upstreamTimeout });
+
+      const result = await routeToolCall({
+        exposedName: 'jira__search',
+        args: undefined,
+        registry,
+        sessions: makeSessions({ jira }),
+        namespacing: NS,
+        timeoutMs: 250,
+      });
+
+      expect(result).toEqual({
+        kind: 'upstream_error',
+        error: {
+          code: 'timeout',
+          server: 'jira',
+          tool: 'search',
+          timeoutMs: 250,
+          message: 'upstream timed out',
+        },
+      });
+    });
+
+    it('forwards timeoutMs and a router-controlled signal to the session', async () => {
+      const jiraEntry = entry('jira', 'search');
+      const registry = makeRegistry([jiraEntry]);
+      const jira = makeSession({});
+
+      await routeToolCall({
+        exposedName: 'jira__search',
+        args: undefined,
+        registry,
+        sessions: makeSessions({ jira }),
+        namespacing: NS,
+        timeoutMs: 1234,
+      });
+
+      expect(jira.calls).toHaveLength(1);
+      expect(jira.calls[0]?.opts?.timeoutMs).toBe(1234);
+      expect(jira.calls[0]?.opts?.signal).toBeInstanceOf(AbortSignal);
+      expect(jira.calls[0]?.opts?.signal?.aborted).toBe(false);
+    });
+
+    it('aborts the upstream call when the caller signal aborts', async () => {
+      const jiraEntry = entry('jira', 'search');
+      const registry = makeRegistry([jiraEntry]);
+
+      const ac = new AbortController();
+      const session: SessionView = {
+        status: CONNECTED,
+        callTool(_name, _args, opts) {
+          return new Promise((_resolve, reject) => {
+            opts?.signal?.addEventListener('abort', () => {
+              reject(new Error('caller aborted'));
+            });
+            queueMicrotask(() => ac.abort());
+          });
+        },
+      };
+
+      const result = await routeToolCall({
+        exposedName: 'jira__search',
+        args: undefined,
+        registry,
+        sessions: makeSessions({ jira: session }),
+        namespacing: NS,
+        signal: ac.signal,
+      });
+
+      expect(result).toEqual({
+        kind: 'upstream_error',
+        error: {
+          code: 'upstream',
+          server: 'jira',
+          tool: 'search',
+          message: 'caller aborted',
+        },
+      });
+    });
   });
 
   it('never throws — every branch resolves to a RouteResult', async () => {
