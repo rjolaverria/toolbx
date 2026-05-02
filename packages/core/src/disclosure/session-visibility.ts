@@ -113,7 +113,17 @@ export function createSessionVisibility(options: SessionVisibilityOptions): Sess
   }
 
   function list(): string[] {
-    return sortByByteOrder(state.revealed);
+    // Filter against this instance's bootstrap allowlist: in `mode: 'global'`,
+    // another instance with a different allowlist may have stored a name into
+    // the shared revealed set that is bootstrap for *this* instance. The
+    // contract says bootstrap tools are not included in `list()`.
+    const filtered: string[] = [];
+    for (const name of state.revealed) {
+      if (!bootstrapNames.has(name)) {
+        filtered.push(name);
+      }
+    }
+    return sortByByteOrder(filtered);
   }
 
   function snapshot(): string[] {

@@ -298,4 +298,18 @@ describe('createSessionVisibility — global mode', () => {
     expect(b.isVisible('only_a__tool')).toBe(false);
     expect(b.isVisible('only_b__tool')).toBe(true);
   });
+
+  it('list() filters out names that are bootstrap for the calling instance, even if revealed by another global instance', () => {
+    const a = createSessionVisibility({ mode: 'global', bootstrapToolNames: ['shared__name'] });
+    const b = createSessionVisibility({ mode: 'global', bootstrapToolNames: [] });
+
+    // B has no bootstrap allowlist, so 'shared__name' goes into the shared
+    // revealed set. A treats 'shared__name' as bootstrap and must not include
+    // it in list().
+    b.reveal(['shared__name']);
+
+    expect(b.list()).toEqual(['shared__name']);
+    expect(a.list()).toEqual([]);
+    expect(a.isVisible('shared__name')).toBe(true);
+  });
 });
