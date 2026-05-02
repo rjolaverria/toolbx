@@ -1,10 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import { createNoopLogger } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
+import type { Logger, NamespaceOptions, ServerStatus } from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
@@ -52,16 +52,38 @@ function fakeUpstream(opts: {
 
 async function rejectsAsMcpError(
   promise: Promise<unknown>,
-): Promise<{ code: number; message: string }> {
+): Promise<{ code: number; message: string; data?: unknown }> {
   try {
     await promise;
   } catch (err) {
     if (err instanceof Error && typeof (err as unknown as { code?: unknown }).code === 'number') {
-      return { code: (err as unknown as { code: number }).code, message: err.message };
+      const e = err as unknown as { code: number; data?: unknown };
+      return { code: e.code, message: err.message, data: e.data };
     }
     throw new Error(`expected an MCP error, got: ${String(err)}`, { cause: err });
   }
   throw new Error('expected promise to reject');
+}
+
+interface FakeLogger {
+  logger: Logger;
+  info: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+}
+
+function fakeLogger(): FakeLogger {
+  const info = vi.fn();
+  const warn = vi.fn();
+  const logger = {
+    info,
+    warn,
+    debug: vi.fn(),
+    error: vi.fn(),
+    trace: vi.fn(),
+    fatal: vi.fn(),
+    child: () => logger,
+  } as unknown as Logger;
+  return { logger, info, warn };
 }
 
 function lookupFrom(map: Record<string, UpstreamSession>): UpstreamSessionLookup {
@@ -76,6 +98,8 @@ async function connect(opts: {
   registry: ToolRegistry;
   upstreams: UpstreamSessionLookup;
   suppressInitialized?: boolean;
+  resolveTimeoutMs?: (serverName: string) => number | undefined;
+  logger?: Logger;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const built = buildToolboxMcpServer({
@@ -84,6 +108,8 @@ async function connect(opts: {
     registerHandlers: (server, session) => {
       registerToolsCallHandler(server, session, opts.registry, opts.upstreams, {
         namespacing: NS,
+        ...(opts.resolveTimeoutMs !== undefined ? { resolveTimeoutMs: opts.resolveTimeoutMs } : {}),
+        ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
       });
     },
   });
@@ -131,7 +157,9 @@ describe('tools/call handler', () => {
       arguments: { jql: 'project = TLBX' },
     });
 
-    expect(jira.callTool).toHaveBeenCalledWith('search_issues', { jql: 'project = TLBX' });
+    expect(jira.callTool).toHaveBeenCalledTimes(1);
+    expect(jira.callTool.mock.calls[0]?.[0]).toBe('search_issues');
+    expect(jira.callTool.mock.calls[0]?.[1]).toEqual({ jql: 'project = TLBX' });
     expect(result).toMatchObject({ content: [{ type: 'text', text: 'found-2' }] });
     await closeAll();
   });
@@ -254,6 +282,209 @@ describe('tools/call handler', () => {
     const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
     expect(err.code).toBe(ErrorCode.InternalError);
     expect(err.message).toContain('"jira"');
+    expect(jira.callTool).not.toHaveBeenCalled();
+    await closeAll();
+  });
+
+  it('attaches structured data to a server_unavailable error', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const errorStatus: ServerStatus = {
+      kind: 'error',
+      error: new Error('boom'),
+      nextRetryAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    const jira = fakeUpstream({ serverName: 'jira', status: errorStatus });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.InternalError);
+    expect(err.data).toMatchObject({
+      server: 'jira',
+      status: { kind: 'error' },
+    });
+    await closeAll();
+  });
+
+  it('aborts the upstream call and reports a timeout when timeoutMs elapses', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+
+    let observedSignal: AbortSignal | undefined;
+    const callTool = vi.fn(
+      (
+        _name: string,
+        _args: Record<string, unknown> | undefined,
+        opts?: { signal?: AbortSignal },
+      ) => {
+        observedSignal = opts?.signal;
+        return new Promise<CallToolResult>((_resolve, reject) => {
+          opts?.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        });
+      },
+    );
+    const session = {
+      serverName: 'jira',
+      status: CONNECTED,
+      callTool,
+    } as unknown as UpstreamSession;
+
+    const startedAt = Date.now();
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: session }),
+      resolveTimeoutMs: () => 50,
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(err.code).toBe(ErrorCode.InternalError);
+    expect(err.data).toMatchObject({
+      server: 'jira',
+      tool: 'search_issues',
+      code: 'timeout',
+      timeoutMs: 50,
+    });
+    expect(observedSignal?.aborted).toBe(true);
+    // Allow generous slack for CI; we only need to confirm the call didn't hang.
+    expect(elapsedMs).toBeLessThan(2000);
+    await closeAll();
+  });
+
+  it('forwards McpError details from the upstream session as upstreamCode/upstreamData', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+
+    const upstreamErr = new McpError(ErrorCode.InvalidParams, 'bad jql', { field: 'jql' });
+    const callTool = vi.fn(() => Promise.reject(upstreamErr));
+    const session = {
+      serverName: 'jira',
+      status: CONNECTED,
+      callTool,
+    } as unknown as UpstreamSession;
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: session }),
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.InternalError);
+    expect(err.data).toMatchObject({
+      server: 'jira',
+      tool: 'search_issues',
+      code: 'upstream',
+      upstreamCode: ErrorCode.InvalidParams,
+      upstreamData: { field: 'jql' },
+    });
+    await closeAll();
+  });
+
+  it('logs success at info with server, tool, durationMs, and outcome', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+    const log = fakeLogger();
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      logger: log.logger,
+    });
+
+    await client.callTool({ name: 'jira__search_issues' });
+
+    expect(log.info).toHaveBeenCalledTimes(1);
+    expect(log.warn).not.toHaveBeenCalled();
+    const [fields] = log.info.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({
+      server: 'jira',
+      tool: 'jira__search_issues',
+      outcome: 'ok',
+    });
+    expect(typeof fields.durationMs).toBe('number');
+    await closeAll();
+  });
+
+  it('logs failures at warn with the route variant in the outcome field', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const callTool = vi.fn(() => Promise.reject(new Error('upstream blew up')));
+    const session = {
+      serverName: 'jira',
+      status: CONNECTED,
+      callTool,
+    } as unknown as UpstreamSession;
+    const log = fakeLogger();
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: session }),
+      logger: log.logger,
+    });
+
+    await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    const [fields] = log.warn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({
+      server: 'jira',
+      tool: 'jira__search_issues',
+      outcome: 'upstream_error:upstream',
+    });
+    await closeAll();
+  });
+
+  it('does not invoke callTool when the upstream session is disabled', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira', status: { kind: 'disabled' } });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.InternalError);
+    expect(err.data).toMatchObject({ server: 'jira', status: { kind: 'disabled' } });
     expect(jira.callTool).not.toHaveBeenCalled();
     await closeAll();
   });

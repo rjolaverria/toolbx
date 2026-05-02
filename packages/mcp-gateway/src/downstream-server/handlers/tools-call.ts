@@ -1,7 +1,13 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { routeToolCall, type NamespaceOptions, type SessionLookup } from '@toolbox/core';
+import {
+  routeToolCall,
+  type Logger,
+  type NamespaceOptions,
+  type RouteResult,
+  type SessionLookup,
+} from '@toolbox/core';
 
 import type { ToolRegistry } from '../../registry/index.js';
 import type { DownstreamSession } from '../session.js';
@@ -20,6 +26,88 @@ export type UpstreamSessionLookup = SessionLookup;
 
 export interface RegisterToolsCallHandlerOptions {
   namespacing: NamespaceOptions;
+  /**
+   * Resolves the configured per-server `timeoutMs`. The runtime feeds this
+   * from `ServerConfig.timeoutMs`. Returning `undefined` means "no router-side
+   * timeout" — the upstream client may still enforce its own.
+   */
+  resolveTimeoutMs?: (serverName: string) => number | undefined;
+  /** Logger used to emit one structured entry per completed call. */
+  logger?: Logger;
+}
+
+function outcomeOf(result: RouteResult): string {
+  if (result.kind === 'upstream_error') {
+    return `upstream_error:${result.error.code}`;
+  }
+  return result.kind;
+}
+
+function logCompletion(
+  logger: Logger | undefined,
+  result: RouteResult,
+  meta: { server: string | undefined; tool: string; durationMs: number },
+): void {
+  if (logger === undefined) {
+    return;
+  }
+  const fields = {
+    server: meta.server,
+    tool: meta.tool,
+    durationMs: meta.durationMs,
+    outcome: outcomeOf(result),
+  };
+  if (result.kind === 'ok') {
+    logger.info(fields, 'tools/call ok');
+  } else {
+    logger.warn(fields, 'tools/call failed');
+  }
+}
+
+function toMcpError(name: string, result: Exclude<RouteResult, { kind: 'ok' }>): McpError {
+  switch (result.kind) {
+    case 'unknown_tool':
+      return new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}"`);
+    case 'server_unavailable': {
+      const reason = 'reason' in result.status ? `: ${result.status.reason}` : '';
+      return new McpError(
+        ErrorCode.InternalError,
+        `Upstream server "${result.server}" is unavailable (status: ${result.status.kind}${reason})`,
+        { server: result.server, status: result.status },
+      );
+    }
+    case 'invalid_args': {
+      const message = result.issues.map((issue) => issue.message).join('; ');
+      return new McpError(ErrorCode.InvalidParams, message, { issues: result.issues });
+    }
+    case 'upstream_error': {
+      const { error } = result;
+      if (error.code === 'timeout') {
+        return new McpError(
+          ErrorCode.InternalError,
+          `Upstream tool "${error.tool}" on server "${error.server}" timed out after ${error.timeoutMs}ms`,
+          {
+            server: error.server,
+            tool: error.tool,
+            code: 'timeout',
+            timeoutMs: error.timeoutMs,
+          },
+        );
+      }
+      const data: Record<string, unknown> = {
+        server: error.server,
+        tool: error.tool,
+        code: 'upstream',
+      };
+      if (error.upstreamCode !== undefined) {
+        data.upstreamCode = error.upstreamCode;
+      }
+      if (error.upstreamData !== undefined) {
+        data.upstreamData = error.upstreamData;
+      }
+      return new McpError(ErrorCode.InternalError, error.message, data);
+    }
+  }
 }
 
 /**
@@ -30,8 +118,12 @@ export interface RegisterToolsCallHandlerOptions {
  * Argument validation is delegated to the upstream server — Toolbox does not
  * second-guess JSON Schema enforcement. The router enforces a structural
  * guard (arguments must be an object) for callers that bypass the SDK's
- * request schema. Concrete timeout and retry policy lives in M3-03; this
- * adapter lets upstream errors propagate as MCP `InternalError`s for now.
+ * request schema.
+ *
+ * Per-server timeouts come from `resolveTimeoutMs`. Every completed call —
+ * success or failure — is logged once with `{ server, tool, durationMs,
+ * outcome }`. The handler never lets an upstream failure crash the
+ * downstream server: every routing branch maps to a structured `McpError`.
  */
 export function registerToolsCallHandler(
   server: Server,
@@ -40,43 +132,43 @@ export function registerToolsCallHandler(
   upstreams: UpstreamSessionLookup,
   options: RegisterToolsCallHandlerOptions,
 ): void {
+  const { namespacing, resolveTimeoutMs, logger } = options;
+
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     requireReady(session);
 
     const { name, arguments: args } = request.params;
 
+    let serverName: string | undefined;
+    const entry = registry.find(name);
+    if (entry !== undefined) {
+      serverName = entry.serverName;
+    }
+    const timeoutMs =
+      serverName !== undefined && resolveTimeoutMs !== undefined
+        ? resolveTimeoutMs(serverName)
+        : undefined;
+
+    const startedAt = Date.now();
     const result = await routeToolCall({
       exposedName: name,
       args,
       registry,
       sessions: upstreams,
-      namespacing: options.namespacing,
+      namespacing,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+    const durationMs = Date.now() - startedAt;
+
+    logCompletion(logger, result, {
+      server: serverName ?? (result.kind === 'server_unavailable' ? result.server : undefined),
+      tool: name,
+      durationMs,
     });
 
-    switch (result.kind) {
-      case 'ok':
-        return result.result;
-      case 'unknown_tool':
-        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}"`);
-      case 'server_unavailable': {
-        const reason = 'reason' in result.status ? `: ${result.status.reason}` : '';
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Upstream server "${result.server}" is unavailable (status: ${result.status.kind}${reason})`,
-        );
-      }
-      case 'invalid_args':
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          result.issues.map((issue) => issue.message).join('; '),
-        );
-      case 'upstream_error':
-        if (result.error instanceof McpError) {
-          throw result.error;
-        }
-        throw new McpError(ErrorCode.InternalError, result.error.message, {
-          cause: result.error,
-        });
+    if (result.kind === 'ok') {
+      return result.result;
     }
+    throw toMcpError(name, result);
   });
 }

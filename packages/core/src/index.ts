@@ -97,6 +97,7 @@ export {
   type RouteIssue,
   type RouteResult,
   type RouteToolCallParams,
+  type RouteUpstreamError,
   type SessionCallToolOptions,
   type SessionLookup,
   type SessionView,
