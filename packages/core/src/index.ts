@@ -88,3 +88,16 @@ export {
   type StatusRegistryListener,
   type StatusRegistryUpdate,
 } from './server-status/registry.js';
+
+export {
+  routeToolCall,
+  type RegisteredToolView,
+  type RegistryView,
+  type RoutedCallToolResult,
+  type RouteIssue,
+  type RouteResult,
+  type RouteToolCallParams,
+  type SessionCallToolOptions,
+  type SessionLookup,
+  type SessionView,
+} from './proxy/index.js';

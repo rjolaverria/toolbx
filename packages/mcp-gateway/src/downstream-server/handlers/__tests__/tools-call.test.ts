@@ -82,7 +82,9 @@ async function connect(opts: {
     logger: createNoopLogger(),
     sessionId: 'tools-call-test',
     registerHandlers: (server, session) => {
-      registerToolsCallHandler(server, session, opts.registry, opts.upstreams);
+      registerToolsCallHandler(server, session, opts.registry, opts.upstreams, {
+        namespacing: NS,
+      });
     },
   });
   if (opts.suppressInitialized) {

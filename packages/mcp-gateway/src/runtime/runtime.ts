@@ -138,7 +138,9 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
 
   const registerHandlers: RegisterDownstreamHandlers = (server, downstreamSession) => {
     registerToolsListHandler(server, downstreamSession, toolRegistry);
-    registerToolsCallHandler(server, downstreamSession, toolRegistry, upstreams);
+    registerToolsCallHandler(server, downstreamSession, toolRegistry, upstreams, {
+      namespacing: deps.config.namespacing,
+    });
   };
 
   return {
