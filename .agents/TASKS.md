@@ -46,7 +46,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 - [x] **M3-01** — [Namespacing module (separator, format, collision strategy)](tasks/M3-01-namespacing-module.md) — closed by 74fe794
 - [x] **M3-02** — [Tool routing engine: namespaced call → upstream call](tasks/M3-02-tool-routing-engine.md) — closed by 20d20c4
-- [ ] **M3-03** — [Timeout, error, and disabled-server handling for proxied calls](tasks/M3-03-proxy-error-and-timeout-handling.md)
+- [x] **M3-03** — [Timeout, error, and disabled-server handling for proxied calls](tasks/M3-03-proxy-error-and-timeout-handling.md) — closed by 59dabf5
 
 ## Milestone 4 — Progressive Disclosure
 
