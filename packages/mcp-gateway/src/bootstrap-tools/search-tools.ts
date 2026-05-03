@@ -5,7 +5,10 @@ import { z } from 'zod';
 
 import type { ToolRegistry } from '../registry/index.js';
 
+import { SEARCH_TOOLS_NAME } from './names.js';
 import type { BootstrapTool, BootstrapToolRegistry } from './registry.js';
+
+export { SEARCH_TOOLS_NAME };
 
 /**
  * `toolbox__search_tools` (M4-03) — the first progressive-disclosure
@@ -27,8 +30,6 @@ import type { BootstrapTool, BootstrapToolRegistry } from './registry.js';
  * by hand because the surface area is three fields and there's no
  * value in pulling in a Zod-to-JSON-Schema converter.
  */
-
-export const SEARCH_TOOLS_NAME = 'toolbox__search_tools';
 
 const ArgsSchema = z
   .object({
