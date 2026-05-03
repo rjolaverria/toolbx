@@ -178,7 +178,7 @@ describe('toolbox__hide_tools (M4-04)', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('does not emit a change event when no name was actually revealed', async () => {
+  it('does not emit a change event when no name was actually hidden', async () => {
     const visibility = freshVisibility();
     const hide = createHideToolsBootstrap({ visibility });
 
