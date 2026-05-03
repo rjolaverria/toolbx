@@ -104,8 +104,14 @@ export {
 } from './proxy/index.js';
 
 export {
+  createSessionVisibility,
   searchTools,
   type SearchMatchedField,
+  type SessionVisibility,
+  type SessionVisibilityChangeListener,
+  type SessionVisibilityChangeReason,
+  type SessionVisibilityOptions,
   type ToolSearchOptions,
   type ToolSearchResult,
+  type VisibilityMode,
 } from './disclosure/index.js';
