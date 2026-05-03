@@ -7,6 +7,10 @@ import { createNoopLogger } from '@toolbox/core';
 import type { Logger, NamespaceOptions, ServerStatus } from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  createBootstrapToolRegistry,
+  type BootstrapToolRegistry,
+} from '../../../bootstrap-tools/index.js';
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
 import type { CallToolResult, UpstreamSession } from '../../../upstream-client/index.js';
 import { buildToolboxMcpServer } from '../../server.js';
@@ -100,8 +104,10 @@ async function connect(opts: {
   suppressInitialized?: boolean;
   resolveTimeoutMs?: (serverName: string) => number | undefined;
   logger?: Logger;
+  bootstrap?: BootstrapToolRegistry;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
   const built = buildToolboxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-call-test',
@@ -110,6 +116,7 @@ async function connect(opts: {
         namespacing: NS,
         ...(opts.resolveTimeoutMs !== undefined ? { resolveTimeoutMs: opts.resolveTimeoutMs } : {}),
         ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
+        bootstrap,
       });
     },
   });
@@ -508,6 +515,56 @@ describe('tools/call handler', () => {
     await expect(client.callTool({ name: 'jira__search_issues' })).rejects.toMatchObject({
       code: ErrorCode.InvalidRequest,
     });
+    await closeAll();
+  });
+
+  it('dispatches bootstrap-tool calls without consulting upstream sessions', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+
+    const lookupCalls: string[] = [];
+    const upstreams: UpstreamSessionLookup = {
+      get(name) {
+        lookupCalls.push(name);
+        return name === 'jira' ? jira.session : undefined;
+      },
+    };
+
+    const bootstrap = createBootstrapToolRegistry();
+    const invokeCalls: unknown[] = [];
+    bootstrap.add({
+      descriptor: {
+        name: 'toolbox__ping',
+        description: 'test',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke(args) {
+        invokeCalls.push(args);
+        return Promise.resolve({ content: [{ type: 'text', text: 'bootstrap-pong' }] });
+      },
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams,
+      bootstrap,
+    });
+
+    const result = await client.callTool({
+      name: 'toolbox__ping',
+      arguments: { msg: 'hi' },
+    });
+
+    expect(invokeCalls).toEqual([{ msg: 'hi' }]);
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'bootstrap-pong' }] });
+    expect(lookupCalls).toEqual([]);
+    expect(jira.callTool).not.toHaveBeenCalled();
     await closeAll();
   });
 });

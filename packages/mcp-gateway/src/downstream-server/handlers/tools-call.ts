@@ -9,6 +9,7 @@ import {
   type SessionLookup,
 } from '@toolbox/core';
 
+import type { BootstrapToolRegistry } from '../../bootstrap-tools/index.js';
 import type { ToolRegistry } from '../../registry/index.js';
 import type { DownstreamSession } from '../session.js';
 
@@ -34,6 +35,13 @@ export interface RegisterToolsCallHandlerOptions {
   resolveTimeoutMs?: (serverName: string) => number | undefined;
   /** Logger used to emit one structured entry per completed call. */
   logger?: Logger;
+  /**
+   * Bootstrap tools (M4-03+). Calls whose name matches a registered bootstrap
+   * tool short-circuit upstream routing. The registry is required so the
+   * handler signature is unambiguous; pass an empty registry when bootstrap
+   * tools are disabled.
+   */
+  bootstrap: BootstrapToolRegistry;
 }
 
 function outcomeOf(result: RouteResult): string {
@@ -132,12 +140,30 @@ export function registerToolsCallHandler(
   upstreams: UpstreamSessionLookup,
   options: RegisterToolsCallHandlerOptions,
 ): void {
-  const { namespacing, resolveTimeoutMs, logger } = options;
+  const { namespacing, resolveTimeoutMs, logger, bootstrap } = options;
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     requireReady(session);
 
     const { name, arguments: args } = request.params;
+
+    const bootstrapTool = bootstrap.find(name);
+    if (bootstrapTool !== undefined) {
+      const startedAt = Date.now();
+      const result = await bootstrapTool.invoke(args);
+      const durationMs = Date.now() - startedAt;
+      const isError = result.isError === true;
+      logger?.[isError ? 'warn' : 'info'](
+        {
+          server: 'toolbox',
+          tool: name,
+          durationMs,
+          outcome: isError ? 'bootstrap_error' : 'ok',
+        },
+        isError ? 'tools/call failed' : 'tools/call ok',
+      );
+      return result;
+    }
 
     let serverName: string | undefined;
     const entry = registry.find(name);

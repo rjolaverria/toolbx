@@ -60,6 +60,15 @@ export {
 } from './registry/index.js';
 
 export {
+  createBootstrapToolRegistry,
+  registerSearchToolsBootstrap,
+  SEARCH_TOOLS_NAME,
+  type BootstrapTool,
+  type BootstrapToolRegistry,
+  type RegisterSearchToolsBootstrapDeps,
+} from './bootstrap-tools/index.js';
+
+export {
   createGatewayRuntime,
   type CreateGatewayRuntimeDeps,
   type CreateUpstreamSessionForRuntime,

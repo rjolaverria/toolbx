@@ -7,6 +7,7 @@ import { createNoopLogger } from '@toolbox/core';
 import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
+import { createBootstrapToolRegistry } from '../../../bootstrap-tools/index.js';
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
 import { buildToolboxMcpServer } from '../../server.js';
 import { registerToolsListHandler } from '../tools-list.js';
@@ -27,11 +28,12 @@ async function connect(opts: {
   suppressInitialized?: boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const bootstrap = createBootstrapToolRegistry();
   const built = buildToolboxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-list-test',
     registerHandlers: (server, session) => {
-      registerToolsListHandler(server, session, opts.registry);
+      registerToolsListHandler(server, session, opts.registry, bootstrap);
     },
   });
   if (opts.suppressInitialized) {
