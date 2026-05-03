@@ -12,6 +12,15 @@ import type { BootstrapTool, BootstrapToolRegistry } from './registry.js';
  * bootstrap tool. Surfaces ranked candidate tools across every enabled
  * upstream server without revealing them; reveal/hide is M4-04's job.
  *
+ * `progressiveDisclosure.autoRevealExactServerMatches` exists in config but
+ * is intentionally NOT honoured here yet — the M4-03 task explicitly defers
+ * any visibility mutation to M4-04 (`toolbox__reveal_tools`). Once that
+ * lands, this file will accept a `SessionVisibility` and call
+ * `visibility.reveal(serverTools)` when the query exactly matches a server
+ * name AND the flag is set. The header note in
+ * `packages/core/src/disclosure/session-visibility.ts` describes that future
+ * wiring; it does not describe current behaviour.
+ *
  * The tool descriptor is hand-written JSON Schema (matches the existing
  * gateway pattern). A small local Zod schema validates the inbound
  * arguments at the IO boundary; the two are intentionally kept in sync

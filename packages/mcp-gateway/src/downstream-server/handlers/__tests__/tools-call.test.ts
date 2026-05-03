@@ -567,4 +567,84 @@ describe('tools/call handler', () => {
     expect(jira.callTool).not.toHaveBeenCalled();
     await closeAll();
   });
+
+  it('translates a thrown bootstrap-tool error into isError without crashing the handler', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    const bootstrap = createBootstrapToolRegistry();
+    bootstrap.add({
+      descriptor: {
+        name: 'toolbox__boom',
+        description: 'always throws',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke() {
+        throw new Error('kaboom');
+      },
+    });
+    const log = fakeLogger();
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({}),
+      bootstrap,
+      logger: log.logger,
+    });
+
+    const result = await client.callTool({ name: 'toolbox__boom' });
+    expect(result.isError).toBe(true);
+    const block = (result.content as { type: string; text: string }[])[0];
+    expect(block?.type).toBe('text');
+    expect(block?.text).toContain('kaboom');
+    expect(log.warn).toHaveBeenCalled();
+    const [fields] = log.warn.mock.calls.at(-1) as [Record<string, unknown>, string];
+    expect(fields).toMatchObject({
+      server: 'toolbox',
+      tool: 'toolbox__boom',
+      outcome: 'bootstrap_error',
+    });
+    await closeAll();
+  });
+
+  it('warns when a bootstrap-tool dispatch shadows an upstream tool with the same exposed name', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'toolbox',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_tools')],
+    });
+    const upstream = fakeUpstream({ serverName: 'toolbox' });
+    const bootstrap = createBootstrapToolRegistry();
+    bootstrap.add({
+      descriptor: {
+        name: 'toolbox__search_tools',
+        description: 'reserved',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke() {
+        return { content: [{ type: 'text', text: 'reserved' }] };
+      },
+    });
+    const log = fakeLogger();
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ toolbox: upstream.session }),
+      bootstrap,
+      logger: log.logger,
+    });
+
+    const result = await client.callTool({ name: 'toolbox__search_tools' });
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'reserved' }] });
+    expect(upstream.callTool).not.toHaveBeenCalled();
+
+    const shadowingWarn = log.warn.mock.calls.find(
+      ([fields]) =>
+        typeof (fields as Record<string, unknown>).tool === 'string' &&
+        (fields as Record<string, unknown>).tool === 'toolbox__search_tools' &&
+        (fields as Record<string, unknown>).server === undefined,
+    );
+    expect(shadowingWarn).toBeDefined();
+    await closeAll();
+  });
 });

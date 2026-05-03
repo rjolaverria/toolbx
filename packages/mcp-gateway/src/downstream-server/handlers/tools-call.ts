@@ -1,4 +1,5 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import {
@@ -149,8 +150,29 @@ export function registerToolsCallHandler(
 
     const bootstrapTool = bootstrap.find(name);
     if (bootstrapTool !== undefined) {
+      // Bootstrap tools reserve their exposed names — if an upstream server
+      // happens to namespace a tool to the same name (e.g. an upstream named
+      // `toolbox` exposing `search_tools`), the bootstrap version wins and
+      // the upstream tool is unreachable through this dispatch. The matching
+      // `tools/list` filter keeps the listing consistent. Warn once per call
+      // so operators can spot the collision in logs.
+      if (registry.find(name) !== undefined) {
+        logger?.warn(
+          { tool: name },
+          'bootstrap tool shadows an upstream tool with the same exposed name',
+        );
+      }
       const startedAt = Date.now();
-      const result = await bootstrapTool.invoke(args);
+      let result: CallToolResult;
+      try {
+        result = await bootstrapTool.invoke(args);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        result = {
+          isError: true,
+          content: [{ type: 'text', text: `bootstrap tool "${name}" threw: ${message}` }],
+        };
+      }
       const durationMs = Date.now() - startedAt;
       const isError = result.isError === true;
       logger?.[isError ? 'warn' : 'info'](

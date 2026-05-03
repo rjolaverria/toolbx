@@ -7,7 +7,10 @@ import { createNoopLogger } from '@toolbox/core';
 import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
-import { createBootstrapToolRegistry } from '../../../bootstrap-tools/index.js';
+import {
+  createBootstrapToolRegistry,
+  type BootstrapToolRegistry,
+} from '../../../bootstrap-tools/index.js';
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
 import { buildToolboxMcpServer } from '../../server.js';
 import { registerToolsListHandler } from '../tools-list.js';
@@ -25,10 +28,11 @@ function tool(name: string, description?: string): Tool {
 
 async function connect(opts: {
   registry: ToolRegistry;
+  bootstrap?: BootstrapToolRegistry;
   suppressInitialized?: boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const bootstrap = createBootstrapToolRegistry();
+  const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
   const built = buildToolboxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-list-test',
@@ -165,6 +169,38 @@ describe('tools/list handler — non-disclosure mode', () => {
     await expect(client.listTools()).rejects.toMatchObject({
       code: ErrorCode.InvalidRequest,
     });
+    await closeAll();
+  });
+
+  it('drops upstream tools whose exposed name is reserved by a bootstrap tool', async () => {
+    // Simulates an upstream server literally named `toolbox` exposing a
+    // tool that namespaces to `toolbox__search_tools`. The bootstrap entry
+    // reserves that name; the upstream tool must not appear in the listing
+    // because it isn't reachable through tools/call either.
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'toolbox',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_tools'), tool('something_else')],
+    });
+    const bootstrap = createBootstrapToolRegistry();
+    bootstrap.add({
+      descriptor: {
+        name: 'toolbox__search_tools',
+        description: 'reserved bootstrap',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke() {
+        return { content: [{ type: 'text', text: 'bootstrap' }] };
+      },
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = await client.listTools();
+    const names = result.tools.map((t) => t.name);
+    expect(names).toEqual(['toolbox__search_tools', 'toolbox__something_else']);
+    expect(result.tools[0]?.description).toBe('reserved bootstrap');
     await closeAll();
   });
 });
