@@ -76,6 +76,7 @@ function makeFakeRuntime(): FakeRuntime {
   const runtime: GatewayRuntime = {
     statusRegistry: {} as never,
     toolRegistry: {} as never,
+    bootstrapTools: {} as never,
     upstreams: { get: () => undefined },
     registerHandlers: () => undefined,
     startUpstreams: () => startUpstreamsSpy(),

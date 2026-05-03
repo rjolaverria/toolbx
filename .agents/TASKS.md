@@ -52,7 +52,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 
 - [x] **M4-01** — [Deterministic tool search ranking](tasks/M4-01-tool-search-ranking.md) — closed by 7b97dc8
 - [x] **M4-02** — [Session-visible tool registry](tasks/M4-02-session-visible-tool-registry.md) — closed by 6bfcf70
-- [ ] **M4-03** — [Bootstrap tool: `toolbox__search_tools`](tasks/M4-03-bootstrap-search-tools.md)
+- [x] **M4-03** — [Bootstrap tool: `toolbox__search_tools`](tasks/M4-03-bootstrap-search-tools.md) — closed by d65d140
 - [ ] **M4-04** — [Bootstrap tools: `toolbox__reveal_tools` and `toolbox__hide_tools`](tasks/M4-04-bootstrap-reveal-and-hide-tools.md)
 - [ ] **M4-05** — [Bootstrap tools: `toolbox__list_available_servers` and `toolbox__list_revealed_tools`](tasks/M4-05-bootstrap-list-tools.md)
 - [ ] **M4-06** — [`tools/list_changed` notification on visibility changes](tasks/M4-06-tools-list-changed-notification.md)

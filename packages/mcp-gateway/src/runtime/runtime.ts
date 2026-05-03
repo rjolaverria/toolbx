@@ -8,6 +8,11 @@ import {
 } from '@toolbox/core';
 
 import {
+  createBootstrapToolRegistry,
+  registerSearchToolsBootstrap,
+  type BootstrapToolRegistry,
+} from '../bootstrap-tools/index.js';
+import {
   registerToolsCallHandler,
   registerToolsListHandler,
   type UpstreamSessionLookup,
@@ -35,6 +40,7 @@ export interface CreateGatewayRuntimeDeps {
 export interface GatewayRuntime {
   readonly statusRegistry: StatusRegistry;
   readonly toolRegistry: ToolRegistry;
+  readonly bootstrapTools: BootstrapToolRegistry;
   readonly upstreams: UpstreamSessionLookup;
   readonly registerHandlers: RegisterDownstreamHandlers;
   /**
@@ -59,6 +65,14 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   const log = deps.logger.child({ component: 'gateway-runtime' });
   const statusRegistry = createStatusRegistry(deps.config);
   const toolRegistry = createToolRegistry({ namespacing: deps.config.namespacing });
+  const bootstrapTools = createBootstrapToolRegistry();
+  if (deps.config.progressiveDisclosure.bootstrapTools) {
+    registerSearchToolsBootstrap({
+      registry: bootstrapTools,
+      toolRegistry,
+      maxSearchResults: deps.config.progressiveDisclosure.maxSearchResults,
+    });
+  }
   const sessions = new Map<string, UpstreamSession>();
   const create = deps.createSession ?? defaultCreateSession;
 
@@ -140,17 +154,19 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     deps.config.servers[serverName]?.timeoutMs;
 
   const registerHandlers: RegisterDownstreamHandlers = (server, downstreamSession) => {
-    registerToolsListHandler(server, downstreamSession, toolRegistry);
+    registerToolsListHandler(server, downstreamSession, toolRegistry, bootstrapTools);
     registerToolsCallHandler(server, downstreamSession, toolRegistry, upstreams, {
       namespacing: deps.config.namespacing,
       resolveTimeoutMs,
       logger: log,
+      bootstrap: bootstrapTools,
     });
   };
 
   return {
     statusRegistry,
     toolRegistry,
+    bootstrapTools,
     upstreams,
     registerHandlers,
     startUpstreams() {
