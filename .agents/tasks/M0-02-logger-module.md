@@ -1,7 +1,7 @@
 # M0-02 — Logger module
 
 **Milestone**: 0 — Skeleton
-**README references**: §4.6 (logging capture/proxy), §7 (Milestone 0)
+**SPECS references**: §4.6 (logging capture/proxy), §7 (Milestone 0)
 
 ## Goal
 

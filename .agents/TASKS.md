@@ -1,10 +1,10 @@
-# Toolbox Tasks
+# ToolBox Tasks
 
-This is the master todo list for delivering the Toolbox product as described in `README.md`. Each entry links to a detailed task file in `.agents/tasks/`. Tasks are grouped by the milestones from `README.md` §7. Phase 2 and Phase 3 work is included at the end.
+This is the master todo list for delivering the ToolBox product as described in `.agents/SPECS.md`. Each entry links to a detailed task file in `.agents/tasks/`. Tasks are grouped by the milestones from `.agents/SPECS.md` §7. Phase 2 and Phase 3 work is included at the end.
 
 ## How to use this list
 
-- Read the linked task file before starting work — it contains the goal, deliverables, acceptance criteria, and the README sections it derives from.
+- Read the linked task file before starting work — it contains the goal, deliverables, acceptance criteria, and the SPECS sections it derives from.
 - Work one task per branch / set of commits. Each task is a deliverable.
 - A task is **only** completed when it passes the full quality bar: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test:run`, and the pre-commit hook. See `CLAUDE.md` → "Task Workflow" for the full rule.
 - When a task is finished, flip its checkbox below from `[ ]` to `[x]` and add a one-line note pointing at the merge commit / PR.
@@ -33,7 +33,7 @@ This is the master todo list for delivering the Toolbox product as described in 
 - [x] **M1-05** — [`tlbx server add-stdio` and `add-http` commands](tasks/M1-05-server-add-commands.md) — closed by 3dbb09f
 - [x] **M1-06** — [`tlbx server list/status/enable/disable/remove/edit/inspect` commands](tasks/M1-06-server-management-commands.md) — closed by 6dc77d6
 
-## Milestone 2 — Downstream Toolbox MCP Server
+## Milestone 2 — Downstream ToolBox MCP Server
 
 - [x] **M2-01** — [Downstream MCP server over stdio](tasks/M2-01-downstream-stdio-server.md) — closed by 9d6a608
 - [x] **M2-02** — [Downstream MCP server over Streamable HTTP](tasks/M2-02-downstream-http-server.md) — closed by 4156c86

@@ -1,7 +1,7 @@
 # P3-05 — Expose custom tools through the MCP gateway
 
 **Milestone**: Phase 3 — Custom JS/TS Tools
-**README references**: §6.7 (criteria 4, 5, 6, 7)
+**SPECS references**: §6.7 (criteria 4, 5, 6, 7)
 
 ## Goal
 
@@ -17,7 +17,7 @@ Make imported, enabled custom tools first-class citizens of `tools/list` and `to
 
 ## Acceptance criteria
 
-- An imported, enabled custom tool appears in `tools/list` and is callable via `tools/call` from any MCP client connected to Toolbox (Claude / Codex / OpenCode / generic).
+- An imported, enabled custom tool appears in `tools/list` and is callable via `tools/call` from any MCP client connected to ToolBox (Claude / Codex / OpenCode / generic).
 - A namespace collision between a custom tool and an upstream server is rejected at config validation time.
 - Disabling a custom tool removes it from `tools/list`.
 

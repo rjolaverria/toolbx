@@ -2,7 +2,7 @@ import {
   createNoopLogger,
   type ServerConfig,
   type ServerStatus,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -105,7 +105,7 @@ const HTTP_SERVER: ServerConfig = {
   url: 'http://example.invalid/mcp',
 };
 
-function makeConfig(servers: Record<string, ServerConfig>): ToolboxConfig {
+function makeConfig(servers: Record<string, ServerConfig>): ToolBoxConfig {
   return {
     version: 1,
     server: {

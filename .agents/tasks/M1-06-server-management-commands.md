@@ -1,7 +1,7 @@
 # M1-06 — `tlbx server` management commands
 
 **Milestone**: 1 — Upstream Connection Manager
-**README references**: §4.2
+**SPECS references**: §4.2
 
 ## Goal
 

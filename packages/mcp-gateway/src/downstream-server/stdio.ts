@@ -5,7 +5,7 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { buildToolboxMcpServer } from './server.js';
+import { buildToolBoxMcpServer } from './server.js';
 import type { CreateDownstreamStdioServerDeps, DownstreamStdioServer } from './types.js';
 
 const LIFECYCLE_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
@@ -24,7 +24,7 @@ export function createDownstreamStdioServer(
   // (e.g. tests using InMemoryTransport) exercise the same handler set as
   // start(), and so any registerHandlers wiring failures surface
   // deterministically at construction time rather than during start().
-  const { server } = buildToolboxMcpServer({
+  const { server } = buildToolBoxMcpServer({
     logger: log,
     sessionId: 'stdio',
     registerHandlers: deps.registerHandlers,

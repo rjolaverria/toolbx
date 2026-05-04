@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ServerConfig, type ToolboxConfig } from '@toolbox/core';
+import { saveConfig, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -36,7 +36,7 @@ async function applyEnabledChange(
   }
 
   const updated: ServerConfig = { ...entry, enabled: desired };
-  const candidate: ToolboxConfig = {
+  const candidate: ToolBoxConfig = {
     ...config,
     servers: { ...config.servers, [name]: updated },
   };

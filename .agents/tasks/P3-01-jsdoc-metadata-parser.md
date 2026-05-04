@@ -1,7 +1,7 @@
 # P3-01 — JSDoc tool metadata parser
 
 **Milestone**: Phase 3 — Custom JS/TS Tools
-**README references**: §6.2, §6.7 (criterion 2)
+**SPECS references**: §6.2, §6.7 (criterion 2)
 
 ## Goal
 
@@ -9,13 +9,13 @@ Extract the `@toolbox-tool` JSDoc directives from a user-provided `.ts` / `.js` 
 
 ## Deliverables
 
-- New package `packages/custom-tools/` (per README §4.7) with `src/manifest/parse.ts` exporting `parseToolMetadata(source, filename)` returning `{ name, title, description, namespace }` (all required) plus any unknown directives surfaced as warnings.
+- New package `packages/custom-tools/` (per SPECS §4.7) with `src/manifest/parse.ts` exporting `parseToolMetadata(source, filename)` returning `{ name, title, description, namespace }` (all required) plus any unknown directives surfaced as warnings.
 - Reads `inputSchema` export presence (without evaluating it) so the importer (P3-02) can validate later.
 - Friendly error messages pointing at the offending JSDoc line.
 
 ## Acceptance criteria
 
-- Parses the README §6.2 example into the exact metadata shown there.
+- Parses the SPECS §6.2 example into the exact metadata shown there.
 - Missing required directives produce errors that name the missing directive and the source path.
 - Multiple `@toolbox-tool` blocks are not allowed; the parser reports the duplicate.
 

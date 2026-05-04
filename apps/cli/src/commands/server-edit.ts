@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ServerConfig, type ToolboxConfig } from '@toolbox/core';
+import { saveConfig, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -133,7 +133,7 @@ export async function runServerEdit(
       return 1;
     }
 
-    const candidate: ToolboxConfig = {
+    const candidate: ToolBoxConfig = {
       ...config,
       servers: { ...config.servers, [name]: parsed as ServerConfig },
     };

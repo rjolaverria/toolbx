@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-Toolbox is a local MCP gateway/proxy. It sits between MCP clients (Claude, Codex, OpenCode) and upstream MCP servers (Jira, GitHub, Linear, etc.), letting users configure all their MCP servers once in one place instead of repeating setup per client.
+ToolBox is a local MCP gateway/proxy. It sits between MCP clients (Claude, Codex, OpenCode) and upstream MCP servers (Jira, GitHub, Linear, etc.), letting users configure all their MCP servers once in one place instead of repeating setup per client.
 
 ```
 MCP Clients (Claude / Codex / OpenCode)
         ↓
-Toolbox  ← this repo
+ToolBox  ← this repo
         ↓
 Upstream MCP Servers (Jira / GitHub / Linear / custom)
 ```
 
-The CLI binary is `tlbx` (invoked as `npx tlbx`). The product name is **Toolbox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
+The CLI binary is `tlbx` (invoked as `npx tlbx`). The product name is **ToolBox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
 
 ## Commands
 
@@ -54,7 +54,7 @@ packages/mcp-gateway (@toolbox/mcp-gateway) — MCP protocol layer (upstream cli
 
 **`@toolbox/core`** is the shared heart of the system. It will also be imported by the future Electron desktop app (Phase 2), so it must not depend on CLI-specific concerns.
 
-**`@toolbox/mcp-gateway`** wraps `@modelcontextprotocol/sdk` and implements Toolbox as both an MCP server (for downstream clients) and an MCP client (for upstream servers). It depends on `@toolbox/core`.
+**`@toolbox/mcp-gateway`** wraps `@modelcontextprotocol/sdk` and implements ToolBox as both an MCP server (for downstream clients) and an MCP client (for upstream servers). It depends on `@toolbox/core`.
 
 **`apps/cli`** wires Commander commands to `@toolbox/core`. It does not depend on `@toolbox/mcp-gateway` directly — gateway logic is called through core.
 
@@ -70,7 +70,7 @@ Each package uses `composite: true` for TypeScript project references.
 
 ## Key Product Conventions
 
-**Tool namespacing** — every tool exposed through Toolbox is prefixed with its server name and a double-underscore separator:
+**Tool namespacing** — every tool exposed through ToolBox is prefixed with its server name and a double-underscore separator:
 
 ```
 jira__search_issues
@@ -181,13 +181,13 @@ Write a test for every function that contains non-trivial logic. Skip tests that
 
 ## Task Workflow
 
-All planned work for this repo is tracked in `.agents/TASKS.md` (master todo list) with one detail file per task in `.agents/tasks/<task-id>.md`. Every task is derived from `README.md` and is a deliverable.
+All planned work for this repo is tracked in `.agents/TASKS.md` (master todo list) with one detail file per task in `.agents/tasks/<task-id>.md`. Every task is derived from `.agents/SPECS.md` and is a deliverable.
 
 Before starting work:
 
 1. Open `.agents/TASKS.md`. Pick an unchecked task and read the linked task file end to end.
 2. The task file states the goal, deliverables, acceptance criteria, out-of-scope items, and the explicit definition of done.
-3. If the task description is wrong or out of date relative to the README, fix the task file first in its own commit, then proceed.
+3. If the task description is wrong or out of date relative to `.agents/SPECS.md`, fix the task file first in its own commit, then proceed.
 
 While working:
 

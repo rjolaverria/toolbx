@@ -6,9 +6,9 @@ import {
   ConfigValidationError,
   loadConfig,
   resolveConfigPath,
-  ToolboxConfigSchema,
+  ToolBoxConfigSchema,
   type ServerConfig,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 
 export interface ServerCommandDeps {
@@ -41,14 +41,14 @@ export function resolveTargetPath(deps: ServerCommandDeps, override: string | un
 export async function loadOrReportMissing(
   target: string,
   deps: ServerCommandDeps,
-): Promise<ToolboxConfig | null> {
+): Promise<ToolBoxConfig | null> {
   try {
     return await loadConfig(target);
   } catch (error) {
     if (error instanceof ConfigLoadError) {
       const cause = error.cause as NodeJS.ErrnoException | undefined;
       if (cause?.code === 'ENOENT') {
-        deps.stderr(`No Toolbox config found at ${target}. Run \`tlbx init\` first.\n`);
+        deps.stderr(`No ToolBox config found at ${target}. Run \`tlbx init\` first.\n`);
         return null;
       }
       deps.stderr(`${error.message}\n`);
@@ -63,7 +63,7 @@ export async function loadOrReportMissing(
 }
 
 export function requireExistingServer(
-  config: ToolboxConfig,
+  config: ToolBoxConfig,
   name: string,
   target: string,
   deps: ServerCommandDeps,
@@ -105,8 +105,8 @@ export function validateNextConfig(
   candidate: unknown,
   target: string,
   deps: ServerCommandDeps,
-): { ok: true; next: ToolboxConfig } | { ok: false } {
-  const result = ToolboxConfigSchema.safeParse(candidate);
+): { ok: true; next: ToolBoxConfig } | { ok: false } {
+  const result = ToolBoxConfigSchema.safeParse(candidate);
   if (!result.success) {
     deps.stderr(`${new ConfigValidationError(result.error, target).message}\n`);
     return { ok: false };

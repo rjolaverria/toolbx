@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { CONFIG_SCHEMA_URL, DEFAULT_CONFIG, DEFAULT_NAMESPACE_SEPARATOR } from '../defaults.js';
-import { ToolboxConfigSchema } from '../schema.js';
+import { ToolBoxConfigSchema } from '../schema.js';
 
 describe('DEFAULT_CONFIG', () => {
-  it('parses cleanly through ToolboxConfigSchema', () => {
-    const result = ToolboxConfigSchema.safeParse(DEFAULT_CONFIG);
+  it('parses cleanly through ToolBoxConfigSchema', () => {
+    const result = ToolBoxConfigSchema.safeParse(DEFAULT_CONFIG);
     expect(result.success).toBe(true);
   });
 

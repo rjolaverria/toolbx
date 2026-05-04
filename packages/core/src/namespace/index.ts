@@ -2,7 +2,7 @@ import type { NamespacingConfig } from '../config/schema.js';
 
 /**
  * Pure namespacing module. Converts between upstream `(serverName, upstreamName)`
- * pairs and the namespaced names Toolbox exposes downstream, and detects
+ * pairs and the namespaced names ToolBox exposes downstream, and detects
  * collisions when two upstream servers would expose the same name.
  *
  * Phase 1 only supports `separator: '__'` and `format: 'server__tool'`. Other

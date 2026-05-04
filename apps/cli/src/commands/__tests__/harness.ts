@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { DEFAULT_CONFIG, saveConfig, type ToolboxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, saveConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import type { ServerCommandDeps } from '../server-shared.js';
 
@@ -13,7 +13,7 @@ export interface ConfigHarness {
 }
 
 export async function makeTempConfig(
-  initial: ToolboxConfig = DEFAULT_CONFIG,
+  initial: ToolBoxConfig = DEFAULT_CONFIG,
 ): Promise<ConfigHarness> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-server-'));
   const target = path.join(dir, 'config.json');

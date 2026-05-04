@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { registerToolsCallHandler } from '../../downstream-server/handlers/tools-call.js';
 import { registerToolsListHandler } from '../../downstream-server/handlers/tools-list.js';
-import { buildToolboxMcpServer } from '../../downstream-server/server.js';
+import { buildToolBoxMcpServer } from '../../downstream-server/server.js';
 import { createToolRegistry, type ToolRegistry } from '../../registry/index.js';
 import type { UpstreamSessionLookup } from '../../downstream-server/handlers/index.js';
 import { createBootstrapToolRegistry, type BootstrapToolRegistry } from '../registry.js';
@@ -75,7 +75,7 @@ async function connect(
   opts: ConnectOpts,
 ): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const built = buildToolboxMcpServer({
+  const built = buildToolBoxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'search-tools-test',
     registerHandlers: (server, session) => {

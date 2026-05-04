@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ServerConfig, ToolboxConfig } from '../../config/schema.js';
+import type { ServerConfig, ToolBoxConfig } from '../../config/schema.js';
 import {
   createStatusRegistry,
   UnknownServerError,
@@ -10,7 +10,7 @@ import {
 import { InvalidStatusTransitionError } from '../state-machine.js';
 import type { ServerStatus } from '../types.js';
 
-const baseConfig: Omit<ToolboxConfig, 'servers'> = {
+const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
   $schema: 'https://toolbox.dev/schema/config.schema.json',
   version: 1,
   server: {
@@ -31,7 +31,7 @@ const baseConfig: Omit<ToolboxConfig, 'servers'> = {
   },
 };
 
-function configWith(servers: Record<string, ServerConfig>): ToolboxConfig {
+function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
   return { ...baseConfig, servers };
 }
 

@@ -1,16 +1,16 @@
 # P2-01 — Electron app shell wired to `@toolbox/core`
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §3.2, §5.1, §5.2, §7 (Milestone 6)
+**SPECS references**: §3.2, §5.1, §5.2, §7 (Milestone 6)
 
 ## Goal
 
-Bootstrap the Electron desktop app: main process owns Toolbox lifecycle via `@toolbox/core`; renderer is React + Vite + Tailwind + shadcn/ui served through TanStack Router. The shell displays an empty dashboard route and exposes the IPC API for later screens.
+Bootstrap the Electron desktop app: main process owns ToolBox lifecycle via `@toolbox/core`; renderer is React + Vite + Tailwind + shadcn/ui served through TanStack Router. The shell displays an empty dashboard route and exposes the IPC API for later screens.
 
 ## Deliverables
 
 - `apps/desktop/` Electron app (new). Two processes:
-  - **Main** — imports `@toolbox/core`, manages config, starts/stops Toolbox proxy, monitors server status, exposes IPC handlers (read config, list servers, list tools, get status, subscribe to events, start/stop serve, etc.).
+  - **Main** — imports `@toolbox/core`, manages config, starts/stops ToolBox proxy, monitors server status, exposes IPC handlers (read config, list servers, list tools, get status, subscribe to events, start/stop serve, etc.).
   - **Renderer** — Vite + React + Tailwind + shadcn/ui + TanStack Router + TanStack Query. Strict CSP, no Node integration, contextBridge-only.
 - A typed IPC contract (`packages/ui-shared/src/ipc/`) shared between main and renderer.
 - Build and packaging scripts (dev, prod) that work on macOS and Linux at a minimum; Windows is a stretch.

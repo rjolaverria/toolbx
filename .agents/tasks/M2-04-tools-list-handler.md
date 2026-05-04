@@ -1,7 +1,7 @@
 # M2-04 — `tools/list` handler (non-disclosure mode)
 
-**Milestone**: 2 — Downstream Toolbox MCP Server
-**README references**: §2.3, §2.4 (off mode), §4.6, §4.8 (criterion 6)
+**Milestone**: 2 — Downstream ToolBox MCP Server
+**SPECS references**: §2.3, §2.4 (off mode), §4.6, §4.8 (criterion 6)
 
 ## Goal
 

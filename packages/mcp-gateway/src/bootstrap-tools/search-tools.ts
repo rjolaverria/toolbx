@@ -41,7 +41,7 @@ const ArgsSchema = z
 
 const SEARCH_TOOLS_DESCRIPTOR: Tool = {
   name: SEARCH_TOOLS_NAME,
-  title: 'Search Toolbox tools',
+  title: 'Search ToolBox tools',
   description:
     'Search across every enabled upstream MCP server for tools matching a query. ' +
     'Returns ranked candidate tools without revealing them — use toolbox__reveal_tools ' +

@@ -1,11 +1,11 @@
 export { createDownstreamStdioServer } from './stdio.js';
 export { createDownstreamHttpServer } from './http.js';
 export {
-  buildToolboxMcpServer,
+  buildToolBoxMcpServer,
   TOOLBOX_SERVER_CAPABILITIES,
   TOOLBOX_SERVER_NAME,
-  type BuildToolboxMcpServerDeps,
-  type BuildToolboxMcpServerResult,
+  type BuildToolBoxMcpServerDeps,
+  type BuildToolBoxMcpServerResult,
 } from './server.js';
 export { createDownstreamSession, type DownstreamSession } from './session.js';
 export {

@@ -1,7 +1,7 @@
 import * as readline from 'node:readline/promises';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ToolboxConfig } from '@toolbox/core';
+import { saveConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -68,9 +68,9 @@ export async function runServerRemove(
     }
   }
 
-  const nextServers: ToolboxConfig['servers'] = { ...config.servers };
+  const nextServers: ToolBoxConfig['servers'] = { ...config.servers };
   delete nextServers[name];
-  const candidate: ToolboxConfig = { ...config, servers: nextServers };
+  const candidate: ToolBoxConfig = { ...config, servers: nextServers };
   const validated = validateNextConfig(candidate, target, deps);
   if (!validated.ok) {
     return 1;

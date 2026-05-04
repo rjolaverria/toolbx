@@ -1,11 +1,11 @@
 # M2-02 — Downstream MCP server over Streamable HTTP
 
-**Milestone**: 2 — Downstream Toolbox MCP Server
-**README references**: §4.4 (`server.http`), §4.6, §7 (Milestone 2)
+**Milestone**: 2 — Downstream ToolBox MCP Server
+**SPECS references**: §4.4 (`server.http`), §4.6, §7 (Milestone 2)
 
 ## Goal
 
-Expose Toolbox as a Streamable HTTP MCP server so HTTP-capable clients can connect to a running Toolbox instance.
+Expose ToolBox as a Streamable HTTP MCP server so HTTP-capable clients can connect to a running ToolBox instance.
 
 ## Deliverables
 

@@ -13,7 +13,7 @@ import {
 } from '../../../bootstrap-tools/index.js';
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
 import type { CallToolResult, UpstreamSession } from '../../../upstream-client/index.js';
-import { buildToolboxMcpServer } from '../../server.js';
+import { buildToolBoxMcpServer } from '../../server.js';
 import { registerToolsCallHandler, type UpstreamSessionLookup } from '../tools-call.js';
 
 const NS: NamespaceOptions = { separator: '__', format: 'server__tool' };
@@ -108,7 +108,7 @@ async function connect(opts: {
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
-  const built = buildToolboxMcpServer({
+  const built = buildToolBoxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-call-test',
     registerHandlers: (server, session) => {

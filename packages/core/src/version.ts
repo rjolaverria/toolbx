@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 // `package.json` sits one level up from the directory of this file.
 let cachedVersion: string | undefined;
 
-export function getToolboxVersion(): string {
+export function getToolBoxVersion(): string {
   if (cachedVersion === undefined) {
     const moduleDir = dirname(fileURLToPath(import.meta.url));
     const pkgPath = join(moduleDir, '..', 'package.json');

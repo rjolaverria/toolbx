@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolboxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, type ToolBoxConfig } from '@toolbox/core';
 
 import { runServerList } from '../server-list.js';
 
@@ -18,9 +18,9 @@ afterEach(async () => {
 });
 
 function withServers(
-  servers: ToolboxConfig['servers'],
-  base: ToolboxConfig = DEFAULT_CONFIG,
-): ToolboxConfig {
+  servers: ToolBoxConfig['servers'],
+  base: ToolBoxConfig = DEFAULT_CONFIG,
+): ToolBoxConfig {
   return { ...base, servers };
 }
 
@@ -120,6 +120,6 @@ describe('runServerList', () => {
     const code = await runServerList({}, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No Toolbox config found');
+    expect(h.stderr.value).toContain('No ToolBox config found');
   });
 });

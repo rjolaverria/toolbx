@@ -1,7 +1,7 @@
 # P2-07 — Logs screen with filters
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §5.3 (Logs), §5.4 (criterion 10)
+**SPECS references**: §5.3 (Logs), §5.4 (criterion 10)
 
 ## Goal
 

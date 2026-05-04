@@ -1,11 +1,11 @@
 # M2-01 — Downstream MCP server over stdio
 
-**Milestone**: 2 — Downstream Toolbox MCP Server
-**README references**: §4.6, §4.8 (criteria 4, 5), §7 (Milestone 2)
+**Milestone**: 2 — Downstream ToolBox MCP Server
+**SPECS references**: §4.6, §4.8 (criteria 4, 5), §7 (Milestone 2)
 
 ## Goal
 
-Expose Toolbox itself as an MCP server over stdio, so MCP clients (Claude, Codex, OpenCode) can connect by spawning `tlbx serve --stdio`.
+Expose ToolBox itself as an MCP server over stdio, so MCP clients (Claude, Codex, OpenCode) can connect by spawning `tlbx serve --stdio`.
 
 ## Deliverables
 
@@ -18,7 +18,7 @@ Expose Toolbox itself as an MCP server over stdio, so MCP clients (Claude, Codex
 
 ## Acceptance criteria
 
-- A canonical MCP client connecting via the SDK's stdio transport completes `initialize` and receives Toolbox's announced capabilities.
+- A canonical MCP client connecting via the SDK's stdio transport completes `initialize` and receives ToolBox's announced capabilities.
 - The server exits cleanly when the client closes stdin.
 - A panic / unhandled rejection in a handler does not corrupt the protocol stream — the error becomes an MCP error response.
 

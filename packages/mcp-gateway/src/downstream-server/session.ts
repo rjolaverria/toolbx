@@ -1,5 +1,5 @@
 /**
- * Per-MCP-session in-memory state for the downstream Toolbox server.
+ * Per-MCP-session in-memory state for the downstream ToolBox server.
  *
  * One DownstreamSession is created per `Server` instance: stdio transports
  * have a single one for the life of the process; HTTP transports create one

@@ -1,7 +1,7 @@
 # M4-03 — Bootstrap tool: `toolbox__search_tools`
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §2.4
+**SPECS references**: §2.4
 
 ## Goal
 

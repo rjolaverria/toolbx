@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, type ToolboxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import { runServerEdit, splitEditorCommand, type EditDeps } from '../server-edit.js';
 
@@ -73,7 +73,7 @@ function makeHarness(target: string, opts: HarnessOptions = {}): Harness {
   return { deps, stdout, stderr, tempFile, editorInvocations };
 }
 
-function configWith(servers: ToolboxConfig['servers']): ToolboxConfig {
+function configWith(servers: ToolBoxConfig['servers']): ToolBoxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 

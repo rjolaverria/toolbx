@@ -1,7 +1,7 @@
 # M4-04 — Bootstrap tools: `toolbox__reveal_tools` and `toolbox__hide_tools`
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §2.4
+**SPECS references**: §2.4
 
 ## Goal
 

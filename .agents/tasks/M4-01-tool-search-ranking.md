@@ -1,17 +1,17 @@
 # M4-01 — Deterministic tool search ranking
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §4.5
+**SPECS references**: §4.5
 
 ## Goal
 
-A pure search function over the tool registry that ranks results deterministically using the rules in README §4.5. Powers `toolbox__search_tools` (M4-03) and `tlbx tools search` (M5-02).
+A pure search function over the tool registry that ranks results deterministically using the rules in SPECS §4.5. Powers `toolbox__search_tools` (M4-03) and `tlbx tools search` (M5-02).
 
 ## Deliverables
 
 - `packages/core/src/disclosure/search.ts` exporting `searchTools(query, tools, options)` returning a ranked list with `{ tool, score, matchedFields }`.
 - Indexed fields: server name, tool name, tool title, tool description, input schema property names, input schema property descriptions, user-supplied tags/categories.
-- Ranking order from README §4.5:
+- Ranking order from SPECS §4.5:
   1. Exact server match
   2. Exact namespace match
   3. Exact tool name match
@@ -30,7 +30,7 @@ A pure search function over the tool registry that ranks results deterministical
 
 ## Out of scope
 
-- Embeddings (explicitly deferred per README).
+- Embeddings (explicitly deferred per SPECS).
 - Stemming or language-aware processing.
 
 ## Definition of done

@@ -63,7 +63,7 @@ function httpOpts(url: string, overrides: Partial<AddHttpOptions> = {}): AddHttp
 }
 
 describe('runAddStdio', () => {
-  it('writes the README §4.4 github example entry', async () => {
+  it('writes the SPECS §4.4 github example entry', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
 
@@ -163,7 +163,7 @@ describe('runAddStdio', () => {
     const code = await runAddStdio('Bad Name!', ['mybin'], stdioOpts(), h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('Invalid Toolbox config');
+    expect(h.stderr.value).toContain('Invalid ToolBox config');
     expect(await fs.readFile(target, 'utf8')).toBe(before);
   });
 
@@ -182,7 +182,7 @@ describe('runAddStdio', () => {
 });
 
 describe('runAddHttp', () => {
-  it('writes the README §4.4 jira example entry', async () => {
+  it('writes the SPECS §4.4 jira example entry', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
 
@@ -249,7 +249,7 @@ describe('runAddHttp', () => {
     const code = await runAddHttp('jira', httpOpts('not-a-url'), h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('Invalid Toolbox config');
+    expect(h.stderr.value).toContain('Invalid ToolBox config');
     expect(await fs.readFile(target, 'utf8')).toBe(before);
   });
 

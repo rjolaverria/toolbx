@@ -1,7 +1,7 @@
 # P2-06 — Client setup snippet screen
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §5.3 (Client Setup), §5.4 (criterion 9)
+**SPECS references**: §5.3 (Client Setup), §5.4 (criterion 9)
 
 ## Goal
 

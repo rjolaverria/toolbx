@@ -1,11 +1,11 @@
 # M4-05 — Bootstrap tools: `toolbox__list_available_servers` and `toolbox__list_revealed_tools`
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §2.4
+**SPECS references**: §2.4
 
 ## Goal
 
-Two read-only bootstrap tools an agent can use to introspect Toolbox without revealing tools.
+Two read-only bootstrap tools an agent can use to introspect ToolBox without revealing tools.
 
 ## Deliverables
 

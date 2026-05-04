@@ -1,11 +1,11 @@
 # M0-03 — `tlbx init` command
 
 **Milestone**: 0 — Skeleton
-**README references**: §4.2, §4.4, §4.8 (criterion 1), §7 (Milestone 0)
+**SPECS references**: §4.2, §4.4, §4.8 (criterion 1), §7 (Milestone 0)
 
 ## Goal
 
-Implement `npx tlbx init` so users can bootstrap a fresh, valid Toolbox config file in the right location.
+Implement `npx tlbx init` so users can bootstrap a fresh, valid ToolBox config file in the right location.
 
 ## Deliverables
 

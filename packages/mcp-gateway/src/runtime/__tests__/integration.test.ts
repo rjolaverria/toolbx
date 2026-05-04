@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { createNoopLogger, type ToolboxConfig } from '@toolbox/core';
+import { createNoopLogger, type ToolBoxConfig } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDownstreamHttpServer } from '../../downstream-server/http.js';
@@ -33,7 +33,7 @@ afterEach(async () => {
   activeRuntimes.clear();
 });
 
-function makeConfig(): ToolboxConfig {
+function makeConfig(): ToolBoxConfig {
   return {
     version: 1,
     server: {

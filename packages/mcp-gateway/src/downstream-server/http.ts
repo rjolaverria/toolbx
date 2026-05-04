@@ -11,7 +11,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
-import { buildToolboxMcpServer } from './server.js';
+import { buildToolBoxMcpServer } from './server.js';
 import type {
   CreateDownstreamHttpServerDeps,
   DownstreamHttpServer,
@@ -181,8 +181,8 @@ export function createDownstreamHttpServer(
   function createHttpSession(handlers: RegisterDownstreamHandlers | undefined): HttpSessionEntry {
     // Pre-generate the session id so it can be threaded into both the SDK
     // transport (which expects a `sessionIdGenerator`) and the per-session
-    // `DownstreamSession` state created by `buildToolboxMcpServer`. This
-    // keeps the Toolbox-level DownstreamSession.id and the MCP transport
+    // `DownstreamSession` state created by `buildToolBoxMcpServer`. This
+    // keeps the ToolBox-level DownstreamSession.id and the MCP transport
     // session id identical.
     const sessionId = sessionIdGenerator();
     const transport = new StreamableHTTPServerTransport({
@@ -193,7 +193,7 @@ export function createDownstreamHttpServer(
         log.debug({ sessionId: id }, 'http session initialized');
       },
     });
-    const { server } = buildToolboxMcpServer({
+    const { server } = buildToolBoxMcpServer({
       logger: log,
       sessionId,
       registerHandlers: handlers,

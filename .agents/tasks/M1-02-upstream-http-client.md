@@ -1,7 +1,7 @@
 # M1-02 — Upstream Streamable HTTP MCP client
 
 **Milestone**: 1 — Upstream Connection Manager
-**README references**: §2.1, §4.4 (`type: 'http'`), §4.6 (Must Have), §7 (Milestone 1)
+**SPECS references**: §2.1, §4.4 (`type: 'http'`), §4.6 (Must Have), §7 (Milestone 1)
 
 ## Goal
 
@@ -26,7 +26,7 @@ Implement an upstream MCP client that talks to a Streamable HTTP MCP server. Mir
 
 ## Out of scope
 
-- OAuth flows (deferred per README §4.6).
+- OAuth flows (deferred per SPECS §4.6).
 - Refreshing expired tokens automatically (M1-03 may surface `auth_expired`, refresh is later).
 
 ## Definition of done
