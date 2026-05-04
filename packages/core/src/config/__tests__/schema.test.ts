@@ -4,14 +4,14 @@ import {
   HttpServerConfigSchema,
   HttpServerSettingsSchema,
   StdioServerConfigSchema,
-  ToolboxConfigSchema,
+  ToolBoxConfigSchema,
   type HttpServerConfig,
   type ServerConfig,
   type StdioServerConfig,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '../schema.js';
 
-const README_EXAMPLE = {
+const SPECS_EXAMPLE = {
   $schema: 'https://toolbox.dev/schema/config.schema.json',
   version: 1,
   server: {
@@ -59,9 +59,9 @@ const README_EXAMPLE = {
   },
 };
 
-describe('ToolboxConfigSchema', () => {
-  it('accepts the README §4.4 example verbatim', () => {
-    const result = ToolboxConfigSchema.safeParse(README_EXAMPLE);
+describe('ToolBoxConfigSchema', () => {
+  it('accepts the SPECS §4.4 example verbatim', () => {
+    const result = ToolBoxConfigSchema.safeParse(SPECS_EXAMPLE);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.servers.jira?.type).toBe('http');
@@ -70,20 +70,20 @@ describe('ToolboxConfigSchema', () => {
   });
 
   it('rejects unknown top-level keys', () => {
-    const bad = { ...README_EXAMPLE, extraneous: true };
-    const result = ToolboxConfigSchema.safeParse(bad);
+    const bad = { ...SPECS_EXAMPLE, extraneous: true };
+    const result = ToolBoxConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
   it('rejects unknown nested keys in progressiveDisclosure', () => {
     const bad = {
-      ...README_EXAMPLE,
+      ...SPECS_EXAMPLE,
       progressiveDisclosure: {
-        ...README_EXAMPLE.progressiveDisclosure,
+        ...SPECS_EXAMPLE.progressiveDisclosure,
         ghost: 'no',
       },
     };
-    const result = ToolboxConfigSchema.safeParse(bad);
+    const result = ToolBoxConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
@@ -93,8 +93,8 @@ describe('ToolboxConfigSchema', () => {
       format: 'server__tool',
       collisionStrategy: 'error',
     };
-    const result = ToolboxConfigSchema.safeParse({
-      ...README_EXAMPLE,
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
       namespacing,
     });
     expect(result.success).toBe(true);
@@ -104,10 +104,10 @@ describe('ToolboxConfigSchema', () => {
   });
 
   it('rejects an explicit non-`__` namespacing.separator override (Phase 1 constraint)', () => {
-    const result = ToolboxConfigSchema.safeParse({
-      ...README_EXAMPLE,
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
       namespacing: {
-        ...README_EXAMPLE.namespacing,
+        ...SPECS_EXAMPLE.namespacing,
         separator: '::',
       },
     });
@@ -117,8 +117,8 @@ describe('ToolboxConfigSchema', () => {
 
 describe('ServerConfig discriminated union', () => {
   it('rejects an unknown server type', () => {
-    const result = ToolboxConfigSchema.safeParse({
-      ...README_EXAMPLE,
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
       servers: {
         weird: {
           type: 'grpc',
@@ -173,12 +173,12 @@ describe('ServerConfig discriminated union', () => {
   });
 
   it('narrows the union by `type` at the type level', () => {
-    const result = ToolboxConfigSchema.safeParse(README_EXAMPLE);
+    const result = ToolBoxConfigSchema.safeParse(SPECS_EXAMPLE);
     expect(result.success).toBe(true);
     if (!result.success) {
       return;
     }
-    const config: ToolboxConfig = result.data;
+    const config: ToolBoxConfig = result.data;
     const jira: ServerConfig | undefined = config.servers.jira;
     if (jira !== undefined && jira.type === 'http') {
       const http: HttpServerConfig = jira;
@@ -204,8 +204,8 @@ describe('ServerConfig discriminated union', () => {
 
 describe('Server name validation', () => {
   it('rejects a server name containing the namespacing separator `__`', () => {
-    const result = ToolboxConfigSchema.safeParse({
-      ...README_EXAMPLE,
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
       servers: {
         jira__bad: {
           type: 'http',
@@ -218,8 +218,8 @@ describe('Server name validation', () => {
   });
 
   it('accepts a server name with single underscores', () => {
-    const result = ToolboxConfigSchema.safeParse({
-      ...README_EXAMPLE,
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
       servers: {
         my_server: {
           type: 'http',

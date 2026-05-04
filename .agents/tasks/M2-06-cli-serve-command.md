@@ -1,11 +1,11 @@
 # M2-06 — `tlbx serve` command
 
-**Milestone**: 2 — Downstream Toolbox MCP Server
-**README references**: §4.1, §4.2, §4.3, §4.8 (criteria 4 and 5)
+**Milestone**: 2 — Downstream ToolBox MCP Server
+**SPECS references**: §4.1, §4.2, §4.3, §4.8 (criteria 4 and 5)
 
 ## Goal
 
-Top-level CLI command that boots Toolbox: load config, connect upstream sessions, start the downstream MCP server in stdio or HTTP mode.
+Top-level CLI command that boots ToolBox: load config, connect upstream sessions, start the downstream MCP server in stdio or HTTP mode.
 
 ## Deliverables
 
@@ -19,7 +19,7 @@ Top-level CLI command that boots Toolbox: load config, connect upstream sessions
 
 ## Acceptance criteria
 
-- `tlbx serve --stdio` is wireable into Claude Desktop's MCP config (per README §4.3) and a manual `initialize` round-trip succeeds.
+- `tlbx serve --stdio` is wireable into Claude Desktop's MCP config (per SPECS §4.3) and a manual `initialize` round-trip succeeds.
 - `tlbx serve --http` binds the host/port from config and listens on the configured path.
 - Killing the process with SIGINT cleanly tears down upstream child processes (verified by checking no orphaned PIDs remain in tests).
 - Passing both `--stdio` and `--http` exits non-zero with a descriptive error.

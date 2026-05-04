@@ -8,7 +8,7 @@ export interface ConfigPathEnv {
 }
 
 const TOOLBOX_DIR_POSIX = 'toolbox';
-const TOOLBOX_DIR_WIN = 'Toolbox';
+const TOOLBOX_DIR_WIN = 'ToolBox';
 const CONFIG_FILENAME = 'config.json';
 
 function nonEmpty(value: string | undefined): value is string {

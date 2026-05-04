@@ -10,7 +10,7 @@ import { disableCommand, enableCommand } from './server-toggle.js';
 
 export function serverCommand(): CommandUnknownOpts {
   const cmd = new Command('server').description(
-    'Manage upstream MCP servers in the Toolbox config.',
+    'Manage upstream MCP servers in the ToolBox config.',
   );
   cmd.addCommand(addStdioCommand());
   cmd.addCommand(addHttpCommand());

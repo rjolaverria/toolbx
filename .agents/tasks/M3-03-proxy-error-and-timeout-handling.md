@@ -1,7 +1,7 @@
 # M3-03 — Timeout, error, and disabled-server handling for proxied calls
 
 **Milestone**: 3 — Proxy Routing
-**README references**: §4.4 (`timeoutMs`), §4.6 (Must Have), §7 (Milestone 3)
+**SPECS references**: §4.4 (`timeoutMs`), §4.6 (Must Have), §7 (Milestone 3)
 
 ## Goal
 
@@ -23,7 +23,7 @@ Make the proxy's failure modes predictable and visible. Apply per-server timeout
 - A call to a tool whose upstream session takes longer than `timeoutMs` is aborted on the upstream side and reported as `timeout` to the client within ±100ms of the configured value.
 - A disabled or disconnected upstream server returns `server_unavailable` without ever attempting the upstream call.
 - Upstream MCP errors are not silently swallowed — every failure produces both a structured log entry and a downstream MCP error.
-- The downstream client never observes Toolbox crashing because of an upstream failure.
+- The downstream client never observes ToolBox crashing because of an upstream failure.
 
 ## Out of scope
 

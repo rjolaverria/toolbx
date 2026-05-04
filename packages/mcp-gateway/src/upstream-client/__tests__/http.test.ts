@@ -212,7 +212,7 @@ describe('createHttpUpstreamClient — connect', () => {
       createHttpUpstreamClient(
         httpConfig({
           url: server.url,
-          headers: { 'X-Toolbox-Test': '${env:TOOLBOX_TEST_HEADER}' },
+          headers: { 'X-ToolBox-Test': '${env:TOOLBOX_TEST_HEADER}' },
         }),
         {
           logger: createNoopLogger(),
@@ -229,7 +229,7 @@ describe('createHttpUpstreamClient — connect', () => {
       createHttpUpstreamClient(
         httpConfig({
           url: 'http://127.0.0.1:1/mcp',
-          headers: { 'X-Toolbox-Test': '${env:TOOLBOX_TEST_MISSING_HEADER}' },
+          headers: { 'X-ToolBox-Test': '${env:TOOLBOX_TEST_MISSING_HEADER}' },
         }),
         {
           logger: createNoopLogger(),

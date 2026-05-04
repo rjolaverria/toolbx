@@ -6,7 +6,7 @@ import {
   type CreateLoggerOptions,
   type LogFormat,
   type LogLevel,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 import {
   createDownstreamHttpServer,
@@ -46,7 +46,7 @@ export interface ServeStartedInfo {
 
 export interface ServeDeps {
   resolvePath: () => string;
-  loadConfig: (path: string) => Promise<ToolboxConfig>;
+  loadConfig: (path: string) => Promise<ToolBoxConfig>;
   createLogger: (options: CreateLoggerOptions) => ReturnType<typeof createLogger>;
   createRuntime: typeof createGatewayRuntime;
   createStdio: (deps: CreateDownstreamStdioServerDeps) => DownstreamStdioServer;
@@ -95,7 +95,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   const configPath =
     options.config !== undefined && options.config.length > 0 ? options.config : deps.resolvePath();
 
-  let config: ToolboxConfig;
+  let config: ToolBoxConfig;
   try {
     config = await deps.loadConfig(configPath);
   } catch (error) {
@@ -180,7 +180,7 @@ function errorMessage(error: unknown): string {
 
 export function serveCommand(): Command {
   const cmd = new Command('serve')
-    .description('Start the Toolbox MCP gateway in stdio or HTTP mode.')
+    .description('Start the ToolBox MCP gateway in stdio or HTTP mode.')
     .option('-s, --stdio', 'serve over stdio')
     .option('-H, --http', 'serve over Streamable HTTP using config.server.http (default)')
     .option('-c, --config <path>', 'override the resolved config path for this run')

@@ -1,7 +1,7 @@
 # M3-02 — Tool routing engine
 
 **Milestone**: 3 — Proxy Routing
-**README references**: §2.3, §4.6, §4.8 (criterion 7), §7 (Milestone 3)
+**SPECS references**: §2.3, §4.6, §4.8 (criterion 7), §7 (Milestone 3)
 
 ## Goal
 

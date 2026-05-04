@@ -1,7 +1,7 @@
 # M2-05 — `tools/call` handler with upstream routing
 
-**Milestone**: 2 — Downstream Toolbox MCP Server
-**README references**: §2.3, §4.6, §4.8 (criterion 7)
+**Milestone**: 2 — Downstream ToolBox MCP Server
+**SPECS references**: §2.3, §4.6, §4.8 (criterion 7)
 
 ## Goal
 
@@ -26,7 +26,7 @@ Wire the downstream `tools/call` to the correct upstream session, translating na
 ## Out of scope
 
 - Argument validation against `inputSchema` — the upstream server is the source of truth and will reject bad inputs itself.
-- Streaming partial results / progress notifications (deferred per README §4.6 "Should Have").
+- Streaming partial results / progress notifications (deferred per SPECS §4.6 "Should Have").
 - Per-call retries and timeout policy (M3-03 decides).
 - Wiring a real `UpstreamSessionLookup` to the connection manager (M2-06).
 

@@ -4,7 +4,7 @@ import {
   type ServerConfig,
   type ServerStatus,
   type StatusRegistry,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 
 import {
@@ -30,7 +30,7 @@ export interface CreateUpstreamSessionForRuntime {
 }
 
 export interface CreateGatewayRuntimeDeps {
-  config: ToolboxConfig;
+  config: ToolBoxConfig;
   logger: Logger;
   processEnv?: NodeJS.ProcessEnv;
   /** Test seam: override how upstream sessions are constructed. */

@@ -1,10 +1,10 @@
-import type { ToolboxConfig } from './schema.js';
+import type { ToolBoxConfig } from './schema.js';
 
 export const DEFAULT_NAMESPACE_SEPARATOR = '__';
 
 export const CONFIG_SCHEMA_URL = 'https://toolbox.dev/schema/config.schema.json';
 
-export const DEFAULT_CONFIG: ToolboxConfig = Object.freeze({
+export const DEFAULT_CONFIG: ToolBoxConfig = Object.freeze({
   $schema: CONFIG_SCHEMA_URL,
   version: 1,
   server: Object.freeze({

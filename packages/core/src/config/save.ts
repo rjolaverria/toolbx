@@ -3,13 +3,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { resolveConfigPath } from './paths.js';
-import type { ToolboxConfig } from './schema.js';
+import type { ToolBoxConfig } from './schema.js';
 
-function serialize(config: ToolboxConfig): string {
+function serialize(config: ToolBoxConfig): string {
   return JSON.stringify(config, null, 2) + '\n';
 }
 
-export async function saveConfig(config: ToolboxConfig, filePath?: string): Promise<void> {
+export async function saveConfig(config: ToolBoxConfig, filePath?: string): Promise<void> {
   const target = filePath ?? resolveConfigPath();
   const dir = path.dirname(target);
   await fs.mkdir(dir, { recursive: true });

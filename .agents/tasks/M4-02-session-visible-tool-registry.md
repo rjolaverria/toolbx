@@ -1,7 +1,7 @@
 # M4-02 — Session-visible tool registry
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §2.4, §4.4 (`progressiveDisclosure.mode`), §7 (Milestone 4)
+**SPECS references**: §2.4, §4.4 (`progressiveDisclosure.mode`), §7 (Milestone 4)
 
 ## Goal
 
@@ -11,8 +11,8 @@ Per-session state that records which exposed tools the current MCP client has re
 
 - `packages/core/src/disclosure/session-visibility.ts` exporting:
   - `createSessionVisibility(options)` returning `{ list, reveal, hide, isVisible, snapshot, reset, on }`.
-  - `mode: 'session' | 'global'`. `session` keeps state per-MCP-session; `global` shares state across sessions on this Toolbox instance.
-- Bootstrap tools (per README §2.4) are always visible regardless of reveal/hide.
+  - `mode: 'session' | 'global'`. `session` keeps state per-MCP-session; `global` shares state across sessions on this ToolBox instance.
+- Bootstrap tools (per SPECS §2.4) are always visible regardless of reveal/hide.
 - `autoRevealExactServerMatches: true` reveals an entire server's tool set when its server name is exactly searched (used by M4-03's `search_tools`).
 - Emits `'change'` events that M4-06 will translate to `notifications/tools/list_changed`.
 
@@ -26,7 +26,7 @@ Per-session state that records which exposed tools the current MCP client has re
 
 ## Out of scope
 
-- Persistence of revealed-tool state across Toolbox restarts.
+- Persistence of revealed-tool state across ToolBox restarts.
 - "Pinned" / "always visible" tools — listed in §5.3 but a Phase 2 UI concern.
 
 ## Definition of done

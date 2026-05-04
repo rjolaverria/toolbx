@@ -1,16 +1,16 @@
 # M5-06 — End-to-end MCP client integration tests
 
 **Milestone**: 5 — Client Compatibility & UX Polish
-**README references**: §4.8 (all criteria), §7 (Milestone 5)
+**SPECS references**: §4.8 (all criteria), §7 (Milestone 5)
 
 ## Goal
 
-A small but real integration test suite that runs Toolbox end-to-end and verifies the Phase 1 acceptance criteria from README §4.8.
+A small but real integration test suite that runs ToolBox end-to-end and verifies the Phase 1 acceptance criteria from SPECS §4.8.
 
 ## Deliverables
 
 - `apps/cli/test/integration/` directory with Vitest tests that:
-  - Spin up Toolbox on stdio with a fixture upstream stdio server (the same fixture from M1-01).
+  - Spin up ToolBox on stdio with a fixture upstream stdio server (the same fixture from M1-01).
   - Use `@modelcontextprotocol/sdk` as a client to drive `initialize`, `tools/list`, `tools/call`, `notifications/tools/list_changed`.
   - Repeat for the HTTP downstream variant against an HTTP upstream fixture.
   - Cover progressive-disclosure on/off paths and reveal/hide round trips.
@@ -19,7 +19,7 @@ A small but real integration test suite that runs Toolbox end-to-end and verifie
 
 ## Acceptance criteria
 
-- Every Phase 1 acceptance criterion in README §4.8 is exercised by at least one integration test that fails before the underlying milestone task lands and passes after.
+- Every Phase 1 acceptance criterion in SPECS §4.8 is exercised by at least one integration test that fails before the underlying milestone task lands and passes after.
 - The suite runs in under 60 seconds on a developer laptop.
 - No test depends on real network access; everything is fixture-based.
 

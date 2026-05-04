@@ -1,7 +1,7 @@
 # M1-01 — Upstream stdio MCP client
 
 **Milestone**: 1 — Upstream Connection Manager
-**README references**: §2.1, §4.4 (`type: 'stdio'`), §4.6 (Must Have), §7 (Milestone 1)
+**SPECS references**: §2.1, §4.4 (`type: 'stdio'`), §4.6 (Must Have), §7 (Milestone 1)
 
 ## Goal
 

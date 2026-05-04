@@ -1,11 +1,11 @@
 # M3-01 — Namespacing module
 
 **Milestone**: 3 — Proxy Routing
-**README references**: §2.3, §4.4 (`namespacing` block), §4.8 (criterion 12), §9 (principle 4)
+**SPECS references**: §2.3, §4.4 (`namespacing` block), §4.8 (criterion 12), §9 (principle 4)
 
 ## Goal
 
-A small, pure module that converts between upstream tool names and Toolbox-exposed namespaced names, and detects collisions across upstream servers. The entire proxy depends on this — keep it deterministic and well-tested.
+A small, pure module that converts between upstream tool names and ToolBox-exposed namespaced names, and detects collisions across upstream servers. The entire proxy depends on this — keep it deterministic and well-tested.
 
 ## Deliverables
 

@@ -124,7 +124,7 @@ function toMcpError(name: string, result: Exclude<RouteResult, { kind: 'ok' }>):
  * delegates routing decisions to `routeToolCall` in `@toolbox/core` and
  * converts the discriminated `RouteResult` into MCP-protocol responses.
  *
- * Argument validation is delegated to the upstream server — Toolbox does not
+ * Argument validation is delegated to the upstream server — ToolBox does not
  * second-guess JSON Schema enforcement. The router enforces a structural
  * guard (arguments must be an object) for callers that bypass the SDK's
  * request schema.

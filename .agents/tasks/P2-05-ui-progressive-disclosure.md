@@ -1,7 +1,7 @@
 # P2-05 — Progressive disclosure settings screen
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §5.3 (Progressive Disclosure), §5.4 (criterion 7)
+**SPECS references**: §5.3 (Progressive Disclosure), §5.4 (criterion 7)
 
 ## Goal
 

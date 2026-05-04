@@ -1,7 +1,7 @@
 # M4-07 — Progressive disclosure config toggle in `tools/list`
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §2.4, §4.4 (`progressiveDisclosure`), §4.8 (criteria 8, 9, 10)
+**SPECS references**: §2.4, §4.4 (`progressiveDisclosure`), §4.8 (criteria 8, 9, 10)
 
 ## Goal
 
@@ -29,7 +29,7 @@ Combine the registry, session visibility, and bootstrap tools into the final `to
 
 ## Definition of done
 
-- All acceptance criteria above hold and Phase 1 acceptance criteria 8, 9, 10 from README §4.8 are satisfied.
+- All acceptance criteria above hold and Phase 1 acceptance criteria 8, 9, 10 from SPECS §4.8 are satisfied.
 - Tests cover both modes plus the toggle transition.
 - `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and `pnpm test:run` all pass.
 - Task committed and the M4-07 checkbox in `.agents/TASKS.md` is updated with the closing commit hash.

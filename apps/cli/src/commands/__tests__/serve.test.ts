@@ -4,7 +4,7 @@ import {
   createNoopLogger,
   DEFAULT_CONFIG,
   type CreateLoggerOptions,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 import type {
   CreateDownstreamHttpServerDeps,
@@ -100,14 +100,14 @@ interface Harness {
   startUpstreamsSpy: ReturnType<typeof vi.fn>;
 }
 
-function makeHarness(config: ToolboxConfig = DEFAULT_CONFIG): Harness {
+function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
   const stderr = { value: '' };
   const stdioControls = makeFakeStdio();
   const httpControls = makeFakeHttp(new URL('http://127.0.0.1:7331/mcp'));
   const fakeRuntime = makeFakeRuntime();
   const { runtime, disposeSpy, startUpstreamsSpy } = fakeRuntime;
 
-  const loadConfig = vi.fn<(path: string) => Promise<ToolboxConfig>>(() => Promise.resolve(config));
+  const loadConfig = vi.fn<(path: string) => Promise<ToolBoxConfig>>(() => Promise.resolve(config));
   const createRuntime = vi.fn<() => GatewayRuntime>(() => runtime);
   const createStdio = vi.fn<(deps: CreateDownstreamStdioServerDeps) => DownstreamStdioServer>(
     () => stdioControls.server,
@@ -264,7 +264,7 @@ describe('runServe', () => {
   });
 
   it('refuses --http when config.server.http.enabled is false', async () => {
-    const config: ToolboxConfig = {
+    const config: ToolBoxConfig = {
       ...DEFAULT_CONFIG,
       server: {
         ...DEFAULT_CONFIG.server,

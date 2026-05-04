@@ -28,7 +28,7 @@ const ArgsSchema = z
 
 const REVEAL_TOOLS_DESCRIPTOR: Tool = {
   name: REVEAL_TOOLS_NAME,
-  title: 'Reveal Toolbox tools',
+  title: 'Reveal ToolBox tools',
   description:
     'Add one or more exposed (namespaced) tools to the current session so they appear in ' +
     'subsequent tools/list responses and become callable via tools/call. Use ' +

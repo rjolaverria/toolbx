@@ -44,22 +44,22 @@ describe('resolveConfigPath', () => {
     expect(result).toBe(path.join('/Users/u', '.config', 'toolbox', 'config.json'));
   });
 
-  it('uses %APPDATA%\\Toolbox\\config.json on win32 when APPDATA is set', () => {
+  it('uses %APPDATA%\\ToolBox\\config.json on win32 when APPDATA is set', () => {
     const result = resolveConfigPath({
       env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' },
       platform: 'win32',
       homedir: () => 'C:\\Users\\u',
     });
-    expect(result).toBe(path.join('C:\\Users\\u\\AppData\\Roaming', 'Toolbox', 'config.json'));
+    expect(result).toBe(path.join('C:\\Users\\u\\AppData\\Roaming', 'ToolBox', 'config.json'));
   });
 
-  it('falls back to <home>/AppData/Roaming/Toolbox/config.json on win32 when APPDATA is unset', () => {
+  it('falls back to <home>/AppData/Roaming/ToolBox/config.json on win32 when APPDATA is unset', () => {
     const result = resolveConfigPath({
       env: {},
       platform: 'win32',
       homedir: () => 'C:\\Users\\u',
     });
-    expect(result).toBe(path.join('C:\\Users\\u', 'AppData', 'Roaming', 'Toolbox', 'config.json'));
+    expect(result).toBe(path.join('C:\\Users\\u', 'AppData', 'Roaming', 'ToolBox', 'config.json'));
   });
 
   it('treats an empty TOOLBOX_CONFIG as unset', () => {

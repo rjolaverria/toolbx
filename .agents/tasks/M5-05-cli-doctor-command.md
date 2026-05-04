@@ -1,7 +1,7 @@
 # M5-05 — `tlbx doctor` command
 
 **Milestone**: 5 — Client Compatibility & UX Polish
-**README references**: §4.2, §7 (Milestone 5)
+**SPECS references**: §4.2, §7 (Milestone 5)
 
 ## Goal
 

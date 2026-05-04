@@ -1,16 +1,16 @@
 # P2-02 — Dashboard screen
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §5.3 (Dashboard)
+**SPECS references**: §5.3 (Dashboard)
 
 ## Goal
 
-The first screen the user sees: at-a-glance Toolbox health.
+The first screen the user sees: at-a-glance ToolBox health.
 
 ## Deliverables
 
 - Dashboard route in the renderer showing:
-  - Toolbox status (running / stopped) with a start/stop control.
+  - ToolBox status (running / stopped) with a start/stop control.
   - Local endpoint(s) for stdio and HTTP downstream servers.
   - Connected client count (stretch: which clients).
   - Enabled upstream servers count and a roll-up status indicator.

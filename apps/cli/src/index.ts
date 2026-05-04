@@ -9,7 +9,7 @@ import { serverCommand } from './commands/server.js';
 async function main(): Promise<void> {
   const program = new Command()
     .name('tlbx')
-    .description('Toolbox — local MCP gateway and proxy')
+    .description('ToolBox — local MCP gateway and proxy')
     .version('0.0.0');
 
   program.addCommand(initCommand());

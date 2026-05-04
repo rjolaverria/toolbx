@@ -1,4 +1,4 @@
-export { getToolboxVersion } from './version.js';
+export { getToolBoxVersion } from './version.js';
 
 export {
   AuthSchema,
@@ -13,7 +13,7 @@ export {
   ServersMapSchema,
   StdioServerConfigSchema,
   StdioServerSettingsSchema,
-  ToolboxConfigSchema,
+  ToolBoxConfigSchema,
   type AuthConfig,
   type HttpServerConfig,
   type NamespacingConfig,
@@ -21,8 +21,8 @@ export {
   type ServerConfig,
   type ServerSettings,
   type StdioServerConfig,
-  type ToolboxConfig,
-  type ToolboxConfigInput,
+  type ToolBoxConfig,
+  type ToolBoxConfigInput,
 } from './config/schema.js';
 
 export { getDefaultConfigPath, resolveConfigPath, type ConfigPathEnv } from './config/paths.js';

@@ -23,7 +23,7 @@ const ArgsSchema = z
 
 const HIDE_TOOLS_DESCRIPTOR: Tool = {
   name: HIDE_TOOLS_NAME,
-  title: 'Hide Toolbox tools',
+  title: 'Hide ToolBox tools',
   description:
     'Remove one or more exposed (namespaced) tools from the current session so they no ' +
     'longer appear in tools/list. Bootstrap tools cannot be hidden. Names that are not ' +

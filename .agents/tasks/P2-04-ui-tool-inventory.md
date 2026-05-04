@@ -1,15 +1,15 @@
 # P2-04 — Tool inventory screen
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §5.3 (Tools), §5.4 (criteria 6, 8)
+**SPECS references**: §5.3 (Tools), §5.4 (criteria 6, 8)
 
 ## Goal
 
-A searchable, filterable list of every tool Toolbox exposes — across servers, with reveal/hide and enable/disable controls.
+A searchable, filterable list of every tool ToolBox exposes — across servers, with reveal/hide and enable/disable controls.
 
 ## Deliverables
 
-- Tools route in the renderer with a table containing the columns from README §5.3: Toolbox name, original server, original upstream tool name, description, input schema preview, enabled state, revealed state.
+- Tools route in the renderer with a table containing the columns from SPECS §5.3: ToolBox name, original server, original upstream tool name, description, input schema preview, enabled state, revealed state.
 - Search uses M4-01's ranking via IPC (no separate UI-side search — keep ranking consistent with the bootstrap search tool).
 - Per-row actions: search, reveal, hide, pin always visible (visual only for Phase 2 unless backed in M4 later), disable globally, copy tool name.
 - Filter chips for `server`, `enabled`, `revealed`.

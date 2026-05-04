@@ -1,7 +1,7 @@
 # M5-04 — `tlbx status` command
 
 **Milestone**: 5 — Client Compatibility & UX Polish
-**README references**: §2.5, §4.2, §4.8 (criterion 11)
+**SPECS references**: §2.5, §4.2, §4.8 (criterion 11)
 
 ## Goal
 

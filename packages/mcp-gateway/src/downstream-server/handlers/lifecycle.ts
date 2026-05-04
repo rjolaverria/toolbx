@@ -28,7 +28,7 @@ export function requireReady(session: DownstreamSession): void {
   if (!session.ready) {
     throw new McpError(
       ErrorCode.InvalidRequest,
-      'Toolbox server has not received notifications/initialized yet',
+      'ToolBox server has not received notifications/initialized yet',
     );
   }
 }

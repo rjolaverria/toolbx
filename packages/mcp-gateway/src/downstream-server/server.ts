@@ -1,6 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import { getToolboxVersion, type Logger } from '@toolbox/core';
+import { getToolBoxVersion, type Logger } from '@toolbox/core';
 
 import { registerLifecycleHandlers } from './handlers/lifecycle.js';
 import { createDownstreamSession, type DownstreamSession } from './session.js';
@@ -13,7 +13,7 @@ export const TOOLBOX_SERVER_CAPABILITIES = {
   logging: {},
 } as const;
 
-export interface BuildToolboxMcpServerDeps {
+export interface BuildToolBoxMcpServerDeps {
   logger: Logger;
   /**
    * Stable identifier for this MCP session. stdio transports pass `'stdio'`;
@@ -24,22 +24,22 @@ export interface BuildToolboxMcpServerDeps {
   registerHandlers?: RegisterDownstreamHandlers | undefined;
 }
 
-export interface BuildToolboxMcpServerResult {
+export interface BuildToolBoxMcpServerResult {
   server: Server;
   session: DownstreamSession;
 }
 
 /**
- * Builds a Toolbox MCP `Server` instance with shared identity, capabilities,
+ * Builds a ToolBox MCP `Server` instance with shared identity, capabilities,
  * lifecycle wiring, and out-of-band error logging. Both downstream transports
  * (stdio + HTTP) use this so the M2-03/04/05 handler set wires onto either
  * transport identically. The HTTP transport calls this once per session.
  */
-export function buildToolboxMcpServer(
-  deps: BuildToolboxMcpServerDeps,
-): BuildToolboxMcpServerResult {
+export function buildToolBoxMcpServer(
+  deps: BuildToolBoxMcpServerDeps,
+): BuildToolBoxMcpServerResult {
   const server = new Server(
-    { name: TOOLBOX_SERVER_NAME, version: getToolboxVersion() },
+    { name: TOOLBOX_SERVER_NAME, version: getToolBoxVersion() },
     { capabilities: TOOLBOX_SERVER_CAPABILITIES },
   );
 

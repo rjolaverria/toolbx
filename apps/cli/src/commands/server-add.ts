@@ -3,7 +3,7 @@ import {
   saveConfig,
   type HttpServerConfig,
   type StdioServerConfig,
-  type ToolboxConfig,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 
 import {
@@ -68,7 +68,7 @@ function parseKeyValuePairs(
 }
 
 async function saveAndPrint(
-  next: ToolboxConfig,
+  next: ToolBoxConfig,
   name: string,
   target: string,
   deps: ServerAddDeps,
@@ -79,7 +79,7 @@ async function saveAndPrint(
 }
 
 function rejectDuplicate(
-  config: ToolboxConfig,
+  config: ToolBoxConfig,
   name: string,
   target: string,
   deps: ServerAddDeps,
@@ -92,10 +92,10 @@ function rejectDuplicate(
 }
 
 function buildCandidate(
-  config: ToolboxConfig,
+  config: ToolBoxConfig,
   name: string,
   entry: StdioServerConfig | HttpServerConfig,
-): ToolboxConfig {
+): ToolBoxConfig {
   return {
     ...config,
     servers: { ...config.servers, [name]: entry },

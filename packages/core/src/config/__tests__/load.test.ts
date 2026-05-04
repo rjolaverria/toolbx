@@ -44,7 +44,7 @@ afterEach(async () => {
 });
 
 describe('parseConfig', () => {
-  it('returns a typed ToolboxConfig for valid input', () => {
+  it('returns a typed ToolBoxConfig for valid input', () => {
     const config = parseConfig(VALID_CONFIG_JSON);
     expect(config.version).toBe(1);
     expect(config.namespacing.separator).toBe('__'); // default applied

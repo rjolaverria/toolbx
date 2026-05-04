@@ -1,7 +1,7 @@
 # M5-02 — `tlbx tools` commands
 
 **Milestone**: 5 — Client Compatibility & UX Polish
-**README references**: §4.2
+**SPECS references**: §4.2
 
 ## Goal
 
@@ -12,7 +12,7 @@ Browse and gate the tool registry from the CLI without an MCP client.
 - `apps/cli/src/commands/tools-list.ts` — `tlbx tools list`. Prints exposed name, server, original tool name, enabled state. Supports `--json` and `--server <name>`.
 - `apps/cli/src/commands/tools-search.ts` — `tlbx tools search <query>`. Reuses M4-01 search and prints the same table as `list`. Supports `--limit` and `--json`.
 - `apps/cli/src/commands/tools-toggle.ts` — `tlbx tools enable <namespace/tool>` and `tlbx tools disable <namespace/tool>`.
-  - Accepts both `namespace/tool` (per README §4.2) and `namespace__tool` notation; rejects ambiguous input.
+  - Accepts both `namespace/tool` (per SPECS §4.2) and `namespace__tool` notation; rejects ambiguous input.
   - Writes a per-tool `enabled` override into config under `tools[exposedName].enabled`. (Add this field to the config schema in M0-01 if it does not yet exist; otherwise extend in this task.)
 
 ## Acceptance criteria

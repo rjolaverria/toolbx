@@ -1,7 +1,7 @@
 # M4-06 — `tools/list_changed` notification on visibility changes
 
 **Milestone**: 4 — Progressive Disclosure
-**README references**: §2.4, §4.6 (Must Have), §7 (Milestone 4)
+**SPECS references**: §2.4, §4.6 (Must Have), §7 (Milestone 4)
 
 ## Goal
 
@@ -21,7 +21,7 @@ Emit `notifications/tools/list_changed` on the downstream MCP server whenever th
 
 ## Out of scope
 
-- Cross-instance notifications (Toolbox runs as a single process today).
+- Cross-instance notifications (ToolBox runs as a single process today).
 - Differentiating "visibility changed" from "schema changed" — Phase 1 always re-emits a single notification kind.
 
 ## Definition of done

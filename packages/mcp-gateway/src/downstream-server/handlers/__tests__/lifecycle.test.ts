@@ -2,10 +2,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, getToolboxVersion } from '@toolbox/core';
+import { createNoopLogger, getToolBoxVersion } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
-import { buildToolboxMcpServer } from '../../server.js';
+import { buildToolBoxMcpServer } from '../../server.js';
 import { createDownstreamSession } from '../../session.js';
 import { requireReady } from '../lifecycle.js';
 
@@ -15,7 +15,7 @@ async function connectPair(register?: (server: unknown, session: unknown) => voi
   session: ReturnType<typeof createDownstreamSession>;
 }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const built = buildToolboxMcpServer({
+  const built = buildToolBoxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'unit-test',
     ...(register ? { registerHandlers: register } : {}),
@@ -41,7 +41,7 @@ async function connectPair(register?: (server: unknown, session: unknown) => voi
 describe('lifecycle handlers — initialize', () => {
   it('reports serverInfo with name=toolbox and version from @toolbox/core package.json', async () => {
     const { client, closeAll } = await connectPair();
-    expect(client.getServerVersion()).toEqual({ name: 'toolbox', version: getToolboxVersion() });
+    expect(client.getServerVersion()).toEqual({ name: 'toolbox', version: getToolBoxVersion() });
     await closeAll();
   });
 
@@ -66,7 +66,7 @@ describe('lifecycle handlers — notifications/initialized', () => {
 
   it('keeps session.ready=false on a Server that never received initialized', () => {
     // Build a Server without ever connecting it: oninitialized cannot fire.
-    const built = buildToolboxMcpServer({
+    const built = buildToolBoxMcpServer({
       logger: createNoopLogger(),
       sessionId: 'never-initialized',
     });
@@ -93,7 +93,7 @@ describe('lifecycle handlers — pre-init guard', () => {
     // the lifecycle before we get a chance to send tools/call. So we install
     // our own oninitialized that holds ready=false, then invoke tools/call.
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-    const built = buildToolboxMcpServer({
+    const built = buildToolBoxMcpServer({
       logger: createNoopLogger(),
       sessionId: 'pre-init',
       registerHandlers: (server, session) => {

@@ -1,7 +1,7 @@
 # M1-03 — Upstream session lifecycle and reconnect
 
 **Milestone**: 1 — Upstream Connection Manager
-**README references**: §2.5, §4.6, §7 (Milestone 1)
+**SPECS references**: §2.5, §4.6, §7 (Milestone 1)
 
 ## Goal
 

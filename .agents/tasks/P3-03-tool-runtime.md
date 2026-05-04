@@ -1,11 +1,11 @@
 # P3-03 — Custom tool runtime with timeouts and permissions
 
 **Milestone**: Phase 3 — Custom JS/TS Tools
-**README references**: §6.6, §6.7 (criteria 8, 9)
+**SPECS references**: §6.6, §6.7 (criteria 8, 9)
 
 ## Goal
 
-Run an imported custom tool when it's called, with timeouts, audit logs, and a basic permissions model. Stronger sandboxing is deferred per README §6.6.
+Run an imported custom tool when it's called, with timeouts, audit logs, and a basic permissions model. Stronger sandboxing is deferred per SPECS §6.6.
 
 ## Deliverables
 
@@ -26,7 +26,7 @@ Run an imported custom tool when it's called, with timeouts, audit logs, and a b
 
 ## Out of scope
 
-- Strong sandboxing (e.g. V8 isolates, OS-level sandboxing) — deferred per README §6.6.
+- Strong sandboxing (e.g. V8 isolates, OS-level sandboxing) — deferred per SPECS §6.6.
 - Resource limits beyond timeout (CPU / memory limits left for later).
 
 ## Definition of done

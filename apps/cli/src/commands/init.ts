@@ -60,14 +60,14 @@ export async function runInit(options: InitOptions, deps: InitDeps): Promise<num
   }
 
   await saveConfig(DEFAULT_CONFIG, target);
-  deps.stdout(`Created Toolbox config at ${target}\n`);
+  deps.stdout(`Created ToolBox config at ${target}\n`);
   deps.stdout('Next: run `tlbx serve` to start the gateway.\n');
   return 0;
 }
 
 export function initCommand(): Command {
   return new Command('init')
-    .description('Create a new Toolbox config file at the resolved location.')
+    .description('Create a new ToolBox config file at the resolved location.')
     .option('-f, --force', 'overwrite an existing config file')
     .option('-p, --path <path>', 'write the config to this path instead of the resolved default')
     .action(async (opts) => {

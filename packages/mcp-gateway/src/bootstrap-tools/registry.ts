@@ -4,7 +4,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
  * In-memory registry of toolbox-owned bootstrap tools. Bootstrap tools are
  * not upstream tools — they live inside the gateway and implement
  * progressive-disclosure affordances (`toolbox__search_tools`,
- * `toolbox__reveal_tools`, etc., per README §2.4).
+ * `toolbox__reveal_tools`, etc., per SPECS §2.4).
  *
  * The registry is a thin shared seam between `tools/list` (which prepends
  * `list()` to the upstream tool listing) and `tools/call` (which dispatches

@@ -1,7 +1,7 @@
 # P2-03 — MCP Servers manager screen + Add Server wizards
 
 **Milestone**: Phase 2 — Electron UI
-**README references**: §5.3 (MCP Servers, Add Server Wizard), §5.4 (criteria 1, 2, 3, 4, 5)
+**SPECS references**: §5.3 (MCP Servers, Add Server Wizard), §5.4 (criteria 1, 2, 3, 4, 5)
 
 ## Goal
 
@@ -9,7 +9,7 @@ A screen to add, edit, enable/disable, restart, remove, and inspect upstream MCP
 
 ## Deliverables
 
-- Servers route in the renderer with a table showing every configured server with the columns from README §5.3 (name, type, enabled/disabled, connection status, auth status, tool count, last connected, last error). Row actions: edit, disable, remove, restart, inspect tools, test connection.
+- Servers route in the renderer with a table showing every configured server with the columns from SPECS §5.3 (name, type, enabled/disabled, connection status, auth status, tool count, last connected, last error). Row actions: edit, disable, remove, restart, inspect tools, test connection.
 - Add Server wizard with two flows:
   - **stdio**: name, command, arguments, environment variables, working directory, timeout.
   - **HTTP**: name, URL, auth type (none / bearer), headers, timeout.

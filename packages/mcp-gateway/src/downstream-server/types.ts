@@ -9,7 +9,7 @@ import type { DownstreamSession } from './session.js';
 
 /**
  * Hook seam for M2-04 / M2-05 to wire request handlers onto the SDK server.
- * Lifecycle wiring (`oninitialized`) is handled by `buildToolboxMcpServer`
+ * Lifecycle wiring (`oninitialized`) is handled by `buildToolBoxMcpServer`
  * itself; this seam is for the application-level handlers — `tools/list`,
  * `tools/call`, and the M4 progressive-disclosure bootstrap tools — that
  * need access to the per-session state.

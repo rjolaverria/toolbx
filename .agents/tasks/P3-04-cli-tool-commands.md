@@ -1,7 +1,7 @@
 # P3-04 — `tlbx tool` CLI commands
 
 **Milestone**: Phase 3 — Custom JS/TS Tools
-**README references**: §6.4
+**SPECS references**: §6.4
 
 ## Goal
 
@@ -17,7 +17,7 @@ The CLI surface for custom tools, mirroring `tlbx server` for upstream MCP serve
 
 ## Acceptance criteria
 
-- `tlbx tool import ./send_slack_summary.ts` produces the manifest + storage path described in README §6.2 / §6.3.
+- `tlbx tool import ./send_slack_summary.ts` produces the manifest + storage path described in SPECS §6.2 / §6.3.
 - `inspect` redacts env-var values; only declared `permissions.env` names are shown.
 - Disabling a tool causes it to be omitted from `tools/list` (verified in P3-05 integration).
 
@@ -29,6 +29,6 @@ The CLI surface for custom tools, mirroring `tlbx server` for upstream MCP serve
 ## Definition of done
 
 - Acceptance criteria hold.
-- Tests cover each subcommand against a temp Toolbox config dir.
+- Tests cover each subcommand against a temp ToolBox config dir.
 - `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and `pnpm test:run` all pass.
 - Task committed and the P3-04 checkbox in `.agents/TASKS.md` is updated with the closing commit hash.
