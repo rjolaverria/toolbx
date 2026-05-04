@@ -55,7 +55,7 @@ This is the master todo list for delivering the ToolBox product as described in 
 - [x] **M4-03** — [Bootstrap tool: `toolbox__search_tools`](tasks/M4-03-bootstrap-search-tools.md) — closed by d65d140
 - [x] **M4-04** — [Bootstrap tools: `toolbox__reveal_tools` and `toolbox__hide_tools`](tasks/M4-04-bootstrap-reveal-and-hide-tools.md) — closed by 583f55e
 - [x] **M4-05** — [Bootstrap tools: `toolbox__list_available_servers` and `toolbox__list_revealed_tools`](tasks/M4-05-bootstrap-list-tools.md) — closed by ff5410e
-- [ ] **M4-06** — [`tools/list_changed` notification on visibility changes](tasks/M4-06-tools-list-changed-notification.md)
+- [x] **M4-06** — [`tools/list_changed` notification on visibility changes](tasks/M4-06-tools-list-changed-notification.md) — closed by db078e1
 - [ ] **M4-07** — [Progressive disclosure config toggle in `tools/list`](tasks/M4-07-progressive-disclosure-toggle.md)
 
 ## Milestone 5 — Client Compatibility & UX Polish
