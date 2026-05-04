@@ -6,7 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import { createNoopLogger } from '@toolbox/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDownstreamStdioServer } from '../stdio.js';
 import type { DownstreamStdioServer } from '../types.js';
@@ -180,6 +180,29 @@ describe('createDownstreamStdioServer — lifecycle', () => {
 
     await downstream.start();
     stdin.end();
+    await expect(downstream.done).resolves.toBeUndefined();
+  });
+
+  it("composes registerHandlers' session.onClose hooks with the transport's own teardown", async () => {
+    const handlerCleanup = vi.fn();
+    const downstream = track(
+      createDownstreamStdioServer({
+        logger: createNoopLogger(),
+        registerHandlers: (_server, session) => {
+          session.onClose(handlerCleanup);
+        },
+        ...lifecycleDeps(),
+      }),
+    );
+
+    await downstream.start();
+    await downstream.stop();
+
+    // Both the runtime-style cleanup AND the transport's own finalizeStopped
+    // must run; the latter is what resolves `done`. Without composition,
+    // assigning `server.onclose` inside start() would silently drop the
+    // handlerCleanup registered above.
+    expect(handlerCleanup).toHaveBeenCalledTimes(1);
     await expect(downstream.done).resolves.toBeUndefined();
   });
 

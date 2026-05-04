@@ -226,14 +226,16 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     };
     downstreamNotifiers.add(broadcastEntry);
 
-    const previousOnClose = server.onclose;
-    server.onclose = (): void => {
+    // Compose teardown via the session's `onClose` registry rather than
+    // reassigning `server.onclose` directly. Transports (stdio, HTTP) and
+    // future handlers all register cleanups the same way, and
+    // `buildToolBoxMcpServer` runs the chain when the SDK fires `onclose`.
+    downstreamSession.onClose(() => {
       offVisibility();
       offRegistry();
       downstreamNotifiers.delete(broadcastEntry);
       notifier.dispose();
-      previousOnClose?.();
-    };
+    });
   };
 
   return {

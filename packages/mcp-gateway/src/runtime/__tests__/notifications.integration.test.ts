@@ -194,6 +194,47 @@ describe('M4-06 tools/list_changed notification wiring', () => {
     expect(counterB.count()).toBe(1);
   }, 15_000);
 
+  it('detaches per-session listeners on session close so a closed client is not still scheduled', async () => {
+    const config = makeConfig();
+    const logger = createNoopLogger();
+
+    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
+    activeRuntimes.add(runtime);
+    runtime.startUpstreams();
+    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
+
+    const downstream = createDownstreamHttpServer({
+      logger,
+      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
+      registerHandlers: runtime.registerHandlers,
+    });
+    activeServers.add(downstream);
+    await downstream.start();
+
+    const counterA = await connectClient(downstream.url, 'cleanup-test-a');
+    const counterB = await connectClient(downstream.url, 'cleanup-test-b');
+
+    // Close client A and let the transport finalise.
+    await counterA.client.close();
+    activeClients.delete(counterA.client);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // A registry change after A's close should still notify B exactly once
+    // and must not throw inside A's now-disposed notifier.
+    runtime.toolRegistry.setServerEntry({
+      serverName: 'echo',
+      status: { kind: 'connected', since: new Date() },
+      enabled: true,
+      tools: [tool('echo'), tool('emit_log'), tool('slow'), tool('shout')],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(counterB.count()).toBe(1);
+    // A is closed; we never observed any tools/list_changed for it post-close.
+    expect(counterA.count()).toBe(0);
+  }, 15_000);
+
   it('hide_tools that removes nothing emits no notification (no visibility change)', async () => {
     const config = makeConfig();
     const logger = createNoopLogger();
