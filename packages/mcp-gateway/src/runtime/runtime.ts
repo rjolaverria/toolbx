@@ -1,4 +1,5 @@
 import {
+  createSessionVisibility,
   createStatusRegistry,
   type Logger,
   type ServerConfig,
@@ -8,15 +9,20 @@ import {
 } from '@toolbox/core';
 
 import {
+  BOOTSTRAP_TOOL_NAMES,
   createBootstrapToolRegistry,
+  createHideToolsBootstrap,
+  createListAvailableServersBootstrap,
+  createListRevealedToolsBootstrap,
+  createRevealToolsBootstrap,
   registerSearchToolsBootstrap,
-  type BootstrapToolRegistry,
 } from '../bootstrap-tools/index.js';
 import {
   registerToolsCallHandler,
   registerToolsListHandler,
   type UpstreamSessionLookup,
 } from '../downstream-server/handlers/index.js';
+import { createToolsChangedNotifier } from '../downstream-server/notify-tools-changed.js';
 import type { RegisterDownstreamHandlers } from '../downstream-server/types.js';
 import { createToolRegistry, type ToolRegistry } from '../registry/index.js';
 import { createUpstreamSession, type UpstreamSession } from '../upstream-client/index.js';
@@ -40,7 +46,6 @@ export interface CreateGatewayRuntimeDeps {
 export interface GatewayRuntime {
   readonly statusRegistry: StatusRegistry;
   readonly toolRegistry: ToolRegistry;
-  readonly bootstrapTools: BootstrapToolRegistry;
   readonly upstreams: UpstreamSessionLookup;
   readonly registerHandlers: RegisterDownstreamHandlers;
   /**
@@ -50,6 +55,15 @@ export interface GatewayRuntime {
    * yields an empty set until the first upstream finishes connecting.
    */
   startUpstreams(): void;
+  /**
+   * Force every active downstream session to re-emit
+   * `notifications/tools/list_changed`. The hook exists so the future M5-03
+   * `progressiveDisclosure.enabled` toggle (which changes how the per-session
+   * visible set is computed without mutating the tool registry or visibility
+   * state) can fan a notification out to every connected client. M4-06 wires
+   * the mechanism; M5-03 owns the call site.
+   */
+  notifyAllSessionsToolsChanged(): void;
   /** Tear down every upstream session in parallel. */
   dispose(): Promise<void>;
 }
@@ -65,20 +79,18 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   const log = deps.logger.child({ component: 'gateway-runtime' });
   const statusRegistry = createStatusRegistry(deps.config);
   const toolRegistry = createToolRegistry({ namespacing: deps.config.namespacing });
-  const bootstrapTools = createBootstrapToolRegistry();
-  if (deps.config.progressiveDisclosure.bootstrapTools) {
-    registerSearchToolsBootstrap({
-      registry: bootstrapTools,
-      toolRegistry,
-      maxSearchResults: deps.config.progressiveDisclosure.maxSearchResults,
-    });
-  }
   const sessions = new Map<string, UpstreamSession>();
   const create = deps.createSession ?? defaultCreateSession;
 
   const upstreams: UpstreamSessionLookup = {
     get: (name) => sessions.get(name),
   };
+
+  // Each downstream session registers a `schedule()` callback so
+  // `notifyAllSessionsToolsChanged()` can fan visibility-change notifications
+  // to every active client. Per-session entries are removed by the
+  // server.onclose hook in registerHandlers.
+  const downstreamNotifiers = new Set<() => void>();
 
   function syncToolRegistry(name: string, session: UpstreamSession, status: ServerStatus): void {
     const tools = status.kind === 'connected' ? (session.cachedTools()?.tools ?? []) : [];
@@ -153,20 +165,80 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   const resolveTimeoutMs = (serverName: string): number | undefined =>
     deps.config.servers[serverName]?.timeoutMs;
 
+  const bootstrapEnabled = deps.config.progressiveDisclosure.bootstrapTools;
+  const visibilityMode = deps.config.progressiveDisclosure.mode;
+  const maxSearchResults = deps.config.progressiveDisclosure.maxSearchResults;
+
   const registerHandlers: RegisterDownstreamHandlers = (server, downstreamSession) => {
-    registerToolsListHandler(server, downstreamSession, toolRegistry, bootstrapTools);
+    // Each downstream session owns its own bootstrap registry so the
+    // session-scoped tools (reveal/hide/list-revealed) can close over a
+    // fresh `SessionVisibility`. Stateless bootstrap tools (search,
+    // list-available-servers) are recreated per session too so the wiring
+    // stays uniform; they cost a couple of tiny closures and are negligible
+    // compared to the cost of a session itself.
+    const bootstrap = createBootstrapToolRegistry();
+    const visibility = createSessionVisibility({
+      mode: visibilityMode,
+      bootstrapToolNames: bootstrapEnabled ? BOOTSTRAP_TOOL_NAMES : [],
+    });
+
+    if (bootstrapEnabled) {
+      registerSearchToolsBootstrap({
+        registry: bootstrap,
+        toolRegistry,
+        maxSearchResults,
+      });
+      bootstrap.add(createListAvailableServersBootstrap({ statusRegistry }));
+      bootstrap.add(createRevealToolsBootstrap({ visibility, toolRegistry }));
+      bootstrap.add(createHideToolsBootstrap({ visibility }));
+      bootstrap.add(createListRevealedToolsBootstrap({ visibility }));
+    }
+
+    registerToolsListHandler(server, downstreamSession, toolRegistry, bootstrap);
     registerToolsCallHandler(server, downstreamSession, toolRegistry, upstreams, {
       namespacing: deps.config.namespacing,
       resolveTimeoutMs,
       logger: log,
-      bootstrap: bootstrapTools,
+      bootstrap,
     });
+
+    const notifier = createToolsChangedNotifier({
+      server,
+      session: downstreamSession,
+      logger: log,
+    });
+
+    // Per-session visibility changes (reveal/hide/reset) — debounce so
+    // a single reveal_tools call with N names produces one notification.
+    const offVisibility = visibility.on('change', () => {
+      notifier.schedule();
+    });
+    // Global tool-registry changes (upstream connect/disconnect, tools list
+    // refresh) — every active session must learn about them.
+    const offRegistry = toolRegistry.subscribe(() => {
+      notifier.schedule();
+    });
+    // Runtime-level broadcast (e.g. M5-03 toggling progressiveDisclosure.enabled)
+    // — fans out to every active session even when nothing in the registry
+    // changed.
+    const broadcastEntry = (): void => {
+      notifier.schedule();
+    };
+    downstreamNotifiers.add(broadcastEntry);
+
+    const previousOnClose = server.onclose;
+    server.onclose = (): void => {
+      offVisibility();
+      offRegistry();
+      downstreamNotifiers.delete(broadcastEntry);
+      notifier.dispose();
+      previousOnClose?.();
+    };
   };
 
   return {
     statusRegistry,
     toolRegistry,
-    bootstrapTools,
     upstreams,
     registerHandlers,
     startUpstreams() {
@@ -176,6 +248,15 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
         void session.start().catch((error: unknown) => {
           log.warn({ err: error, server: name }, 'upstream session.start() rejected');
         });
+      }
+    },
+    notifyAllSessionsToolsChanged() {
+      for (const notify of downstreamNotifiers) {
+        try {
+          notify();
+        } catch (error) {
+          log.warn({ err: error }, 'broadcast tools-changed notifier threw');
+        }
       }
     },
     async dispose() {
