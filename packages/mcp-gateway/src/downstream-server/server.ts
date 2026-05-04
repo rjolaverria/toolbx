@@ -46,6 +46,16 @@ export function buildToolBoxMcpServer(
   const session = createDownstreamSession(deps.sessionId);
   registerLifecycleHandlers(server, session);
 
+  // Install the single canonical close hook. Consumers (transports, the
+  // gateway runtime) register cleanups via `session.onClose(...)` rather
+  // than reassigning `server.onclose` themselves — the SDK property is one
+  // slot and the last writer wins. Centralising it here means a transport
+  // setting up its own teardown can no longer silently drop the runtime's
+  // per-session listener detach.
+  server.onclose = () => {
+    session.runCloseCallbacks();
+  };
+
   // Out-of-band protocol errors only. Handler throws are converted to
   // JSON-RPC error responses by the SDK before this fires.
   server.onerror = (error) => {

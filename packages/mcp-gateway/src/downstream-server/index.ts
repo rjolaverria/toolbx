@@ -9,6 +9,13 @@ export {
 } from './server.js';
 export { createDownstreamSession, type DownstreamSession } from './session.js';
 export {
+  createToolsChangedNotifier,
+  TOOLS_LIST_CHANGED_DEBOUNCE_MS,
+  type CreateToolsChangedNotifierDeps,
+  type ToolsChangedNotifier,
+  type ToolsChangedNotifierScheduler,
+} from './notify-tools-changed.js';
+export {
   registerLifecycleHandlers,
   registerToolsCallHandler,
   registerToolsListHandler,

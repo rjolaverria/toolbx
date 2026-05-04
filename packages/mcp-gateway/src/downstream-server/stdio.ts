@@ -24,7 +24,7 @@ export function createDownstreamStdioServer(
   // (e.g. tests using InMemoryTransport) exercise the same handler set as
   // start(), and so any registerHandlers wiring failures surface
   // deterministically at construction time rather than during start().
-  const { server } = buildToolBoxMcpServer({
+  const { server, session } = buildToolBoxMcpServer({
     logger: log,
     sessionId: 'stdio',
     registerHandlers: deps.registerHandlers,
@@ -73,9 +73,9 @@ export function createDownstreamStdioServer(
     }
     state = 'starting';
 
-    server.onclose = () => {
+    session.onClose(() => {
       finalizeStopped();
-    };
+    });
 
     stdin.once('end', onStdinEnd);
     for (const signal of LIFECYCLE_SIGNALS) {
