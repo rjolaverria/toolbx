@@ -150,4 +150,35 @@ describe('toolbox__list_revealed_tools (M4-05)', () => {
     }
     expect(line.bootstrapTools).toEqual(SORTED_BOOTSTRAP);
   });
+
+  it('reports no bootstrap tools when the session was created without bootstrapToolNames', async () => {
+    // `createSessionVisibility` supports omitting `bootstrapToolNames` (the
+    // bootstrap-tools feature is opt-in via config). The tool must reflect
+    // that and not invent bootstrap visibility from the canonical constant.
+    const visibility = createSessionVisibility({ mode: 'session' });
+    visibility.reveal(['jira__search_issues']);
+    const tool = createListRevealedToolsBootstrap({ visibility });
+
+    const line = parseLine(await tool.invoke({}));
+    expect(line.bootstrapTools).toEqual([]);
+    expect(line.revealed).toEqual(['jira__search_issues']);
+    expect(line.total).toBe(1);
+  });
+
+  it('reports only the bootstrap names the session actually treats as visible', async () => {
+    // Wire the session with a non-canonical bootstrap subset (e.g. a future
+    // config that disables some bootstrap tools) and confirm the tool mirrors
+    // exactly that subset rather than the full canonical list.
+    const subset = [BOOTSTRAP_TOOL_NAMES[0]!, BOOTSTRAP_TOOL_NAMES[1]!];
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: subset,
+    });
+    const tool = createListRevealedToolsBootstrap({ visibility });
+
+    const line = parseLine(await tool.invoke({}));
+    expect(line.bootstrapTools).toEqual([...subset].sort());
+    expect(line.revealed).toEqual([]);
+    expect(line.total).toBe(subset.length);
+  });
 });

@@ -3,7 +3,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { SessionVisibility } from '@toolbox/core';
 import { z } from 'zod';
 
-import { BOOTSTRAP_TOOL_NAMES, LIST_REVEALED_TOOLS_NAME } from './names.js';
+import { LIST_REVEALED_TOOLS_NAME } from './names.js';
 import type { BootstrapTool } from './registry.js';
 
 export { LIST_REVEALED_TOOLS_NAME };
@@ -14,6 +14,13 @@ export { LIST_REVEALED_TOOLS_NAME };
  * are always visible) alongside the session-revealed exposed names so the
  * agent can see exactly what `tools/list` would surface today, without
  * re-issuing it. Never mutates session visibility.
+ *
+ * Bootstrap names are derived from the `SessionVisibility` instance via
+ * `snapshot() - list()` rather than the canonical `BOOTSTRAP_TOOL_NAMES`
+ * constant: a session created without `bootstrapToolNames` reports no
+ * bootstrap tools, and the response must reflect that. Anchoring on the
+ * canonical list would overstate the visible surface (and `total`) for
+ * those sessions.
  */
 
 const ArgsSchema = z.object({}).strict();
@@ -50,9 +57,6 @@ export function createListRevealedToolsBootstrap(
   deps: CreateListRevealedToolsBootstrapDeps,
 ): BootstrapTool {
   const { visibility } = deps;
-  // Snapshot the canonical bootstrap names once. They're a static module-level
-  // constant in `names.ts` so this never goes stale within a session.
-  const bootstrapTools = sortByByteOrder(BOOTSTRAP_TOOL_NAMES);
 
   return {
     descriptor: LIST_REVEALED_TOOLS_DESCRIPTOR,
@@ -62,7 +66,12 @@ export function createListRevealedToolsBootstrap(
         return invalidArgsResult(parsed.error.issues);
       }
 
+      // `snapshot()` is bootstrap ∪ revealed, byte-order sorted; `list()` is
+      // revealed only, same sort. Subtracting one from the other yields the
+      // bootstrap names this specific session treats as visible.
       const revealed = visibility.list();
+      const revealedSet = new Set(revealed);
+      const bootstrapTools = visibility.snapshot().filter((name) => !revealedSet.has(name));
 
       const line: RevealedToolsLine = {
         kind: 'revealed-tools',
@@ -76,15 +85,6 @@ export function createListRevealedToolsBootstrap(
       };
     },
   };
-}
-
-function sortByByteOrder(names: Iterable<string>): string[] {
-  return [...names].sort((a, b) => {
-    if (a === b) {
-      return 0;
-    }
-    return a < b ? -1 : 1;
-  });
 }
 
 function invalidArgsResult(issues: readonly z.core.$ZodIssue[]): CallToolResult {

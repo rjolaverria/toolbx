@@ -97,7 +97,18 @@ export function createListAvailableServersBootstrap(
       const all = statusRegistry.list();
       const visible = includeDisabled ? all : all.filter((entry) => entry.enabled);
 
-      const servers = visible.map(toSummary);
+      // `StatusRegistry.list()` sorts via `localeCompare`, which can reorder
+      // names that differ only by case across locales. Re-sort by byte order
+      // to match the rest of the gateway's deterministic API surface (see
+      // `tool-registry.ts` which uses the same convention).
+      const servers = [...visible]
+        .sort((a, b) => {
+          if (a.name === b.name) {
+            return 0;
+          }
+          return a.name < b.name ? -1 : 1;
+        })
+        .map(toSummary);
 
       const line: ServersListLine = {
         kind: 'available-servers',

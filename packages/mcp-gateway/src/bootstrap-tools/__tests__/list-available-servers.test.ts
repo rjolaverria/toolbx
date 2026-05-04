@@ -280,6 +280,21 @@ describe('toolbox__list_available_servers (M4-05)', () => {
     expect(line.total).toBe(0);
   });
 
+  it('sorts servers by byte order, not localeCompare', async () => {
+    // Byte-order sorts uppercase ASCII before lowercase (`B` < `a`).
+    // `localeCompare` may treat them case-insensitively (or per-locale),
+    // which would put `alpha` before `Beta`. Pin byte order so the API
+    // output is identical across runtimes and locales.
+    const statusRegistry = registryWith({
+      Beta: stdioEnabled,
+      alpha: stdioEnabled,
+    });
+    const tool = createListAvailableServersBootstrap({ statusRegistry });
+
+    const line = parseLine(await tool.invoke({}));
+    expect(line.servers.map((s) => s.name)).toEqual(['Beta', 'alpha']);
+  });
+
   it('treats omitted args as the default (empty object)', async () => {
     const statusRegistry = registryWith({ alpha: stdioEnabled });
     const tool = createListAvailableServersBootstrap({ statusRegistry });
