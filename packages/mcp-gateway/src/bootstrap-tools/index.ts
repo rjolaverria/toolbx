@@ -17,3 +17,11 @@ export {
 } from './search-tools.js';
 export { createRevealToolsBootstrap, type CreateRevealToolsBootstrapDeps } from './reveal-tools.js';
 export { createHideToolsBootstrap, type CreateHideToolsBootstrapDeps } from './hide-tools.js';
+export {
+  createListAvailableServersBootstrap,
+  type CreateListAvailableServersBootstrapDeps,
+} from './list-available-servers.js';
+export {
+  createListRevealedToolsBootstrap,
+  type CreateListRevealedToolsBootstrapDeps,
+} from './list-revealed-tools.js';

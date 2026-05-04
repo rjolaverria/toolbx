@@ -60,11 +60,24 @@ export {
 } from './registry/index.js';
 
 export {
+  BOOTSTRAP_TOOL_NAMES,
   createBootstrapToolRegistry,
+  createHideToolsBootstrap,
+  createListAvailableServersBootstrap,
+  createListRevealedToolsBootstrap,
+  createRevealToolsBootstrap,
+  HIDE_TOOLS_NAME,
+  LIST_AVAILABLE_SERVERS_NAME,
+  LIST_REVEALED_TOOLS_NAME,
   registerSearchToolsBootstrap,
+  REVEAL_TOOLS_NAME,
   SEARCH_TOOLS_NAME,
   type BootstrapTool,
   type BootstrapToolRegistry,
+  type CreateHideToolsBootstrapDeps,
+  type CreateListAvailableServersBootstrapDeps,
+  type CreateListRevealedToolsBootstrapDeps,
+  type CreateRevealToolsBootstrapDeps,
   type RegisterSearchToolsBootstrapDeps,
 } from './bootstrap-tools/index.js';
 
