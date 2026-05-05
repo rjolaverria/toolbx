@@ -8,6 +8,7 @@ import {
   type NamespaceOptions,
   type RouteResult,
   type SessionLookup,
+  type SessionVisibility,
 } from '@toolbox/core';
 
 import type { BootstrapToolRegistry } from '../../bootstrap-tools/index.js';
@@ -43,6 +44,21 @@ export interface RegisterToolsCallHandlerOptions {
    * tools are disabled.
    */
   bootstrap: BootstrapToolRegistry;
+  /**
+   * Per-session revealed-tool tracker (M4-07). When `isDisclosureEnabled`
+   * returns `true`, calls whose target is not currently visible are refused
+   * with an MCP `InvalidRequest` error pointing the agent at
+   * `toolbox__reveal_tools`. Bootstrap tools are always callable because
+   * `visibility.isVisible` reports their reserved names visible.
+   */
+  visibility?: SessionVisibility;
+  /**
+   * Resolves the live `progressiveDisclosure.enabled` flag at request time.
+   * Mirrors `registerToolsListHandler` so a future `tlbx config set` toggle
+   * (M5-03) takes effect on the next `tools/call` without rebuilding the
+   * runtime.
+   */
+  isDisclosureEnabled?: () => boolean;
 }
 
 function outcomeOf(result: RouteResult): string {
@@ -141,7 +157,8 @@ export function registerToolsCallHandler(
   upstreams: UpstreamSessionLookup,
   options: RegisterToolsCallHandlerOptions,
 ): void {
-  const { namespacing, resolveTimeoutMs, logger, bootstrap } = options;
+  const { namespacing, resolveTimeoutMs, logger, bootstrap, visibility, isDisclosureEnabled } =
+    options;
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     requireReady(session);
@@ -185,6 +202,18 @@ export function registerToolsCallHandler(
         isError ? 'tools/call failed' : 'tools/call ok',
       );
       return result;
+    }
+
+    if (
+      isDisclosureEnabled?.() === true &&
+      visibility !== undefined &&
+      !visibility.isVisible(name)
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `Tool "${name}" is not currently revealed. Use toolbox__reveal_tools to make it available, or toolbox__search_tools to discover available tools.`,
+        { tool: name, code: 'not_revealed' },
+      );
     }
 
     let serverName: string | undefined;

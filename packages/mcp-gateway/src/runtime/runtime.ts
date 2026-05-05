@@ -194,12 +194,23 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       bootstrap.add(createListRevealedToolsBootstrap({ visibility }));
     }
 
-    registerToolsListHandler(server, downstreamSession, toolRegistry, bootstrap);
+    // Read the disclosure flag dynamically per request so that a future
+    // M5-03 `tlbx config set` toggle (mutating the same `deps.config` object
+    // referenced here) takes effect on the next `tools/list` / `tools/call`
+    // without rebuilding the runtime.
+    const isDisclosureEnabled = (): boolean => deps.config.progressiveDisclosure.enabled;
+
+    registerToolsListHandler(server, downstreamSession, toolRegistry, bootstrap, {
+      visibility,
+      isDisclosureEnabled,
+    });
     registerToolsCallHandler(server, downstreamSession, toolRegistry, upstreams, {
       namespacing: deps.config.namespacing,
       resolveTimeoutMs,
       logger: log,
       bootstrap,
+      visibility,
+      isDisclosureEnabled,
     });
 
     const notifier = createToolsChangedNotifier({
