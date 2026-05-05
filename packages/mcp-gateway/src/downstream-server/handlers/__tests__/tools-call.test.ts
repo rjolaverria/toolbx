@@ -3,11 +3,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger } from '@toolbox/core';
-import type { Logger, NamespaceOptions, ServerStatus } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility } from '@toolbox/core';
+import type { Logger, NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  BOOTSTRAP_TOOL_NAMES,
   createBootstrapToolRegistry,
   type BootstrapToolRegistry,
 } from '../../../bootstrap-tools/index.js';
@@ -105,6 +106,8 @@ async function connect(opts: {
   resolveTimeoutMs?: (serverName: string) => number | undefined;
   logger?: Logger;
   bootstrap?: BootstrapToolRegistry;
+  visibility?: SessionVisibility;
+  isDisclosureEnabled?: () => boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
@@ -117,6 +120,10 @@ async function connect(opts: {
         ...(opts.resolveTimeoutMs !== undefined ? { resolveTimeoutMs: opts.resolveTimeoutMs } : {}),
         ...(opts.logger !== undefined ? { logger: opts.logger } : {}),
         bootstrap,
+        ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
+        ...(opts.isDisclosureEnabled !== undefined
+          ? { isDisclosureEnabled: opts.isDisclosureEnabled }
+          : {}),
       });
     },
   });
@@ -645,6 +652,241 @@ describe('tools/call handler', () => {
         (fields as Record<string, unknown>).server === undefined,
     );
     expect(shadowingWarn).toBeDefined();
+    await closeAll();
+  });
+});
+
+function bootstrapWithRevealAndSearch(): BootstrapToolRegistry {
+  const bootstrap = createBootstrapToolRegistry();
+  for (const name of ['toolbox__reveal_tools', 'toolbox__search_tools']) {
+    bootstrap.add({
+      descriptor: {
+        name,
+        description: `bootstrap ${name}`,
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke() {
+        return { content: [{ type: 'text', text: name }] };
+      },
+    });
+  }
+  return bootstrap;
+}
+
+describe('tools/call handler — progressive disclosure mode', () => {
+  it('refuses calls to non-revealed upstream tools with InvalidRequest pointing at reveal_tools', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+    const bootstrap = bootstrapWithRevealAndSearch();
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.InvalidRequest);
+    expect(err.message).toContain('jira__search_issues');
+    expect(err.message).toContain('toolbox__reveal_tools');
+    expect(err.message).toContain('toolbox__search_tools');
+    expect(err.data).toMatchObject({ tool: 'jira__search_issues', code: 'not_revealed' });
+    expect(jira.callTool).not.toHaveBeenCalled();
+    await closeAll();
+  });
+
+  it('allows calls to revealed upstream tools when disclosure is on', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({
+      serverName: 'jira',
+      result: { content: [{ type: 'text', text: 'hits' }] },
+    });
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+    visibility.reveal(['jira__search_issues']);
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const result = await client.callTool({ name: 'jira__search_issues' });
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'hits' }] });
+    expect(jira.callTool).toHaveBeenCalledTimes(1);
+    await closeAll();
+  });
+
+  it('always allows bootstrap-tool calls regardless of reveal state', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    const bootstrap = createBootstrapToolRegistry();
+    bootstrap.add({
+      descriptor: {
+        name: 'toolbox__search_tools',
+        description: 'bootstrap',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke() {
+        return { content: [{ type: 'text', text: 'searched' }] };
+      },
+    });
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({}),
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const result = await client.callTool({ name: 'toolbox__search_tools' });
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'searched' }] });
+    await closeAll();
+  });
+
+  it('does not refuse non-revealed calls when disclosure is off', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+    const visibility = createSessionVisibility({ mode: 'session' });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      visibility,
+      isDisclosureEnabled: () => false,
+    });
+
+    await expect(client.callTool({ name: 'jira__search_issues' })).resolves.toBeDefined();
+    expect(jira.callTool).toHaveBeenCalledTimes(1);
+    await closeAll();
+  });
+
+  it('omits bootstrap-tool references from the not_revealed message when bootstrap tools are disabled', async () => {
+    // The config schema permits `progressiveDisclosure.enabled=true` while
+    // `bootstrapTools=false` (e.g. CLI-driven reveal flow). The error message
+    // must not point clients at toolbox__reveal_tools / toolbox__search_tools
+    // when those methods aren't actually registered.
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+    // Note: empty bootstrap registry mirrors the runtime when bootstrapTools=false.
+    const visibility = createSessionVisibility({ mode: 'session' });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.InvalidRequest);
+    expect(err.message).toContain('jira__search_issues');
+    expect(err.message).not.toContain('toolbox__reveal_tools');
+    expect(err.message).not.toContain('toolbox__search_tools');
+    expect(err.data).toMatchObject({ tool: 'jira__search_issues', code: 'not_revealed' });
+    await closeAll();
+  });
+
+  it('rejects unknown tool names with MethodNotFound even when disclosure is on', async () => {
+    // Truly unknown names (typos, removed tools) must keep their existing
+    // contract — the router returns `MethodNotFound`, not `not_revealed`.
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({}),
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__nope' }));
+    expect(err.code).toBe(ErrorCode.MethodNotFound);
+    expect(err.message).toContain('jira__nope');
+    await closeAll();
+  });
+
+  it('reflects toggling progressiveDisclosure.enabled on the next tools/call', async () => {
+    let enabled = true;
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({
+      serverName: 'jira',
+      result: { content: [{ type: 'text', text: 'hits' }] },
+    });
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      visibility,
+      isDisclosureEnabled: () => enabled,
+    });
+
+    // Disclosure on, no reveals — refused.
+    const refused = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(refused.code).toBe(ErrorCode.InvalidRequest);
+    expect(jira.callTool).not.toHaveBeenCalled();
+
+    // Flip off — same call now succeeds.
+    enabled = false;
+    const result = await client.callTool({ name: 'jira__search_issues' });
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'hits' }] });
+    expect(jira.callTool).toHaveBeenCalledTimes(1);
     await closeAll();
   });
 });

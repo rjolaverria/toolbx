@@ -8,13 +8,39 @@ import {
   type NamespaceOptions,
   type RouteResult,
   type SessionLookup,
+  type SessionVisibility,
 } from '@toolbox/core';
 
-import type { BootstrapToolRegistry } from '../../bootstrap-tools/index.js';
+import {
+  REVEAL_TOOLS_NAME,
+  SEARCH_TOOLS_NAME,
+  type BootstrapToolRegistry,
+} from '../../bootstrap-tools/index.js';
 import type { ToolRegistry } from '../../registry/index.js';
 import type { DownstreamSession } from '../session.js';
 
 import { requireReady } from './lifecycle.js';
+
+function buildNotRevealedMessage(name: string, bootstrap: BootstrapToolRegistry): string {
+  // Only mention bootstrap tools that are actually registered. The config
+  // schema permits `progressiveDisclosure.enabled=true` while
+  // `bootstrapTools=false` (a CLI-driven reveal flow via M5-02 / M5-03), so
+  // hard-coding `toolbox__reveal_tools` / `toolbox__search_tools` would point
+  // the client at methods that don't exist for that configuration.
+  const hasReveal = bootstrap.find(REVEAL_TOOLS_NAME) !== undefined;
+  const hasSearch = bootstrap.find(SEARCH_TOOLS_NAME) !== undefined;
+  const base = `Tool "${name}" is not currently revealed.`;
+  if (hasReveal && hasSearch) {
+    return `${base} Use ${REVEAL_TOOLS_NAME} to make it available, or ${SEARCH_TOOLS_NAME} to discover available tools.`;
+  }
+  if (hasReveal) {
+    return `${base} Use ${REVEAL_TOOLS_NAME} to make it available.`;
+  }
+  if (hasSearch) {
+    return `${base} Use ${SEARCH_TOOLS_NAME} to discover available tools.`;
+  }
+  return base;
+}
 
 /**
  * Lookup seam for resolving an upstream session by server name. The gateway
@@ -43,6 +69,21 @@ export interface RegisterToolsCallHandlerOptions {
    * tools are disabled.
    */
   bootstrap: BootstrapToolRegistry;
+  /**
+   * Per-session revealed-tool tracker (M4-07). When `isDisclosureEnabled`
+   * returns `true`, calls whose target is not currently visible are refused
+   * with an MCP `InvalidRequest` error pointing the agent at
+   * `toolbox__reveal_tools`. Bootstrap tools are always callable because
+   * `visibility.isVisible` reports their reserved names visible.
+   */
+  visibility?: SessionVisibility;
+  /**
+   * Resolves the live `progressiveDisclosure.enabled` flag at request time.
+   * Mirrors `registerToolsListHandler` so a future `tlbx config set` toggle
+   * (M5-03) takes effect on the next `tools/call` without rebuilding the
+   * runtime.
+   */
+  isDisclosureEnabled?: () => boolean;
 }
 
 function outcomeOf(result: RouteResult): string {
@@ -141,7 +182,8 @@ export function registerToolsCallHandler(
   upstreams: UpstreamSessionLookup,
   options: RegisterToolsCallHandlerOptions,
 ): void {
-  const { namespacing, resolveTimeoutMs, logger, bootstrap } = options;
+  const { namespacing, resolveTimeoutMs, logger, bootstrap, visibility, isDisclosureEnabled } =
+    options;
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     requireReady(session);
@@ -191,6 +233,22 @@ export function registerToolsCallHandler(
     const entry = registry.find(name);
     if (entry !== undefined) {
       serverName = entry.serverName;
+    }
+
+    // Only refuse with `not_revealed` when the tool actually exists in the
+    // registry. Truly unknown names (typos, stale aliases, removed tools) fall
+    // through to the router so they surface as `MethodNotFound` rather than
+    // sending the client into a dead-end "reveal this tool" flow.
+    if (
+      isDisclosureEnabled?.() === true &&
+      visibility !== undefined &&
+      entry !== undefined &&
+      !visibility.isVisible(name)
+    ) {
+      throw new McpError(ErrorCode.InvalidRequest, buildNotRevealedMessage(name, bootstrap), {
+        tool: name,
+        code: 'not_revealed',
+      });
     }
     const timeoutMs =
       serverName !== undefined && resolveTimeoutMs !== undefined

@@ -3,11 +3,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility } from '@toolbox/core';
+import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
 import {
+  BOOTSTRAP_TOOL_NAMES,
   createBootstrapToolRegistry,
   type BootstrapToolRegistry,
 } from '../../../bootstrap-tools/index.js';
@@ -30,6 +31,8 @@ async function connect(opts: {
   registry: ToolRegistry;
   bootstrap?: BootstrapToolRegistry;
   suppressInitialized?: boolean;
+  visibility?: SessionVisibility;
+  isDisclosureEnabled?: () => boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
@@ -37,7 +40,12 @@ async function connect(opts: {
     logger: createNoopLogger(),
     sessionId: 'tools-list-test',
     registerHandlers: (server, session) => {
-      registerToolsListHandler(server, session, opts.registry, bootstrap);
+      registerToolsListHandler(server, session, opts.registry, bootstrap, {
+        ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
+        ...(opts.isDisclosureEnabled !== undefined
+          ? { isDisclosureEnabled: opts.isDisclosureEnabled }
+          : {}),
+      });
     },
   });
   if (opts.suppressInitialized) {
@@ -172,6 +180,29 @@ describe('tools/list handler — non-disclosure mode', () => {
     await closeAll();
   });
 
+  it('does not filter upstream tools when visibility is provided but disclosure is off', async () => {
+    // Mirrors the runtime, where the visibility seam is wired regardless of
+    // the toggle. The flag gates the filtering, not the seam.
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues'), tool('create_issue')],
+    });
+    const visibility = createSessionVisibility({ mode: 'session' });
+    // No reveals — but disclosure is off, so every upstream tool surfaces.
+
+    const { client, closeAll } = await connect({
+      registry,
+      visibility,
+      isDisclosureEnabled: () => false,
+    });
+    const result = await client.listTools();
+    expect(result.tools.map((t) => t.name)).toEqual(['jira__create_issue', 'jira__search_issues']);
+    await closeAll();
+  });
+
   it('drops upstream tools whose exposed name is reserved by a bootstrap tool', async () => {
     // Simulates an upstream server literally named `toolbox` exposing a
     // tool that namespaces to `toolbox__search_tools`. The bootstrap entry
@@ -201,6 +232,149 @@ describe('tools/list handler — non-disclosure mode', () => {
     const names = result.tools.map((t) => t.name);
     expect(names).toEqual(['toolbox__search_tools', 'toolbox__something_else']);
     expect(result.tools[0]?.description).toBe('reserved bootstrap');
+    await closeAll();
+  });
+});
+
+function bootstrapWithFiveNames(): BootstrapToolRegistry {
+  const bootstrap = createBootstrapToolRegistry();
+  for (const name of BOOTSTRAP_TOOL_NAMES) {
+    bootstrap.add({
+      descriptor: {
+        name,
+        description: `bootstrap ${name}`,
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+      invoke() {
+        return { content: [{ type: 'text', text: name }] };
+      },
+    });
+  }
+  return bootstrap;
+}
+
+describe('tools/list handler — progressive disclosure mode', () => {
+  it('returns only bootstrap tools when disclosure is on and nothing has been revealed', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues'), tool('create_issue')],
+    });
+    registry.setServerEntry({
+      serverName: 'github',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('create_pull_request')],
+    });
+    const bootstrap = bootstrapWithFiveNames();
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const result = await client.listTools();
+    expect(result.tools.map((t) => t.name).sort()).toEqual([...BOOTSTRAP_TOOL_NAMES].sort());
+    await closeAll();
+  });
+
+  it('returns bootstrap tools plus revealed upstream tools when disclosure is on', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues', 'Search issues'), tool('create_issue')],
+    });
+    registry.setServerEntry({
+      serverName: 'github',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('create_pull_request')],
+    });
+    const bootstrap = bootstrapWithFiveNames();
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+    visibility.reveal(['jira__search_issues']);
+
+    const { client, closeAll } = await connect({
+      registry,
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const result = await client.listTools();
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain('jira__search_issues');
+    expect(names).not.toContain('jira__create_issue');
+    expect(names).not.toContain('github__create_pull_request');
+    for (const name of BOOTSTRAP_TOOL_NAMES) {
+      expect(names).toContain(name);
+    }
+    expect(result.tools.find((t) => t.name === 'jira__search_issues')?.description).toBe(
+      'Search issues',
+    );
+    await closeAll();
+  });
+
+  it('reflects toggling progressiveDisclosure.enabled on the next tools/list call', async () => {
+    // Mutating a shared flag mirrors how M5-03 will flip the config in place.
+    let enabled = true;
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues'), tool('create_issue')],
+    });
+    const bootstrap = bootstrapWithFiveNames();
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => enabled,
+    });
+
+    // Disclosure on with no reveals — bootstrap-only.
+    {
+      const result = await client.listTools();
+      expect(result.tools.map((t) => t.name).sort()).toEqual([...BOOTSTRAP_TOOL_NAMES].sort());
+    }
+
+    // Flip the toggle off — every upstream tool should surface immediately.
+    enabled = false;
+    {
+      const result = await client.listTools();
+      const names = result.tools.map((t) => t.name);
+      expect(names).toContain('jira__search_issues');
+      expect(names).toContain('jira__create_issue');
+      for (const bootstrapName of BOOTSTRAP_TOOL_NAMES) {
+        expect(names).toContain(bootstrapName);
+      }
+    }
+
+    // Flip back on — back to bootstrap-only.
+    enabled = true;
+    {
+      const result = await client.listTools();
+      expect(result.tools.map((t) => t.name).sort()).toEqual([...BOOTSTRAP_TOOL_NAMES].sort());
+    }
     await closeAll();
   });
 });
