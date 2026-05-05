@@ -204,9 +204,20 @@ export function registerToolsCallHandler(
       return result;
     }
 
+    let serverName: string | undefined;
+    const entry = registry.find(name);
+    if (entry !== undefined) {
+      serverName = entry.serverName;
+    }
+
+    // Only refuse with `not_revealed` when the tool actually exists in the
+    // registry. Truly unknown names (typos, stale aliases, removed tools) fall
+    // through to the router so they surface as `MethodNotFound` rather than
+    // sending the client into a dead-end "reveal this tool" flow.
     if (
       isDisclosureEnabled?.() === true &&
       visibility !== undefined &&
+      entry !== undefined &&
       !visibility.isVisible(name)
     ) {
       throw new McpError(
@@ -214,12 +225,6 @@ export function registerToolsCallHandler(
         `Tool "${name}" is not currently revealed. Use toolbox__reveal_tools to make it available, or toolbox__search_tools to discover available tools.`,
         { tool: name, code: 'not_revealed' },
       );
-    }
-
-    let serverName: string | undefined;
-    const entry = registry.find(name);
-    if (entry !== undefined) {
-      serverName = entry.serverName;
     }
     const timeoutMs =
       serverName !== undefined && resolveTimeoutMs !== undefined

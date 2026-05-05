@@ -772,6 +772,34 @@ describe('tools/call handler — progressive disclosure mode', () => {
     await closeAll();
   });
 
+  it('rejects unknown tool names with MethodNotFound even when disclosure is on', async () => {
+    // Truly unknown names (typos, removed tools) must keep their existing
+    // contract — the router returns `MethodNotFound`, not `not_revealed`.
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({}),
+      visibility,
+      isDisclosureEnabled: () => true,
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__nope' }));
+    expect(err.code).toBe(ErrorCode.MethodNotFound);
+    expect(err.message).toContain('jira__nope');
+    await closeAll();
+  });
+
   it('reflects toggling progressiveDisclosure.enabled on the next tools/call', async () => {
     let enabled = true;
     const registry = createToolRegistry({ namespacing: NS });
