@@ -11,11 +11,36 @@ import {
   type SessionVisibility,
 } from '@toolbox/core';
 
-import type { BootstrapToolRegistry } from '../../bootstrap-tools/index.js';
+import {
+  REVEAL_TOOLS_NAME,
+  SEARCH_TOOLS_NAME,
+  type BootstrapToolRegistry,
+} from '../../bootstrap-tools/index.js';
 import type { ToolRegistry } from '../../registry/index.js';
 import type { DownstreamSession } from '../session.js';
 
 import { requireReady } from './lifecycle.js';
+
+function buildNotRevealedMessage(name: string, bootstrap: BootstrapToolRegistry): string {
+  // Only mention bootstrap tools that are actually registered. The config
+  // schema permits `progressiveDisclosure.enabled=true` while
+  // `bootstrapTools=false` (a CLI-driven reveal flow via M5-02 / M5-03), so
+  // hard-coding `toolbox__reveal_tools` / `toolbox__search_tools` would point
+  // the client at methods that don't exist for that configuration.
+  const hasReveal = bootstrap.find(REVEAL_TOOLS_NAME) !== undefined;
+  const hasSearch = bootstrap.find(SEARCH_TOOLS_NAME) !== undefined;
+  const base = `Tool "${name}" is not currently revealed.`;
+  if (hasReveal && hasSearch) {
+    return `${base} Use ${REVEAL_TOOLS_NAME} to make it available, or ${SEARCH_TOOLS_NAME} to discover available tools.`;
+  }
+  if (hasReveal) {
+    return `${base} Use ${REVEAL_TOOLS_NAME} to make it available.`;
+  }
+  if (hasSearch) {
+    return `${base} Use ${SEARCH_TOOLS_NAME} to discover available tools.`;
+  }
+  return base;
+}
 
 /**
  * Lookup seam for resolving an upstream session by server name. The gateway
@@ -220,11 +245,10 @@ export function registerToolsCallHandler(
       entry !== undefined &&
       !visibility.isVisible(name)
     ) {
-      throw new McpError(
-        ErrorCode.InvalidRequest,
-        `Tool "${name}" is not currently revealed. Use toolbox__reveal_tools to make it available, or toolbox__search_tools to discover available tools.`,
-        { tool: name, code: 'not_revealed' },
-      );
+      throw new McpError(ErrorCode.InvalidRequest, buildNotRevealedMessage(name, bootstrap), {
+        tool: name,
+        code: 'not_revealed',
+      });
     }
     const timeoutMs =
       serverName !== undefined && resolveTimeoutMs !== undefined
