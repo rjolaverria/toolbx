@@ -22,7 +22,10 @@ export interface PrintConfigOptions {
 
 interface Snippet {
   readonly description: string;
-  readonly config: Record<string, unknown>;
+  readonly json: Record<string, unknown>;
+  // When set, this is the canonical paste-ready form rendered in friendly mode
+  // (e.g. TOML for Codex). `--json` always emits `json` regardless.
+  readonly native?: { readonly language: string; readonly body: string };
 }
 
 const STDIO_COMMAND = 'npx';
@@ -37,12 +40,36 @@ function buildHttpUrl(http: ToolBoxConfig['server']['http']): string {
   return `http://${host}:${String(http.port)}${http.path}`;
 }
 
+function tomlString(value: string): string {
+  // Basic TOML strings share the JSON escape vocabulary for everything we
+  // emit here (npx, --stdio, http URLs); JSON.stringify is therefore a safe
+  // serializer for our limited inputs and avoids pulling in a TOML library.
+  return JSON.stringify(value);
+}
+
+function tomlStringArray(values: readonly string[]): string {
+  return `[${values.map(tomlString).join(', ')}]`;
+}
+
+function codexStdioToml(): string {
+  return [
+    '[mcp_servers.toolbox]',
+    `command = ${tomlString(STDIO_COMMAND)}`,
+    `args = ${tomlStringArray(STDIO_ARGS)}`,
+    '',
+  ].join('\n');
+}
+
+function codexHttpToml(url: string): string {
+  return ['[mcp_servers.toolbox]', `url = ${tomlString(url)}`, ''].join('\n');
+}
+
 function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http']): Snippet {
   if (transport === 'stdio') {
     return {
       description:
         'Add this to your Claude Desktop MCP config (claude_desktop_config.json), then restart Claude Desktop:',
-      config: {
+      json: {
         mcpServers: {
           toolbox: {
             command: STDIO_COMMAND,
@@ -55,7 +82,7 @@ function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http
   return {
     description:
       'Add this to your Claude Desktop MCP config (claude_desktop_config.json) after starting `tlbx serve --http`, then restart Claude Desktop:',
-    config: {
+    json: {
       mcpServers: {
         toolbox: {
           url: buildHttpUrl(http),
@@ -69,27 +96,29 @@ function codexSnippet(transport: Transport, http: ToolBoxConfig['server']['http'
   if (transport === 'stdio') {
     return {
       description:
-        'Add this to your Codex CLI MCP config so Codex launches ToolBox over stdio on demand:',
-      config: {
-        mcpServers: {
+        'Add this to your Codex CLI MCP config (~/.codex/config.toml) so Codex launches ToolBox over stdio on demand:',
+      json: {
+        mcp_servers: {
           toolbox: {
             command: STDIO_COMMAND,
             args: [...STDIO_ARGS],
           },
         },
       },
+      native: { language: 'toml', body: codexStdioToml() },
     };
   }
   return {
     description:
-      'Run `tlbx serve --http` first, then add this to your Codex CLI MCP config to point it at the running ToolBox:',
-    config: {
-      mcpServers: {
+      'Run `tlbx serve --http` first, then add this to your Codex CLI MCP config (~/.codex/config.toml) to point it at the running ToolBox:',
+    json: {
+      mcp_servers: {
         toolbox: {
           url: buildHttpUrl(http),
         },
       },
     },
+    native: { language: 'toml', body: codexHttpToml(buildHttpUrl(http)) },
   };
 }
 
@@ -97,7 +126,7 @@ function opencodeSnippet(transport: Transport, http: ToolBoxConfig['server']['ht
   if (transport === 'stdio') {
     return {
       description: 'Add this to your OpenCode MCP config so OpenCode launches ToolBox over stdio:',
-      config: {
+      json: {
         mcp: {
           toolbox: {
             type: 'local',
@@ -111,7 +140,7 @@ function opencodeSnippet(transport: Transport, http: ToolBoxConfig['server']['ht
   return {
     description:
       'Run `tlbx serve --http` first, then add this to your OpenCode MCP config to point it at the running ToolBox:',
-    config: {
+    json: {
       mcp: {
         toolbox: {
           type: 'remote',
@@ -128,7 +157,7 @@ function genericSnippet(transport: Transport, http: ToolBoxConfig['server']['htt
     return {
       description:
         'Generic MCP client (stdio). Most clients accept this shape; consult your client docs for the exact config key:',
-      config: {
+      json: {
         mcpServers: {
           toolbox: {
             command: STDIO_COMMAND,
@@ -141,7 +170,7 @@ function genericSnippet(transport: Transport, http: ToolBoxConfig['server']['htt
   return {
     description:
       'Generic MCP client (Streamable HTTP). Run `tlbx serve --http` first, then point your client at this URL:',
-    config: {
+    json: {
       mcpServers: {
         toolbox: {
           url: buildHttpUrl(http),
@@ -169,12 +198,15 @@ function snippetFor(
 }
 
 function renderFriendly(snippet: Snippet): string {
-  const json = JSON.stringify(snippet.config, null, 2);
+  if (snippet.native !== undefined) {
+    return `${snippet.description}\n\n\`\`\`${snippet.native.language}\n${snippet.native.body}\`\`\`\n`;
+  }
+  const json = JSON.stringify(snippet.json, null, 2);
   return `${snippet.description}\n\n\`\`\`json\n${json}\n\`\`\`\n`;
 }
 
 function renderJson(snippet: Snippet): string {
-  return `${JSON.stringify(snippet.config, null, 2)}\n`;
+  return `${JSON.stringify(snippet.json, null, 2)}\n`;
 }
 
 export async function runClientPrintConfig(
@@ -199,6 +231,12 @@ export async function runClientPrintConfig(
     const target = resolveTargetPath(deps, options.config);
     const config = await loadOrReportMissing(target, deps);
     if (config === null) {
+      return 1;
+    }
+    if (!config.server.http.enabled) {
+      deps.stderr(
+        'tlbx client print-config: --http requested but server.http.enabled is false in config; enable it first or pick --stdio.\n',
+      );
       return 1;
     }
     http = config.server.http;

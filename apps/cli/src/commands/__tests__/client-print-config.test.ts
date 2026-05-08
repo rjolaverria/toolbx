@@ -126,7 +126,7 @@ describe('runClientPrintConfig', () => {
   );
 
   it.each(CLIENT_X_TRANSPORT)(
-    'default friendly output for %s/%s contains an explanation and a fenced JSON block',
+    'default friendly output for %s/%s contains an explanation and a fenced code block',
     async (client, transport) => {
       const cfg = await makeTempConfig(withHttp({ host: '127.0.0.1', port: 7331, path: '/mcp' }));
       harnesses.push(cfg);
@@ -137,18 +137,61 @@ describe('runClientPrintConfig', () => {
 
       expect(code).toBe(0);
       expect(h.stderr.value).toBe('');
-      expect(h.stdout.value).toContain('```json');
+      const fenceLanguage = client === 'codex' ? '```toml' : '```json';
+      expect(h.stdout.value).toContain(fenceLanguage);
       expect(h.stdout.value).toContain('```\n');
-      // The fenced JSON must still parse on its own.
-      const fenceStart = h.stdout.value.indexOf('```json\n') + '```json\n'.length;
-      const fenceEnd = h.stdout.value.indexOf('\n```', fenceStart);
-      const fenced = h.stdout.value.slice(fenceStart, fenceEnd);
-      expect(() => {
-        JSON.parse(fenced);
-      }).not.toThrow();
+      if (client !== 'codex') {
+        // The fenced JSON must still parse on its own.
+        const fenceStart = h.stdout.value.indexOf('```json\n') + '```json\n'.length;
+        const fenceEnd = h.stdout.value.indexOf('\n```', fenceStart);
+        const fenced = h.stdout.value.slice(fenceStart, fenceEnd);
+        expect(() => {
+          JSON.parse(fenced);
+        }).not.toThrow();
+      }
       expect(h.stdout.value).toMatchSnapshot();
     },
   );
+
+  it('codex stdio friendly output emits Codex CLI native TOML config.toml shape', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('codex', {}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('~/.codex/config.toml');
+    expect(h.stdout.value).toContain('```toml');
+    expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
+    expect(h.stdout.value).toContain('command = "npx"');
+    expect(h.stdout.value).toContain('args = ["-y", "tlbx", "serve", "--stdio"]');
+  });
+
+  it('codex http friendly output emits the configured URL inside the TOML table', async () => {
+    const cfg = await makeTempConfig(withHttp({ host: 'localhost', port: 9000, path: '/gateway' }));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('codex', { http: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('```toml');
+    expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
+    expect(h.stdout.value).toContain('url = "http://localhost:9000/gateway"');
+  });
+
+  it('exits 1 when --http is requested but server.http.enabled is false in config', async () => {
+    const cfg = await makeTempConfig(withHttp({ enabled: false }));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('claude', { http: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('server.http.enabled is false');
+    expect(h.stdout.value).toBe('');
+  });
 
   it('http snippets reference the configured host, port, and path (not defaults)', async () => {
     const cfg = await makeTempConfig(withHttp({ host: 'localhost', port: 9000, path: '/gateway' }));
