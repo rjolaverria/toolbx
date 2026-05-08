@@ -270,7 +270,12 @@ export function clientCommand(): Command {
     .argument('<client>', `target client (${SUPPORTED_CLIENTS.join(' | ')})`, parseClient)
     .addOption(new Option('--stdio', 'render the stdio transport snippet (default)'))
     .addOption(new Option('--http', 'render the Streamable HTTP transport snippet'))
-    .addOption(new Option('--json', 'emit only the JSON snippet, with no surrounding prose'))
+    .addOption(
+      new Option(
+        '--json',
+        'emit a machine-readable JSON representation of the snippet, with no surrounding prose (note: clients with non-JSON native config — e.g. Codex TOML — should paste the default friendly output instead)',
+      ),
+    )
     .option('-c, --config <path>', 'override the resolved config path (used by --http)')
     .action(async (client, opts) => {
       const code = await runClientPrintConfig(client, opts, defaultServerCommandDeps());
