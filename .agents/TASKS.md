@@ -60,7 +60,7 @@ This is the master todo list for delivering the ToolBox product as described in 
 
 ## Milestone 5 — Client Compatibility & UX Polish
 
-- [ ] **M5-01** — [`tlbx client print-config` for Claude / Codex / OpenCode / generic](tasks/M5-01-client-print-config-command.md)
+- [x] **M5-01** — [`tlbx client print-config` for Claude / Codex / OpenCode / generic](tasks/M5-01-client-print-config-command.md) — closed by 82005c6
 - [ ] **M5-02** — [`tlbx tools` commands (list / search / enable / disable)](tasks/M5-02-cli-tools-commands.md)
 - [ ] **M5-03** — [`tlbx config` commands (path / edit / validate / set)](tasks/M5-03-cli-config-commands.md)
 - [ ] **M5-04** — [`tlbx status` command](tasks/M5-04-cli-status-command.md)
