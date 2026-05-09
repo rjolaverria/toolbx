@@ -29,4 +29,5 @@ export const DEFAULT_CONFIG: ToolBoxConfig = Object.freeze({
     collisionStrategy: 'error',
   }),
   servers: Object.freeze({}),
+  tools: Object.freeze({}),
 });

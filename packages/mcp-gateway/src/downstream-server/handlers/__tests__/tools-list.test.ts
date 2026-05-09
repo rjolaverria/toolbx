@@ -33,6 +33,7 @@ async function connect(opts: {
   suppressInitialized?: boolean;
   visibility?: SessionVisibility;
   isDisclosureEnabled?: () => boolean;
+  isToolEnabled?: (exposedName: string) => boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
@@ -45,6 +46,7 @@ async function connect(opts: {
         ...(opts.isDisclosureEnabled !== undefined
           ? { isDisclosureEnabled: opts.isDisclosureEnabled }
           : {}),
+        ...(opts.isToolEnabled !== undefined ? { isToolEnabled: opts.isToolEnabled } : {}),
       });
     },
   });
@@ -200,6 +202,24 @@ describe('tools/list handler — non-disclosure mode', () => {
     });
     const result = await client.listTools();
     expect(result.tools.map((t) => t.name)).toEqual(['jira__create_issue', 'jira__search_issues']);
+    await closeAll();
+  });
+
+  it('drops upstream tools whose `isToolEnabled` returns false (per-tool override)', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues'), tool('create_issue')],
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      isToolEnabled: (name) => name !== 'jira__create_issue',
+    });
+    const result = await client.listTools();
+    expect(result.tools.map((t) => t.name)).toEqual(['jira__search_issues']);
     await closeAll();
   });
 

@@ -51,6 +51,7 @@ const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
     format: 'server__tool',
     collisionStrategy: 'error',
   },
+  tools: {},
 };
 
 const stdioEnabled: ServerConfig = {

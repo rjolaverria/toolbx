@@ -2,9 +2,16 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { DEFAULT_CONFIG, saveConfig, type ToolBoxConfig } from '@toolbox/core';
+import {
+  DEFAULT_CONFIG,
+  saveConfig,
+  writeToolCache,
+  type CachedTool,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 
 import type { ServerCommandDeps } from '../server-shared.js';
+import type { ToolsCommandDeps } from '../tools-shared.js';
 
 export interface ConfigHarness {
   target: string;
@@ -47,4 +54,29 @@ export function makeHarness(target: string): CommandHarness {
     },
   };
   return { deps, stdout, stderr };
+}
+
+export interface ToolsCommandHarness {
+  deps: ToolsCommandDeps;
+  stdout: { value: string };
+  stderr: { value: string };
+  cachePath: string;
+  writeCache: (tools: readonly CachedTool[]) => Promise<void>;
+}
+
+export function makeToolsHarness(target: string): ToolsCommandHarness {
+  const base = makeHarness(target);
+  const cachePath = path.join(path.dirname(target), 'tools-cache.json');
+  const deps: ToolsCommandDeps = {
+    ...base.deps,
+    resolveCachePath: () => cachePath,
+  };
+  return {
+    deps,
+    stdout: base.stdout,
+    stderr: base.stderr,
+    cachePath,
+    writeCache: (tools) =>
+      writeToolCache({ tools, now: new Date('2026-05-09T00:00:00Z') }, cachePath),
+  };
 }

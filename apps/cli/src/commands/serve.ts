@@ -1,12 +1,18 @@
+import * as path from 'node:path';
+
 import { Command, Option } from '@commander-js/extra-typings';
 import {
   createLogger,
   loadConfig,
   resolveConfigPath,
+  resolveToolCachePath,
+  writeToolCache,
+  type CachedTool,
   type CreateLoggerOptions,
   type LogFormat,
   type LogLevel,
   type ToolBoxConfig,
+  type WriteToolCacheInput,
 } from '@toolbox/core';
 import {
   createDownstreamHttpServer,
@@ -67,6 +73,15 @@ export interface ServeDeps {
    * touching the test runner's process.
    */
   signalProcess?: NodeJS.Process;
+  /**
+   * Persists the visible tool registry to disk after every change so
+   * `tlbx tools list` / `tlbx tools search` can read the inventory without
+   * starting the gateway. Tests stub this to avoid touching the user's
+   * config directory.
+   */
+  writeToolCache?: (input: WriteToolCacheInput, filePath: string) => Promise<void>;
+  /** Resolves the on-disk path the cache is written to; defaults to alongside the config. */
+  resolveToolCachePath?: (configPath: string) => string;
 }
 
 export function defaultServeDeps(): ServeDeps {
@@ -82,6 +97,12 @@ export function defaultServeDeps(): ServeDeps {
     },
     processEnv: process.env,
     signalProcess: process,
+    writeToolCache: (input, filePath) => writeToolCache(input, filePath),
+    resolveToolCachePath: (configPath) =>
+      // Honour `TOOLBOX_CONFIG`-style explicit overrides: when the config path
+      // is explicit, drop the cache next to it instead of in the default XDG
+      // location resolved from the ambient environment.
+      path.join(path.dirname(configPath), path.basename(resolveToolCachePath())),
   };
 }
 
@@ -130,6 +151,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     logger,
     processEnv: deps.processEnv,
   });
+  const detachCacheWriter = startToolCacheWriter(runtime, configPath, deps, logger);
   runtime.startUpstreams();
 
   if (mode === 'stdio') {
@@ -141,12 +163,14 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     try {
       await downstream.start();
     } catch (error) {
+      await detachCacheWriter();
       await runtime.dispose();
       deps.stderr(`tlbx serve: failed to start stdio server: ${errorMessage(error)}\n`);
       return 1;
     }
     deps.onStarted?.({ mode, runtime });
     await downstream.done;
+    await detachCacheWriter();
     await runtime.dispose();
     return 0;
   }
@@ -164,14 +188,70 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   try {
     await downstream.start();
   } catch (error) {
+    await detachCacheWriter();
     await runtime.dispose();
     deps.stderr(`tlbx serve: failed to start http server: ${errorMessage(error)}\n`);
     return 1;
   }
   deps.onStarted?.({ mode, url: downstream.url, runtime });
   await downstream.done;
+  await detachCacheWriter();
   await runtime.dispose();
   return 0;
+}
+
+function startToolCacheWriter(
+  runtime: GatewayRuntime,
+  configPath: string,
+  deps: ServeDeps,
+  logger: ReturnType<typeof createLogger>,
+): () => Promise<void> {
+  const writer = deps.writeToolCache;
+  const resolvePath = deps.resolveToolCachePath;
+  if (writer === undefined || resolvePath === undefined) {
+    return () => Promise.resolve();
+  }
+  const cachePath = resolvePath(configPath);
+  let pending: Promise<void> | null = null;
+  let dirty = false;
+
+  const flush = (): void => {
+    if (pending !== null) {
+      dirty = true;
+      return;
+    }
+    const tools: CachedTool[] = runtime.toolRegistry.list().map((tool) => ({
+      exposedName: tool.exposedName,
+      serverName: tool.serverName,
+      upstreamName: tool.upstreamName,
+      tool: tool.tool,
+    }));
+    pending = writer({ tools }, cachePath)
+      .catch((error: unknown) => {
+        logger.warn({ err: error, cachePath }, 'failed to write tool cache');
+      })
+      .finally(() => {
+        pending = null;
+        if (dirty) {
+          dirty = false;
+          flush();
+        }
+      });
+  };
+
+  // Persist the initial (likely empty) snapshot so a fresh `tlbx serve`
+  // creates the file even before any upstream connects.
+  flush();
+  const unsubscribe = runtime.toolRegistry.subscribe(flush);
+  return async () => {
+    unsubscribe();
+    // Drain any in-flight write — and follow-up writes triggered by the
+    // `dirty` flag — so a `process.exit()` after teardown can't kill the
+    // process mid-rename and leave a `.tmp` file or a half-updated cache.
+    while (pending !== null) {
+      await pending;
+    }
+  };
 }
 
 function errorMessage(error: unknown): string {

@@ -232,6 +232,49 @@ describe('Server name validation', () => {
   });
 });
 
+describe('Tool overrides map', () => {
+  it('defaults `tools` to an empty record when omitted', () => {
+    const result = ToolBoxConfigSchema.safeParse(SPECS_EXAMPLE);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tools).toEqual({});
+    }
+  });
+
+  it('accepts a per-tool enabled override keyed on the namespaced name', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      tools: {
+        github__create_issue: { enabled: false },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tools['github__create_issue']?.enabled).toBe(false);
+    }
+  });
+
+  it('rejects tool override keys that are not namespaced', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      tools: {
+        not_namespaced: { enabled: false },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects unknown fields inside a tool override', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      tools: {
+        github__create_issue: { enabled: false, ghost: 'no' },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('HttpServerSettings host validation', () => {
   it.each(['127.0.0.1', '::1', 'localhost'])('accepts loopback host %s', (host) => {
     const result = HttpServerSettingsSchema.safeParse({

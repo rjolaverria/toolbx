@@ -14,6 +14,8 @@ export {
   StdioServerConfigSchema,
   StdioServerSettingsSchema,
   ToolBoxConfigSchema,
+  ToolOverrideSchema,
+  ToolOverridesMapSchema,
   type AuthConfig,
   type HttpServerConfig,
   type NamespacingConfig,
@@ -23,6 +25,7 @@ export {
   type StdioServerConfig,
   type ToolBoxConfig,
   type ToolBoxConfigInput,
+  type ToolOverride,
 } from './config/schema.js';
 
 export { getDefaultConfigPath, resolveConfigPath, type ConfigPathEnv } from './config/paths.js';
@@ -115,3 +118,15 @@ export {
   type ToolSearchResult,
   type VisibilityMode,
 } from './disclosure/index.js';
+
+export {
+  readToolCache,
+  resolveToolCachePath,
+  ToolCacheError,
+  ToolCacheFileSchema,
+  ToolCacheMissingError,
+  writeToolCache,
+  type CachedTool,
+  type ToolCacheFile,
+  type WriteToolCacheInput,
+} from './tool-cache/index.js';

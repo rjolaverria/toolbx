@@ -29,6 +29,7 @@ const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
     format: 'server__tool',
     collisionStrategy: 'error',
   },
+  tools: {},
 };
 
 function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {

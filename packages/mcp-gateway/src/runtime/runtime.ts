@@ -199,10 +199,17 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     // referenced here) takes effect on the next `tools/list` / `tools/call`
     // without rebuilding the runtime.
     const isDisclosureEnabled = (): boolean => deps.config.progressiveDisclosure.enabled;
+    // Per-tool enable overrides come from `config.tools[exposedName].enabled`
+    // (set via `tlbx tools enable/disable`, M5-02). Read per request so an
+    // edit during a session takes effect on the next `tools/list` once a
+    // `tools/list_changed` notification is fanned out (M5-03 territory).
+    const isToolEnabled = (exposedName: string): boolean =>
+      deps.config.tools[exposedName]?.enabled !== false;
 
     registerToolsListHandler(server, downstreamSession, toolRegistry, bootstrap, {
       visibility,
       isDisclosureEnabled,
+      isToolEnabled,
     });
     registerToolsCallHandler(server, downstreamSession, toolRegistry, upstreams, {
       namespacing: deps.config.namespacing,
@@ -211,6 +218,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       bootstrap,
       visibility,
       isDisclosureEnabled,
+      isToolEnabled,
     });
 
     const notifier = createToolsChangedNotifier({

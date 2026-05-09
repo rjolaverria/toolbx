@@ -6,6 +6,7 @@ import { clientCommand } from './commands/client-print-config.js';
 import { initCommand } from './commands/init.js';
 import { serveCommand } from './commands/serve.js';
 import { serverCommand } from './commands/server.js';
+import { toolsCommand } from './commands/tools.js';
 
 async function main(): Promise<void> {
   const program = new Command()
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   program.addCommand(initCommand());
   program.addCommand(serverCommand());
   program.addCommand(serveCommand());
+  program.addCommand(toolsCommand());
   program.addCommand(clientCommand());
 
   await program.parseAsync(process.argv);
