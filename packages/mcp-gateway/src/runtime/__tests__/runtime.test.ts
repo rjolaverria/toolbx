@@ -121,6 +121,7 @@ function makeConfig(servers: Record<string, ServerConfig>): ToolBoxConfig {
     },
     namespacing: { separator: '__', format: 'server__tool', collisionStrategy: 'error' },
     servers,
+    tools: {},
   };
 }
 

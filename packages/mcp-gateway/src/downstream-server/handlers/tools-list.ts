@@ -26,6 +26,13 @@ export interface RegisterToolsListHandlerOptions {
    * so the new view is fetched.
    */
   isDisclosureEnabled?: () => boolean;
+  /**
+   * Returns `false` for upstream tools the user has disabled via `tlbx tools
+   * disable` (M5-02). Disabled tools are dropped from `tools/list` regardless
+   * of disclosure mode. Bootstrap tools are not subject to this filter —
+   * they're always callable. Defaults to "everything enabled" when omitted.
+   */
+  isToolEnabled?: (exposedName: string) => boolean;
 }
 
 /**
@@ -57,7 +64,7 @@ export function registerToolsListHandler(
   bootstrap: BootstrapToolRegistry,
   options: RegisterToolsListHandlerOptions = {},
 ): void {
-  const { visibility, isDisclosureEnabled } = options;
+  const { visibility, isDisclosureEnabled, isToolEnabled } = options;
 
   server.setRequestHandler(ListToolsRequestSchema, () => {
     requireReady(session);
@@ -67,6 +74,7 @@ export function registerToolsListHandler(
     const upstreamTools = registry
       .list()
       .filter((entry) => !reserved.has(entry.exposedName))
+      .filter((entry) => isToolEnabled?.(entry.exposedName) !== false)
       .filter((entry) => {
         if (!disclosureOn || visibility === undefined) {
           return true;

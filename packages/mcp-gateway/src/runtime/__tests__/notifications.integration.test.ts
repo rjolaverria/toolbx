@@ -58,6 +58,7 @@ function makeConfig(overrides?: Partial<ToolBoxConfig['progressiveDisclosure']>)
         args: [ECHO_FIXTURE],
       },
     },
+    tools: {},
   };
 }
 

@@ -59,6 +59,26 @@ export const ServerConfigSchema = z.discriminatedUnion('type', [
 
 export const ServersMapSchema = z.record(ServerNameSchema, ServerConfigSchema);
 
+// Exposed (namespaced) tool name shape, e.g. `github__create_issue`. Validated
+// loosely — the full shape is enforced by `formatExposedName` in
+// `@toolbox/core`'s namespace module — but the regex prevents obvious
+// nonsense like spaces or empty segments slipping through to tool overrides.
+const ExposedToolNameSchema = z
+  .string()
+  .min(1)
+  .regex(
+    /^[a-z0-9][a-z0-9_-]*__[a-z0-9][a-z0-9_-]*$/i,
+    'tool override keys must be `<server>__<tool>` namespaced names',
+  );
+
+export const ToolOverrideSchema = z
+  .object({
+    enabled: z.boolean(),
+  })
+  .strict();
+
+export const ToolOverridesMapSchema = z.record(ExposedToolNameSchema, ToolOverrideSchema);
+
 export const StdioServerSettingsSchema = z
   .object({
     enabled: z.boolean(),
@@ -123,11 +143,13 @@ export const ToolBoxConfigSchema = z
     progressiveDisclosure: ProgressiveDisclosureSchema,
     namespacing: NamespacingSchema,
     servers: ServersMapSchema,
+    tools: ToolOverridesMapSchema.default({}),
   })
   .strict();
 
 export type ToolBoxConfig = z.infer<typeof ToolBoxConfigSchema>;
 export type ToolBoxConfigInput = z.input<typeof ToolBoxConfigSchema>;
+export type ToolOverride = z.infer<typeof ToolOverrideSchema>;
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 export type StdioServerConfig = z.infer<typeof StdioServerConfigSchema>;
 export type HttpServerConfig = z.infer<typeof HttpServerConfigSchema>;
