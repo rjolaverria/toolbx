@@ -59,10 +59,12 @@ export const ServerConfigSchema = z.discriminatedUnion('type', [
 
 export const ServersMapSchema = z.record(ServerNameSchema, ServerConfigSchema);
 
-// Exposed (namespaced) tool name shape, e.g. `github__create_issue`. Validated
-// loosely — the full shape is enforced by `formatExposedName` in
-// `@toolbox/core`'s namespace module — but the regex prevents obvious
-// nonsense like spaces or empty segments slipping through to tool overrides.
+// Exposed (namespaced) tool name shape, e.g. `github__create_issue`. The
+// canonical exposed name is produced by `formatExposedName` in
+// `@toolbox/core`'s namespace module (which concatenates a validated server
+// name and an upstream tool name); this regex is a defensive sanity check
+// for hand-edited config so obvious nonsense like spaces or empty segments
+// can't slip through to tool overrides.
 const ExposedToolNameSchema = z
   .string()
   .min(1)

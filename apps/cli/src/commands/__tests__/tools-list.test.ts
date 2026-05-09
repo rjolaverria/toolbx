@@ -171,4 +171,46 @@ describe('runToolsList', () => {
     expect(code).toBe(1);
     expect(h.stderr.value).toContain('Unknown server "jira"');
   });
+
+  it('--from-config honours --server and lists only that server', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+        jira: { type: 'http', enabled: true, url: 'https://example.com/mcp' },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+
+    const code = await runToolsList({ fromConfig: true, server: 'jira' }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('jira');
+    expect(h.stdout.value).not.toContain('github');
+  });
+
+  it('reports a filtered-out --server distinctly from an empty cache', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+        jira: { type: 'http', enabled: true, url: 'https://example.com/mcp' },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+    await h.writeCache([
+      {
+        exposedName: 'github__create_issue',
+        serverName: 'github',
+        upstreamName: 'create_issue',
+        tool: { name: 'github__create_issue' },
+      },
+    ]);
+
+    const code = await runToolsList({ server: 'jira' }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('No tools match server "jira"');
+    expect(h.stdout.value).not.toContain('Run `tlbx serve`');
+  });
 });

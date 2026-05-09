@@ -163,14 +163,14 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     try {
       await downstream.start();
     } catch (error) {
-      detachCacheWriter();
+      await detachCacheWriter();
       await runtime.dispose();
       deps.stderr(`tlbx serve: failed to start stdio server: ${errorMessage(error)}\n`);
       return 1;
     }
     deps.onStarted?.({ mode, runtime });
     await downstream.done;
-    detachCacheWriter();
+    await detachCacheWriter();
     await runtime.dispose();
     return 0;
   }
@@ -188,14 +188,14 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   try {
     await downstream.start();
   } catch (error) {
-    detachCacheWriter();
+    await detachCacheWriter();
     await runtime.dispose();
     deps.stderr(`tlbx serve: failed to start http server: ${errorMessage(error)}\n`);
     return 1;
   }
   deps.onStarted?.({ mode, url: downstream.url, runtime });
   await downstream.done;
-  detachCacheWriter();
+  await detachCacheWriter();
   await runtime.dispose();
   return 0;
 }
@@ -205,11 +205,11 @@ function startToolCacheWriter(
   configPath: string,
   deps: ServeDeps,
   logger: ReturnType<typeof createLogger>,
-): () => void {
+): () => Promise<void> {
   const writer = deps.writeToolCache;
   const resolvePath = deps.resolveToolCachePath;
   if (writer === undefined || resolvePath === undefined) {
-    return () => undefined;
+    return () => Promise.resolve();
   }
   const cachePath = resolvePath(configPath);
   let pending: Promise<void> | null = null;
@@ -242,7 +242,16 @@ function startToolCacheWriter(
   // Persist the initial (likely empty) snapshot so a fresh `tlbx serve`
   // creates the file even before any upstream connects.
   flush();
-  return runtime.toolRegistry.subscribe(flush);
+  const unsubscribe = runtime.toolRegistry.subscribe(flush);
+  return async () => {
+    unsubscribe();
+    // Drain any in-flight write — and follow-up writes triggered by the
+    // `dirty` flag — so a `process.exit()` after teardown can't kill the
+    // process mid-rename and leave a `.tmp` file or a half-updated cache.
+    while (pending !== null) {
+      await pending;
+    }
+  };
 }
 
 function errorMessage(error: unknown): string {

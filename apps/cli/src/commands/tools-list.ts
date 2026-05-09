@@ -33,9 +33,9 @@ function pad(value: string, width: number): string {
   return value + ' '.repeat(width - value.length);
 }
 
-function formatTable(rows: readonly ToolView[]): string {
+function formatTable(rows: readonly ToolView[], emptyMessage: string): string {
   if (rows.length === 0) {
-    return 'No tools cached. Run `tlbx serve` once to populate the registry.\n';
+    return emptyMessage;
   }
   const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED'];
   const cells = rows.map((row) => [
@@ -111,9 +111,15 @@ export async function runToolsList(
   }
 
   if (result.source === 'config') {
-    const configured = Object.keys(config.servers);
+    const configured = Object.keys(config.servers).filter(
+      (name) => options.server === undefined || name === options.server,
+    );
     if (configured.length === 0) {
-      deps.stdout('No servers configured.\n');
+      deps.stdout(
+        options.server !== undefined
+          ? `Server "${options.server}" is not configured.\n`
+          : 'No servers configured.\n',
+      );
       return 0;
     }
     deps.stdout(
@@ -123,7 +129,15 @@ export async function runToolsList(
     return 0;
   }
 
-  deps.stdout(formatTable(result.tools));
+  // Empty cache vs filtered-out are distinct UX cases. The cache file exists
+  // (loadTools succeeded), so "no rows" with a `--server` filter means the
+  // filter matched no entries, not that the registry has never been
+  // populated.
+  const emptyMessage =
+    options.server !== undefined
+      ? `No tools match server "${options.server}".\n`
+      : 'No tools cached. Run `tlbx serve` once to populate the registry.\n';
+  deps.stdout(formatTable(result.tools, emptyMessage));
   return 0;
 }
 

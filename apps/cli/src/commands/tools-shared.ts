@@ -71,7 +71,7 @@ export async function loadTools(
   } catch (error) {
     if (error instanceof ToolCacheMissingError) {
       deps.stderr(
-        `${error.message}\n` +
+        `${error.message} ` +
           `Run \`tlbx serve\` once so ToolBox can populate the registry, ` +
           `or pass \`--from-config\` to list only the configured servers.\n`,
       );

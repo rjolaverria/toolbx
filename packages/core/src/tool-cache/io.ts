@@ -78,11 +78,7 @@ export async function readToolCache(filePath?: string): Promise<ToolCacheFile> {
     source = await fs.readFile(target, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
-      throw new ToolCacheMissingError(
-        `No tool cache found at ${target}. Run \`tlbx serve\` once so ToolBox can populate it.`,
-        target,
-        error,
-      );
+      throw new ToolCacheMissingError(`No tool cache found at ${target}.`, target, error);
     }
     const message = error instanceof Error ? error.message : String(error);
     throw new ToolCacheError(`Failed to read tool cache at ${target}: ${message}`, target, error);

@@ -5,10 +5,11 @@ import { z } from 'zod';
  * runtime whenever the visible tool set changes; read by CLI commands that
  * need to browse the tool inventory without starting the gateway.
  *
- * The `tool` payload is intentionally `unknown` — we re-validate the cache at
- * read time, but treat the cached `Tool` objects as opaque MCP shapes so a
- * future SDK addition (new optional field on `Tool`) does not invalidate
- * caches written by an older ToolBox.
+ * The cached `tool` payload is a loose object that requires `name` (every
+ * MCP `Tool` has one) and accepts `description`, `title`, and `inputSchema`
+ * as optional. Other fields pass through via `looseObject` so a future SDK
+ * addition to `Tool` does not invalidate caches written by older ToolBox
+ * builds.
  */
 
 const CachedToolSchema = z

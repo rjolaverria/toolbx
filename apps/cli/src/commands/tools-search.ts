@@ -85,7 +85,7 @@ export async function runToolsSearch(
   } catch (error) {
     if (error instanceof ToolCacheMissingError) {
       deps.stderr(
-        `${error.message}\n` + `Run \`tlbx serve\` once so ToolBox can populate the registry.\n`,
+        `${error.message} Run \`tlbx serve\` once so ToolBox can populate the registry.\n`,
       );
       return 1;
     }
