@@ -127,7 +127,7 @@ describe('runToolsDisable / runToolsEnable', () => {
     expect(h.stderr.value).toContain('Unknown server "jira"');
   });
 
-  it('rejects mixed `/` and `__` notation', async () => {
+  it('rejects a slash reference whose namespace contains the separator', async () => {
     const cfg = await configFixture();
     harnesses.push(cfg);
     const h = makeToolsHarness(cfg.target);
@@ -136,7 +136,33 @@ describe('runToolsDisable / runToolsEnable', () => {
     const code = await runToolsDisable('github__create_issue/extra', {}, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('mixes');
+    expect(h.stderr.value).toContain('namespace containing');
+  });
+
+  it('accepts a slash reference whose upstream tool name contains the separator', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+    // Upstream tool whose own name contains `__` — the slash form should
+    // honour the boundary at the `/`, not at the `__`.
+    await h.writeCache([
+      {
+        exposedName: 'github__create__issue',
+        serverName: 'github',
+        upstreamName: 'create__issue',
+        tool: { name: 'github__create__issue' },
+      },
+    ]);
+
+    const code = await runToolsDisable('github/create__issue', {}, h.deps);
+
+    expect(code).toBe(0);
+    const reloaded = await loadConfig(cfg.target);
+    expect(reloaded.tools['github__create__issue']).toEqual({ enabled: false });
   });
 
   it('allows disabling before the cache exists with a forward-compatible override', async () => {

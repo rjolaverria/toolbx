@@ -84,6 +84,15 @@ export interface RegisterToolsCallHandlerOptions {
    * runtime.
    */
   isDisclosureEnabled?: () => boolean;
+  /**
+   * Returns `false` for tools the user has disabled via `tlbx tools disable`
+   * (M5-02). Disabled tools are dropped from `tools/list` and refused at
+   * `tools/call` with `MethodNotFound` so a client that has cached the
+   * exposed name from a previous session cannot bypass the gate. Bootstrap
+   * tools are always callable. Defaults to "everything enabled" when
+   * omitted.
+   */
+  isToolEnabled?: (exposedName: string) => boolean;
 }
 
 function outcomeOf(result: RouteResult): string {
@@ -182,8 +191,15 @@ export function registerToolsCallHandler(
   upstreams: UpstreamSessionLookup,
   options: RegisterToolsCallHandlerOptions,
 ): void {
-  const { namespacing, resolveTimeoutMs, logger, bootstrap, visibility, isDisclosureEnabled } =
-    options;
+  const {
+    namespacing,
+    resolveTimeoutMs,
+    logger,
+    bootstrap,
+    visibility,
+    isDisclosureEnabled,
+    isToolEnabled,
+  } = options;
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     requireReady(session);
@@ -233,6 +249,16 @@ export function registerToolsCallHandler(
     const entry = registry.find(name);
     if (entry !== undefined) {
       serverName = entry.serverName;
+    }
+
+    // Per-tool disable overrides (M5-02) take precedence over disclosure and
+    // routing. The tool is hidden from `tools/list`, so a `tools/call` for
+    // it can only come from a client that cached the name from a prior
+    // session — refuse with MethodNotFound so the call is indistinguishable
+    // from "this tool does not exist." Bootstrap tools were already
+    // dispatched above, so they are unaffected.
+    if (entry !== undefined && isToolEnabled?.(name) === false) {
+      throw new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}"`);
     }
 
     // Only refuse with `not_revealed` when the tool actually exists in the

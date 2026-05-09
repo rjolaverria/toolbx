@@ -218,6 +218,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       bootstrap,
       visibility,
       isDisclosureEnabled,
+      isToolEnabled,
     });
 
     const notifier = createToolsChangedNotifier({

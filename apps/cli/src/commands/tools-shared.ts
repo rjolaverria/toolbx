@@ -122,9 +122,18 @@ export class ToolReferenceError extends Error {
 
 /**
  * Accepts both `namespace/tool` (per SPECS §4.2 and the user-facing
- * docs/help) and the wire-level `namespace__tool` form. Mixing the two in a
- * single argument (e.g. `foo__bar/baz` or `foo/bar__baz`) is ambiguous and
- * rejected so the CLI never silently picks one interpretation over the other.
+ * docs/help) and the wire-level `namespace__tool` form.
+ *
+ * The slash form is unambiguous — the namespace ends at the first `/` — so
+ * upstream tool names that legitimately contain the namespacing separator
+ * (e.g. `github/create__issue`, where `create__issue` is the upstream name)
+ * are accepted. Server names that contain the separator are rejected at
+ * config load (`ServerNameSchema`); the same constraint is enforced here so
+ * a slash reference like `foo__bar/baz` cannot smuggle one in via the CLI.
+ *
+ * The `__` form delegates to `parseExposedName`, which splits on the first
+ * separator — so `github__create__issue` parses as server `github`, tool
+ * `create__issue` (matching the gateway's exposed-name parsing).
  */
 export function parseToolReference(
   raw: string,
@@ -134,15 +143,6 @@ export function parseToolReference(
     throw new ToolReferenceError('tool reference is empty');
   }
   const slashIdx = raw.indexOf('/');
-  const sepIdx = raw.indexOf(namespacing.separator);
-
-  if (slashIdx >= 0 && sepIdx >= 0) {
-    throw new ToolReferenceError(
-      `tool reference "${raw}" mixes \`/\` and \`${namespacing.separator}\` notations; use one or the other`,
-    );
-  }
-
-  let exposedName: string;
   if (slashIdx >= 0) {
     if (raw.indexOf('/', slashIdx + 1) >= 0) {
       throw new ToolReferenceError(
@@ -156,19 +156,26 @@ export function parseToolReference(
         `tool reference "${raw}" must be \`namespace/tool\` with non-empty parts`,
       );
     }
-    exposedName = `${serverName}${namespacing.separator}${upstreamName}`;
-  } else {
-    exposedName = raw;
+    if (serverName.includes(namespacing.separator)) {
+      throw new ToolReferenceError(
+        `tool reference "${raw}" has a namespace containing the \`${namespacing.separator}\` separator; server names cannot contain it`,
+      );
+    }
+    return {
+      exposedName: `${serverName}${namespacing.separator}${upstreamName}`,
+      serverName,
+      upstreamName,
+    };
   }
 
-  const parsed = parseExposedName(exposedName, namespacing);
+  const parsed = parseExposedName(raw, namespacing);
   if (parsed === null) {
     throw new ToolReferenceError(
       `tool reference "${raw}" must be \`namespace/tool\` or \`namespace${namespacing.separator}tool\``,
     );
   }
   return {
-    exposedName,
+    exposedName: raw,
     serverName: parsed.serverName,
     upstreamName: parsed.upstreamName,
   };

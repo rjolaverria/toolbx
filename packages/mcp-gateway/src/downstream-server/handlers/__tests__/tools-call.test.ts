@@ -108,6 +108,7 @@ async function connect(opts: {
   bootstrap?: BootstrapToolRegistry;
   visibility?: SessionVisibility;
   isDisclosureEnabled?: () => boolean;
+  isToolEnabled?: (exposedName: string) => boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
@@ -124,6 +125,7 @@ async function connect(opts: {
         ...(opts.isDisclosureEnabled !== undefined
           ? { isDisclosureEnabled: opts.isDisclosureEnabled }
           : {}),
+        ...(opts.isToolEnabled !== undefined ? { isToolEnabled: opts.isToolEnabled } : {}),
       });
     },
   });
@@ -252,6 +254,32 @@ describe('tools/call handler', () => {
     const err = await rejectsAsMcpError(client.callTool({ name: 'jira__nope' }));
     expect(err.code).toBe(ErrorCode.MethodNotFound);
     expect(err.message).toContain('jira__nope');
+    await closeAll();
+  });
+
+  it('refuses a call to a disabled tool with MethodNotFound (no upstream dispatch)', async () => {
+    // M5-02 — `tlbx tools disable` removes a tool from `tools/list`, but a
+    // client that cached the exposed name from a prior session must also be
+    // refused at call time. The error mirrors a truly unknown tool so the
+    // disabled tool is indistinguishable from "does not exist."
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      isToolEnabled: (name) => name !== 'jira__search_issues',
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.MethodNotFound);
+    expect(jira.callTool).not.toHaveBeenCalled();
     await closeAll();
   });
 
