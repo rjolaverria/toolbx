@@ -18,6 +18,10 @@ This is the master todo list for delivering the ToolBox product as described in 
 
 ---
 
+## Phase 1 — TypeScript CLI and MCP Proxy ✅
+
+Phase 1 is complete: every milestone below (M0 through M5) is closed and the SPECS §4.8 acceptance criteria are exercised end-to-end by the M5-06 integration suite.
+
 ## Milestone 0 — Skeleton
 
 - [x] **M0-01** — [Config schema, loader, and validator](tasks/M0-01-config-schema-and-loader.md) — closed by 7fdaf2f
@@ -65,7 +69,7 @@ This is the master todo list for delivering the ToolBox product as described in 
 - [x] **M5-03** — [`tlbx config` commands (path / edit / validate / set)](tasks/M5-03-cli-config-commands.md) — closed by 707f8e8
 - [x] **M5-04** — [`tlbx status` command](tasks/M5-04-cli-status-command.md) — closed by abbde54
 - [x] **M5-05** — [`tlbx doctor` command](tasks/M5-05-cli-doctor-command.md) — closed by 01b4723
-- [ ] **M5-06** — [End-to-end MCP client integration tests](tasks/M5-06-integration-tests.md)
+- [x] **M5-06** — [End-to-end MCP client integration tests](tasks/M5-06-integration-tests.md) — closed by claude/start-next-task-TEnfd
 
 ## Phase 2 — Electron Desktop UI
 

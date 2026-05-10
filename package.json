@@ -15,6 +15,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest",
     "test:run": "turbo test",
+    "test:integration": "turbo test:integration",
     "coverage": "vitest run --coverage",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

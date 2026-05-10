@@ -11,8 +11,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run -c ../../vitest.integration.config.ts"
   },
   "dependencies": {
     "@toolbox/core": "workspace:*",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@commander-js/extra-typings": "^14.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "latest",
     "typescript": "latest"
   }
