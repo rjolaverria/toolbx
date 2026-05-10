@@ -20,6 +20,21 @@ export default tseslint.config(
     },
   },
   {
+    // CLI integration tests live in `apps/cli/test/`, which is not part of
+    // the package's emit `tsconfig.json` (that would push tests into
+    // `dist/`). They have their own non-emit `tsconfig.test.json`; point
+    // the type-aware parser at it explicitly so the lint rules still see
+    // the full type graph.
+    files: ['apps/cli/test/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ['apps/cli/tsconfig.test.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     // Config files sit outside tsconfig projects — disable type-aware rules for them
     files: ['**/*.config.ts', '**/*.config.js'],
     extends: [tseslint.configs.disableTypeChecked],
