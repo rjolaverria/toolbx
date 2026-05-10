@@ -2,6 +2,7 @@ import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
   ConfigLoadError,
   ConfigValidationError,
+  DuplicateKeyError,
   loadConfig,
   saveConfig,
   ToolBoxConfigSchema,
@@ -34,6 +35,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// Segment names that would mutate `Object.prototype` via plain-property
+// assignment. Rejecting them up front lets `setAtPath` use a normal index
+// write without becoming a prototype-pollution vector.
+const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function parseDottedPath(input: string): string[] {
   if (input.length === 0) {
     throw new InvalidConfigPathError('Config path must not be empty.');
@@ -43,6 +49,11 @@ export function parseDottedPath(input: string): string[] {
     if (segment.length === 0) {
       throw new InvalidConfigPathError(
         `Config path "${input}" has an empty segment; check for stray dots.`,
+      );
+    }
+    if (FORBIDDEN_SEGMENTS.has(segment)) {
+      throw new InvalidConfigPathError(
+        `Config path "${input}" contains the reserved segment "${segment}".`,
       );
     }
   }
@@ -125,7 +136,7 @@ export async function runConfigSet(
       deps.stderr(`${error.message}\n`);
       return 1;
     }
-    if (error instanceof ConfigValidationError) {
+    if (error instanceof ConfigValidationError || error instanceof DuplicateKeyError) {
       deps.stderr(`${error.message}\n`);
       return 1;
     }

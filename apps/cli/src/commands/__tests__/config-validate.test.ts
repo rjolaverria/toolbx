@@ -251,6 +251,73 @@ describe('collectIssues', () => {
     });
     expect(issues.some((i) => i.category === 'json')).toBe(true);
   });
+
+  it('passes the server cwd to commandExists for path-like commands', async () => {
+    const cfg: ToolBoxConfig = {
+      ...DEFAULT_CONFIG,
+      servers: {
+        local: {
+          type: 'stdio',
+          enabled: true,
+          command: './bin/mcp',
+          args: [],
+          cwd: '/opt/app',
+        },
+      },
+    };
+    const seen: Array<{ command: string; cwd: string | undefined }> = [];
+    const issues = await collectIssues(JSON.stringify(cfg), {
+      resolvePath: () => '',
+      cwd: () => '',
+      stdout: () => undefined,
+      stderr: () => undefined,
+      getEnv: () => undefined,
+      commandExists: (command, cwd) => {
+        seen.push({ command, cwd });
+        return Promise.resolve(true);
+      },
+    });
+    expect(issues.find((i) => i.category === 'broken-command')).toBeUndefined();
+    expect(seen).toEqual([{ command: './bin/mcp', cwd: '/opt/app' }]);
+  });
+
+  it('emits RFC 6901 JSON Pointers (escapes ~ and / in segment names)', async () => {
+    const cfg: ToolBoxConfig = {
+      ...DEFAULT_CONFIG,
+      servers: {
+        jira: {
+          type: 'http',
+          enabled: true,
+          url: 'https://jira.example.com/mcp',
+          headers: { 'X/Custom~Header': '${env:MISSING_HDR}' },
+        },
+      },
+    };
+    const issues = await collectIssues(JSON.stringify(cfg), {
+      resolvePath: () => '',
+      cwd: () => '',
+      stdout: () => undefined,
+      stderr: () => undefined,
+      getEnv: () => undefined,
+      commandExists: () => Promise.resolve(true),
+    });
+    const found = issues.find((i) => i.category === 'missing-env');
+    // `~` -> `~0`, `/` -> `~1`; per RFC 6901 the `~` escape comes first.
+    expect(found?.pointer).toBe('/servers/jira/headers/X~1Custom~0Header');
+  });
+
+  it('uses an empty pointer string for root-level issues (RFC 6901)', async () => {
+    const issues = await collectIssues('not json {', {
+      resolvePath: () => '',
+      cwd: () => '',
+      stdout: () => undefined,
+      stderr: () => undefined,
+      getEnv: () => undefined,
+      commandExists: () => Promise.resolve(true),
+    });
+    const found = issues.find((i) => i.category === 'json');
+    expect(found?.pointer).toBe('');
+  });
 });
 
 describe('runConfigValidate', () => {

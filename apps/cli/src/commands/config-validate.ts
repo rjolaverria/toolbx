@@ -11,18 +11,18 @@ import {
   type ToolBoxConfig,
 } from '@toolbox/core';
 
+import {
+  defaultServerCommandDeps,
+  resolveTargetPath,
+  type ServerCommandDeps,
+} from './server-shared.js';
+
 interface SchemaIssue {
   readonly path: readonly (string | number | symbol)[];
   readonly code: string;
   readonly message: string;
   readonly issues?: readonly SchemaIssue[];
 }
-
-import {
-  defaultServerCommandDeps,
-  resolveTargetPath,
-  type ServerCommandDeps,
-} from './server-shared.js';
 
 export type IssueCategory =
   | 'json'
@@ -48,11 +48,14 @@ export interface ConfigValidateDeps extends ServerCommandDeps {
   /** Look up an env var; tests stub this. Defaults to process.env. */
   getEnv: (name: string) => string | undefined;
   /**
-   * Returns true if the given command resolves to an existing executable on
-   * PATH (or, for absolute / relative paths, points to an executable file).
-   * Tests stub this; the default uses fs and PATH lookup.
+   * Returns true if the given command resolves to an existing executable.
+   * Path-like commands (containing a directory separator) are resolved
+   * relative to `cwd` when one is supplied — the same directory the upstream
+   * server would be spawned from at runtime — so a `command: "./bin/mcp"`
+   * paired with `cwd: "/opt/app"` validates correctly. Bare commands fall
+   * through to a PATH lookup. Tests stub this; the default uses fs.
    */
-  commandExists: (command: string) => Promise<boolean>;
+  commandExists: (command: string, cwd: string | undefined) => Promise<boolean>;
 }
 
 export function defaultConfigValidateDeps(): ConfigValidateDeps {
@@ -60,17 +63,26 @@ export function defaultConfigValidateDeps(): ConfigValidateDeps {
   return {
     ...base,
     getEnv: (name) => process.env[name],
-    commandExists: (command) => defaultCommandExists(command),
+    commandExists: (command, cwd) => defaultCommandExists(command, cwd),
   };
 }
 
 const ENV_PLACEHOLDER_RE = /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
+function escapeJsonPointerSegment(segment: string): string {
+  // RFC 6901: `~` must be escaped before `/` so re-escaping is unambiguous.
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 function pointerOf(parts: readonly (string | number)[]): string {
   if (parts.length === 0) {
-    return '<root>';
+    return '';
   }
-  return '/' + parts.map((p) => String(p)).join('/');
+  return '/' + parts.map((p) => escapeJsonPointerSegment(String(p))).join('/');
+}
+
+function displayPointer(pointer: string): string {
+  return pointer.length === 0 ? '<root>' : pointer;
 }
 
 function nestedMessages(issue: SchemaIssue): string {
@@ -149,7 +161,7 @@ function checkAuthEnv(
   if (deps.getEnv(tokenEnv) === undefined) {
     issues.push({
       category: 'missing-env',
-      pointer: `/servers/${serverName}/auth/tokenEnv`,
+      pointer: pointerOf(['servers', serverName, 'auth', 'tokenEnv']),
       message: `environment variable "${tokenEnv}" referenced by auth.tokenEnv is not set`,
     });
   }
@@ -170,7 +182,7 @@ function checkEnvPlaceholdersIn(
         if (deps.getEnv(varName) === undefined) {
           issues.push({
             category: 'missing-env',
-            pointer: `/servers/${serverName}/env/${key}`,
+            pointer: pointerOf(['servers', serverName, 'env', key]),
             message: `environment variable "${varName}" referenced by \${env:${varName}} is not set`,
           });
         }
@@ -186,7 +198,7 @@ function checkEnvPlaceholdersIn(
       if (deps.getEnv(varName) === undefined) {
         issues.push({
           category: 'missing-env',
-          pointer: `/servers/${serverName}/headers/${key}`,
+          pointer: pointerOf(['servers', serverName, 'headers', key]),
           message: `environment variable "${varName}" referenced by \${env:${varName}} is not set`,
         });
       }
@@ -203,11 +215,11 @@ async function checkCommand(
   if (entry.type !== 'stdio') {
     return;
   }
-  const exists = await deps.commandExists(entry.command);
+  const exists = await deps.commandExists(entry.command, entry.cwd);
   if (!exists) {
     issues.push({
       category: 'broken-command',
-      pointer: `/servers/${serverName}/command`,
+      pointer: pointerOf(['servers', serverName, 'command']),
       message: `command "${entry.command}" was not found on PATH or is not an executable file`,
     });
   }
@@ -223,7 +235,7 @@ function checkToolOverrides(config: ToolBoxConfig, issues: ValidationIssue[]): v
     if (!Object.prototype.hasOwnProperty.call(config.servers, serverName)) {
       issues.push({
         category: 'namespace-collision',
-        pointer: `/tools/${exposed}`,
+        pointer: pointerOf(['tools', exposed]),
         message: `tool override "${exposed}" references unknown server "${serverName}"`,
       });
     }
@@ -252,7 +264,7 @@ function tryParseJson(source: string, issues: ValidationIssue[]): ParseAttempt {
   } catch (error) {
     issues.push({
       category: 'json',
-      pointer: '<root>',
+      pointer: '',
       message: error instanceof Error ? error.message : String(error),
     });
     return { raw: undefined, jsonOk: false };
@@ -308,7 +320,7 @@ function formatHuman(target: string, issues: readonly ValidationIssue[]): string
   }
   const lines = [`Config at ${target} has ${issues.length} issue(s):`];
   for (const issue of issues) {
-    lines.push(`  [${issue.category}] ${issue.pointer}: ${issue.message}`);
+    lines.push(`  [${issue.category}] ${displayPointer(issue.pointer)}: ${issue.message}`);
   }
   return `${lines.join('\n')}\n`;
 }
@@ -335,10 +347,30 @@ export async function runConfigValidate(
   return issues.length === 0 ? 0 : 1;
 }
 
-async function defaultCommandExists(command: string): Promise<boolean> {
+function executableExtensions(command: string, platform: NodeJS.Platform): string[] {
+  if (platform !== 'win32') {
+    return [''];
+  }
+  // If the user already specified an extension (e.g. `git.exe`), only check
+  // the literal command — appending `.EXE`/`.CMD`/etc. would search for
+  // `git.exe.EXE` and miss the real binary.
+  if (path.extname(command).length > 0) {
+    return [''];
+  }
+  const pathExt = process.env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD';
+  return pathExt.split(';').filter((e) => e.length > 0);
+}
+
+async function defaultCommandExists(command: string, cwd: string | undefined): Promise<boolean> {
   const platform = process.platform;
   if (command.includes('/') || (platform === 'win32' && command.includes('\\'))) {
-    return isExecutable(command, platform);
+    // Resolve relative path-like commands against the server's configured
+    // cwd so validation matches the directory the upstream MCP process will
+    // be spawned from at runtime. Absolute paths are unaffected.
+    const resolved = path.isAbsolute(command)
+      ? command
+      : path.resolve(cwd ?? process.cwd(), command);
+    return isExecutable(resolved, platform);
   }
   const pathEnv = process.env['PATH'] ?? '';
   if (pathEnv.length === 0) {
@@ -346,10 +378,7 @@ async function defaultCommandExists(command: string): Promise<boolean> {
   }
   const sep = platform === 'win32' ? ';' : ':';
   const dirs = pathEnv.split(sep).filter((d) => d.length > 0);
-  const exts =
-    platform === 'win32'
-      ? (process.env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter((e) => e.length > 0)
-      : [''];
+  const exts = executableExtensions(command, platform);
   for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = path.join(dir, `${command}${ext}`);

@@ -42,6 +42,13 @@ describe('parseDottedPath', () => {
     expect(() => parseDottedPath('.a')).toThrow(InvalidConfigPathError);
     expect(() => parseDottedPath('a.')).toThrow(InvalidConfigPathError);
   });
+
+  it('rejects prototype-pollution segment names', () => {
+    for (const reserved of ['__proto__', 'constructor', 'prototype']) {
+      expect(() => parseDottedPath(reserved)).toThrow(InvalidConfigPathError);
+      expect(() => parseDottedPath(`a.${reserved}.b`)).toThrow(InvalidConfigPathError);
+    }
+  });
 });
 
 describe('parseJsonValue', () => {
@@ -178,6 +185,45 @@ describe('runConfigSet', () => {
 
     expect(code).toBe(1);
     expect(h.stderr.value).toContain('No ToolBox config found');
+  });
+
+  it('reports duplicate JSON keys cleanly without an uncaught exception', async () => {
+    const cfg = await makeTempConfig(DEFAULT_CONFIG);
+    harnesses.push(cfg);
+    // Hand-craft a config with duplicate JSON keys at the root.
+    await fs.writeFile(
+      cfg.target,
+      `{
+        "version": 1,
+        "version": 1,
+        "server": ${JSON.stringify(DEFAULT_CONFIG.server)},
+        "progressiveDisclosure": ${JSON.stringify(DEFAULT_CONFIG.progressiveDisclosure)},
+        "namespacing": ${JSON.stringify(DEFAULT_CONFIG.namespacing)},
+        "servers": {},
+        "tools": {}
+      }`,
+      'utf8',
+    );
+    const h = makeHarness(cfg.target);
+
+    const code = await runConfigSet('progressiveDisclosure.enabled', 'true', h.deps, {});
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('Duplicate JSON');
+  });
+
+  it('rejects setting a forbidden segment name', async () => {
+    const cfg = await makeTempConfig(DEFAULT_CONFIG);
+    harnesses.push(cfg);
+    const before = await fs.readFile(cfg.target, 'utf8');
+    const h = makeHarness(cfg.target);
+
+    const code = await runConfigSet('__proto__.polluted', 'true', h.deps, {});
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('reserved segment');
+    const after = await fs.readFile(cfg.target, 'utf8');
+    expect(after).toBe(before);
   });
 
   it('replaces an entire subtree when given a JSON object', async () => {
