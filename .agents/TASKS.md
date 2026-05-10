@@ -64,7 +64,7 @@ This is the master todo list for delivering the ToolBox product as described in 
 - [x] **M5-02** — [`tlbx tools` commands (list / search / enable / disable)](tasks/M5-02-cli-tools-commands.md) — closed by af81a3c
 - [x] **M5-03** — [`tlbx config` commands (path / edit / validate / set)](tasks/M5-03-cli-config-commands.md) — closed by 707f8e8
 - [x] **M5-04** — [`tlbx status` command](tasks/M5-04-cli-status-command.md) — closed by abbde54
-- [ ] **M5-05** — [`tlbx doctor` command](tasks/M5-05-cli-doctor-command.md)
+- [x] **M5-05** — [`tlbx doctor` command](tasks/M5-05-cli-doctor-command.md) — closed by 01b4723
 - [ ] **M5-06** — [End-to-end MCP client integration tests](tasks/M5-06-integration-tests.md)
 
 ## Phase 2 — Electron Desktop UI

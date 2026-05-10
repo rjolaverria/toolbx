@@ -5,6 +5,8 @@ export {
   BearerAuthSchema,
   HttpServerConfigSchema,
   HttpServerSettingsSchema,
+  LOOPBACK_HOSTS,
+  LoopbackHostSchema,
   NamespacingSchema,
   NoneAuthSchema,
   ProgressiveDisclosureSchema,
