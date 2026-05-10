@@ -69,7 +69,7 @@ Phase 1 is complete: every milestone below (M0 through M5) is closed and the SPE
 - [x] **M5-03** — [`tlbx config` commands (path / edit / validate / set)](tasks/M5-03-cli-config-commands.md) — closed by 707f8e8
 - [x] **M5-04** — [`tlbx status` command](tasks/M5-04-cli-status-command.md) — closed by abbde54
 - [x] **M5-05** — [`tlbx doctor` command](tasks/M5-05-cli-doctor-command.md) — closed by 01b4723
-- [x] **M5-06** — [End-to-end MCP client integration tests](tasks/M5-06-integration-tests.md) — closed by claude/start-next-task-TEnfd
+- [x] **M5-06** — [End-to-end MCP client integration tests](tasks/M5-06-integration-tests.md) — closed by 63837a6
 
 ## Phase 2 — Electron Desktop UI
 
