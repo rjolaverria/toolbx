@@ -7,6 +7,7 @@ import { configCommand } from './commands/config.js';
 import { initCommand } from './commands/init.js';
 import { serveCommand } from './commands/serve.js';
 import { serverCommand } from './commands/server.js';
+import { statusCommand } from './commands/status.js';
 import { toolsCommand } from './commands/tools.js';
 
 async function main(): Promise<void> {
@@ -18,6 +19,7 @@ async function main(): Promise<void> {
   program.addCommand(initCommand());
   program.addCommand(serverCommand());
   program.addCommand(serveCommand());
+  program.addCommand(statusCommand());
   program.addCommand(toolsCommand());
   program.addCommand(clientCommand());
   program.addCommand(configCommand());
