@@ -28,7 +28,14 @@ export {
   type ToolOverride,
 } from './config/schema.js';
 
-export { getDefaultConfigPath, resolveConfigPath, type ConfigPathEnv } from './config/paths.js';
+export {
+  describeConfigPath,
+  getDefaultConfigPath,
+  resolveConfigPath,
+  type ConfigPathEnv,
+  type ConfigPathSource,
+  type ResolvedConfigPath,
+} from './config/paths.js';
 
 export { ConfigLoadError, ConfigValidationError, loadConfig, parseConfig } from './config/load.js';
 

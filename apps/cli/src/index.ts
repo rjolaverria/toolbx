@@ -3,6 +3,7 @@
 import { Command } from '@commander-js/extra-typings';
 
 import { clientCommand } from './commands/client-print-config.js';
+import { configCommand } from './commands/config.js';
 import { initCommand } from './commands/init.js';
 import { serveCommand } from './commands/serve.js';
 import { serverCommand } from './commands/server.js';
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   program.addCommand(serveCommand());
   program.addCommand(toolsCommand());
   program.addCommand(clientCommand());
+  program.addCommand(configCommand());
 
   await program.parseAsync(process.argv);
 }
