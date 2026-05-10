@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { resolveConfigPath } from '../paths.js';
+import { describeConfigPath, resolveConfigPath } from '../paths.js';
 
 describe('resolveConfigPath', () => {
   it('honors TOOLBOX_CONFIG over every other rule', () => {
@@ -78,5 +78,53 @@ describe('resolveConfigPath', () => {
       homedir: () => '/home/u',
     });
     expect(result).toBe(path.join('/home/u', '.config', 'toolbox', 'config.json'));
+  });
+});
+
+describe('describeConfigPath', () => {
+  it('reports `env-toolbox-config` when TOOLBOX_CONFIG wins', () => {
+    const result = describeConfigPath({
+      env: { TOOLBOX_CONFIG: '/x', XDG_CONFIG_HOME: '/y' },
+      platform: 'linux',
+      homedir: () => '/home/u',
+    });
+    expect(result.source).toBe('env-toolbox-config');
+    expect(result.path).toBe(path.resolve('/x'));
+  });
+
+  it('reports `env-xdg-config-home` when XDG_CONFIG_HOME wins', () => {
+    const result = describeConfigPath({
+      env: { XDG_CONFIG_HOME: '/xdg' },
+      platform: 'linux',
+      homedir: () => '/home/u',
+    });
+    expect(result.source).toBe('env-xdg-config-home');
+  });
+
+  it('reports `env-appdata` on win32 with APPDATA set', () => {
+    const result = describeConfigPath({
+      env: { APPDATA: 'C:\\AppData' },
+      platform: 'win32',
+      homedir: () => 'C:\\Users\\u',
+    });
+    expect(result.source).toBe('env-appdata');
+  });
+
+  it('reports `home-windows` on win32 without APPDATA', () => {
+    const result = describeConfigPath({
+      env: {},
+      platform: 'win32',
+      homedir: () => 'C:\\Users\\u',
+    });
+    expect(result.source).toBe('home-windows');
+  });
+
+  it('reports `home-posix` on posix without env overrides', () => {
+    const result = describeConfigPath({
+      env: {},
+      platform: 'linux',
+      homedir: () => '/home/u',
+    });
+    expect(result.source).toBe('home-posix');
   });
 });
