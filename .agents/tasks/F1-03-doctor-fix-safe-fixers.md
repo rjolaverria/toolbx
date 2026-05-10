@@ -9,9 +9,9 @@
 
 ## Deliverables
 
-- Implement at least the following fixers in `apps/cli/src/commands/doctor.ts`. Each one runs only when the corresponding check is FAIL, and only when the user has either passed `--yes` or has confirmed at the interactive prompt.
-  - **Missing config directory**: create `~/.config/toolbox/` (respecting `XDG_CONFIG_HOME` / `TOOLBOX_CONFIG`) when the directory is absent. No-op when the path exists.
-  - **Missing config file**: when the directory exists but `config.json` does not, write the same default config that `tlbx init` would write. Implementation must reuse `tlbx init`'s defaults — no second source of truth.
+- Implement at least the following fixers in `apps/cli/src/commands/doctor.ts`. Each one runs only when the corresponding check is FAIL, and only when the user has either passed `--yes` or has confirmed at the interactive prompt. All path-dependent fixers operate on the **resolved config path** as computed by `packages/core/src/config/paths.ts` — never a hardcoded `~/.config/toolbox/`. The resolved path already accounts for `TOOLBOX_CONFIG` (overrides everything), `XDG_CONFIG_HOME`, and the platform-specific default (e.g. `%APPDATA%\ToolBox\config.json` on Windows).
+  - **Missing config directory**: create the parent directory of the resolved config path when it is absent. No-op when the path exists. If `TOOLBOX_CONFIG` points at a path under a directory the process cannot create (e.g. read-only volume), fail loud — do not fall back to the default location.
+  - **Missing config file**: when the parent directory exists but the resolved config file does not, write the same default config that `tlbx init` would write to that exact path. Implementation must reuse `tlbx init`'s defaults — no second source of truth.
   - **Unset `${env:NAME}` placeholder**: print a copy-pasteable shell snippet (e.g. `export NAME=…`) to stdout. Do **not** mutate the user's shell rc files. This is a "guided fix," not an automated one.
 - Each fixer must short-circuit cleanly in `--json` mode and report its action in the existing JSON shape.
 - Each fixer must be idempotent: running `doctor --fix` twice in a row leaves the system in the same state as running it once.

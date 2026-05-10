@@ -5,25 +5,25 @@
 
 ## Goal
 
-Today's only end-to-end coverage lives under `apps/cli/test/integration/`, which exercises the gateway transitively through the CLI. That misses regressions in the gateway's wire-protocol behavior unless the CLI happens to surface them. Add a dedicated integration suite that drives the gateway directly so wire-protocol regressions fail at the layer they originate.
+Direct gateway integration tests already exist at `packages/mcp-gateway/src/runtime/__tests__/integration.test.ts` and `notifications.integration.test.ts` — they drive `createGatewayRuntime` + `createDownstreamHttpServer` against a real `@modelcontextprotocol/sdk` `Client` over `StreamableHTTPClientTransport`, using the `echo-server.mjs` stdio upstream fixture. They cover the HTTP-downstream happy path, bootstrap-tool wiring, and `tools/list_changed` notifications. They do **not** cover the stdio-downstream path, reconnect-after-crash, bearer-auth env resolution, or namespace-collision reporting. Extend the existing suite to fill those specific gaps, rather than starting a parallel suite. (The CLI integration suite at `apps/cli/test/integration/` exercises these paths transitively but isn't a substitute for direct gateway coverage.)
 
 ## Deliverables
 
-- New directory `packages/mcp-gateway/test/integration/` with Vitest tests using the same fixture pattern as the CLI integration suite (`apps/cli/test/integration/`). Tests must run via `pnpm test:integration` (already wired through Turbo per M5-06).
-- Coverage matrix:
-  - **Stdio happy path**: real upstream stdio fixture + real downstream stdio client driven by `@modelcontextprotocol/sdk`. `initialize`, `tools/list`, `tools/call`, `notifications/tools/list_changed`.
-  - **HTTP happy path**: same matrix over the HTTP transport.
-  - **Reconnect after upstream crash**: kill the upstream fixture mid-session; assert the gateway moves the server to `failed` then back to `connected` with a tools/list_changed notification when the fixture recovers.
+- Extend the existing tests under `packages/mcp-gateway/src/runtime/__tests__/`. Add new files only when a scenario doesn't fit cleanly into an existing one. Re-use the existing `echo-server.mjs` fixture and the per-test cleanup pattern (`activeClients` / `activeServers` / `activeRuntimes` sets in `afterEach`).
+- New scenario coverage to add:
+  - **Stdio downstream happy path**: real upstream stdio fixture + downstream stdio server (`createDownstreamStdioServer`) driven by an MCP `Client` over `StdioClientTransport`. `initialize`, `tools/list`, `tools/call`, `notifications/tools/list_changed`. Today's HTTP-downstream tests already cover the equivalent over HTTP.
+  - **Reconnect after upstream crash**: kill the upstream fixture mid-session; assert the gateway moves the server to `failed` then back to `connected` with a `tools/list_changed` notification when the fixture recovers.
   - **Bearer auth env var resolution**: HTTP upstream that requires `Authorization: Bearer $TOKEN`; assert the gateway resolves `${env:TOKEN}` and sends the header. Cover the missing-env-var case too — gateway must surface `auth_required`.
   - **Namespace collision**: two upstream servers producing the same exposed name; assert the registry reports the collision via the existing error type.
-- No test depends on real network access — every upstream is a local fixture.
-- Suite runs in under 30 seconds on a developer laptop.
+- No test depends on real network access — every upstream is a local fixture (extend `__fixtures__/` rather than inventing new fixture locations).
+- Total integration suite runs in under 30 seconds on a developer laptop.
 
 ## Acceptance criteria
 
-- Every cell of the matrix is covered by at least one test that fails when the corresponding code path is regressed (verified by mutation: temporarily break the path, watch the test go red).
+- Every new scenario is covered by at least one test that fails when the corresponding code path is regressed (verified by mutation: temporarily break the path, watch the test go red).
+- The existing `integration.test.ts` and `notifications.integration.test.ts` continue to pass unmodified — or, if they need to move/split, the diff explains why.
+- No test logic is duplicated between the existing suite and the new scenarios; shared setup lives in a `__fixtures__/` helper.
 - `pnpm test:integration` is green locally and in CI.
-- The gateway suite and the CLI integration suite share fixtures where reasonable; no duplicated stub servers.
 
 ## Out of scope
 

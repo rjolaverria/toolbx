@@ -10,13 +10,15 @@ Run the same gates the pre-commit hook runs locally on every PR and on every pus
 ## Deliverables
 
 - `.github/workflows/ci.yml` with one workflow triggered on `pull_request` and `push: branches: [main]`. The workflow runs the following jobs (parallel where independent, ordered where required):
-  - `setup` — checks out the repo, installs pnpm, sets up Node from `engines.node` in the root `package.json`, runs `pnpm install --frozen-lockfile`, caches the pnpm store.
+  - `setup` — checks out the repo, installs pnpm, sets up Node, runs `pnpm install --frozen-lockfile`, caches the pnpm store.
   - `typecheck` — `pnpm typecheck`.
   - `lint` — `pnpm lint`.
   - `format` — `pnpm format:check`.
   - `test` — `pnpm test:run`.
   - `integration` — `pnpm test:integration` (depends on `test`; can run in the same job if the integration suite is fast enough).
-- Pin Node and pnpm versions to match `engines` declarations exactly. Bumps go through a separate task.
+- Version pinning strategy (since `engines.node` and `engines.pnpm` are minimum-supported ranges, not concrete versions):
+  - **pnpm**: use the existing `packageManager` field in the root `package.json` (currently `pnpm@10.33.0`), via `pnpm/action-setup` with `version` omitted so it picks the field up automatically. This keeps a single source of truth.
+  - **Node**: add a `.nvmrc` at the repo root pinning a concrete version inside the `engines.node` range (e.g. `22`), and configure `actions/setup-node` with `node-version-file: '.nvmrc'`. The `engines` range stays as the minimum-supported declaration; `.nvmrc` is what CI and local `nvm use` consume. Bumping either value goes through a separate task.
 - Cache pnpm's content-addressed store between runs, keyed on `pnpm-lock.yaml`.
 
 ## Acceptance criteria
