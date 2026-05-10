@@ -1,0 +1,47 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`runStatus > --json emits a stable, snapshot-tested shape 1`] = `
+"[
+  {
+    "name": "archived",
+    "type": "stdio",
+    "enabled": false,
+    "status": "disabled",
+    "auth": "none",
+    "toolCount": null,
+    "lastConnectedAt": null,
+    "lastError": null
+  },
+  {
+    "name": "broken",
+    "type": "stdio",
+    "enabled": true,
+    "status": "error",
+    "auth": "none",
+    "toolCount": null,
+    "lastConnectedAt": null,
+    "lastError": "connection refused"
+  },
+  {
+    "name": "github",
+    "type": "stdio",
+    "enabled": true,
+    "status": "connected",
+    "auth": "none",
+    "toolCount": 2,
+    "lastConnectedAt": "2026-04-30T12:00:00.000Z",
+    "lastError": null
+  },
+  {
+    "name": "linear",
+    "type": "http",
+    "enabled": true,
+    "status": "auth_required",
+    "auth": "required",
+    "toolCount": null,
+    "lastConnectedAt": null,
+    "lastError": "Bearer token \\"LINEAR_TOKEN\\" is not set."
+  }
+]
+"
+`;

@@ -13,7 +13,12 @@ A single command that shows what every configured upstream server is doing right
   - Loads config, instantiates the status registry (M1-04), starts upstream sessions briefly, polls status, prints a table, then disposes.
   - Columns: name, type, enabled, status, auth, tool count, last connected, last error.
   - Supports `--json`, `--server <name>` (filter), `--no-connect` (read config only, do not start sessions).
-  - Exits non-zero if any enabled server is in `error`, `auth_required`, or `auth_expired`.
+  - Exits non-zero if any enabled server is in `error` or `auth_required`.
+    (`auth_expired` is a runtime-only state produced by the long-lived
+    session manager from M1-03, not by the one-shot probe used here, so
+    `tlbx status` cannot surface it. If/when the probe is extended to
+    distinguish expired credentials, both the row mapping and the
+    exit-code rule should pick it up via the same enabled-server check.)
 
 ## Acceptance criteria
 
