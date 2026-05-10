@@ -71,6 +71,17 @@ Phase 1 is complete: every milestone below (M0 through M5) is closed and the SPE
 - [x] **M5-05** — [`tlbx doctor` command](tasks/M5-05-cli-doctor-command.md) — closed by 01b4723
 - [x] **M5-06** — [End-to-end MCP client integration tests](tasks/M5-06-integration-tests.md) — closed by 63837a6
 
+## Phase 1 follow-ups
+
+These are items that fell out of the Phase 1 review (post M5-06). They are not part of any closed milestone — each was identified as a real gap or an intentional deferral that now needs scheduling. They should land before Phase 2 work begins.
+
+- [ ] **F1-01** — [GitHub Actions CI workflow](tasks/F1-01-github-actions-ci.md)
+- [ ] **F1-02** — [Honor `progressiveDisclosure.autoRevealExactServerMatches` in search](tasks/F1-02-auto-reveal-exact-server-matches.md)
+- [ ] **F1-03** — [`tlbx doctor --fix` safe fixers](tasks/F1-03-doctor-fix-safe-fixers.md)
+- [ ] **F1-04** — [Vitest coverage thresholds](tasks/F1-04-vitest-coverage-thresholds.md)
+- [ ] **F1-05** — [Gateway-level integration tests](tasks/F1-05-gateway-integration-tests.md)
+- [ ] **F1-06** — [Phase 2 spec clarifications](tasks/F1-06-phase2-spec-clarifications.md)
+
 ## Phase 2 — Electron Desktop UI
 
 - [ ] **P2-01** — [Electron app shell wired to `@toolbox/core`](tasks/P2-01-electron-app-shell.md)
