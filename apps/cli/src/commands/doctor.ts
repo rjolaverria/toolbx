@@ -8,6 +8,7 @@ import {
   LOOPBACK_HOSTS,
   readToolCache,
   resolveToolCachePath,
+  ToolBoxConfigSchema,
   ToolCacheMissingError,
   type CachedTool,
   type ToolBoxConfig,
@@ -344,15 +345,17 @@ export function checkNamespaceCollisions(
   };
 }
 
-export function checkBindAddress(config: ToolBoxConfig | null): CheckResult {
-  if (config === null) {
+export function checkBindAddress(host: string | null): CheckResult {
+  if (host === null) {
+    // Either the config was unreadable or `server.http.host` is missing/wrong
+    // type. Either way, the dedicated bind-address check has nothing to act
+    // on; the structural problem is surfaced by `config` instead.
     return {
       id: 'bind-address',
       severity: 'WARN',
-      message: 'Skipped (config not loaded)',
+      message: 'Skipped (no server.http.host available)',
     };
   }
-  const host = config.server.http.host;
   const isLoopback = (LOOPBACK_HOSTS as readonly string[]).includes(host);
   if (isLoopback) {
     return {
@@ -369,25 +372,50 @@ export function checkBindAddress(config: ToolBoxConfig | null): CheckResult {
   };
 }
 
-function loadConfigFromIssues(
-  source: string,
-  issues: readonly ValidationIssue[],
-): ToolBoxConfig | null {
-  // collectIssues runs schema validation; if there are no schema/json/duplicate
-  // issues, we know `JSON.parse` will succeed and the schema will accept the
-  // value. We re-parse here (the caller already passed `source` through
-  // collectIssues) so the downstream checks have a typed config to work with.
-  const blocking = issues.some(
-    (i) => i.category === 'json' || i.category === 'schema' || i.category === 'duplicate-name',
-  );
-  if (blocking) {
+/**
+ * Best-effort extraction of `server.http.host`. The bind-address check runs
+ * even when full schema validation fails so that a non-loopback host (which
+ * the schema rejects) still produces the targeted FAIL with a fix hint
+ * instead of a generic "skipped" warning.
+ */
+export function extractBindHost(parsed: unknown): string | null {
+  if (parsed === null || typeof parsed !== 'object') {
     return null;
   }
+  const server = (parsed as Record<string, unknown>)['server'];
+  if (server === null || typeof server !== 'object') {
+    return null;
+  }
+  const http = (server as Record<string, unknown>)['http'];
+  if (http === null || typeof http !== 'object') {
+    return null;
+  }
+  const host = (http as Record<string, unknown>)['host'];
+  return typeof host === 'string' ? host : null;
+}
+
+function tryParseJson(source: string): unknown {
   try {
-    return JSON.parse(source) as ToolBoxConfig;
+    return JSON.parse(source) as unknown;
   } catch {
     return null;
   }
+}
+
+function loadValidatedConfig(parsed: unknown): ToolBoxConfig | null {
+  // The downstream checks (server-targets, env-placeholders,
+  // namespace-collisions) need a fully-validated config because the schema
+  // applies defaults — most importantly `namespacing.separator: '__'`,
+  // without which `detectCollisions()` would throw on a hand-edited config
+  // that omits the field.
+  if (parsed === null) {
+    return null;
+  }
+  const result = ToolBoxConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    return null;
+  }
+  return result.data;
 }
 
 function severitySymbol(severity: CheckSeverity): string {
@@ -487,7 +515,8 @@ export async function runDoctor(options: DoctorOptions, deps: DoctorDeps): Promi
   }
   checks.push(checkConfigValidate(target, source, issues));
 
-  const config = source === null ? null : loadConfigFromIssues(source, issues);
+  const parsed = source === null ? null : tryParseJson(source);
+  const config = loadValidatedConfig(parsed);
   checks.push(checkServerTargets(config, issues));
   checks.push(checkEnvPlaceholders(config, issues));
 
@@ -496,7 +525,10 @@ export async function runDoctor(options: DoctorOptions, deps: DoctorDeps): Promi
     cache = await deps.readToolCacheAt(target);
   }
   checks.push(checkNamespaceCollisions(config, issues, cache));
-  checks.push(checkBindAddress(config));
+  // Bind-address runs from the raw parse so a non-loopback host (which the
+  // schema rejects) still produces the targeted FAIL with a fix hint instead
+  // of being swallowed by the generic config-validation failure path.
+  checks.push(checkBindAddress(extractBindHost(parsed)));
 
   if (options.json === true) {
     deps.stdout(

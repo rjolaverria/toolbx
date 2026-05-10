@@ -16,6 +16,7 @@ import {
   checkNamespaceCollisions,
   checkNodeVersion,
   checkServerTargets,
+  extractBindHost,
   nodeSatisfies,
   runDoctor,
   type DoctorDeps,
@@ -95,14 +96,14 @@ function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 
-function withHost(host: string): ToolBoxConfig {
-  return {
+function configJsonWithHost(host: string): string {
+  return JSON.stringify({
     ...DEFAULT_CONFIG,
     server: {
       ...DEFAULT_CONFIG.server,
       http: { ...DEFAULT_CONFIG.server.http, host },
     },
-  };
+  });
 }
 
 describe('nodeSatisfies', () => {
@@ -356,20 +357,43 @@ describe('checkNamespaceCollisions', () => {
 
 describe('checkBindAddress', () => {
   it('PASS for the default loopback host', () => {
-    const result = checkBindAddress(DEFAULT_CONFIG);
+    const result = checkBindAddress('127.0.0.1');
     expect(result.severity).toBe('PASS');
     expect(result.message).toContain('127.0.0.1');
   });
 
   it('FAIL when the host is not loopback', () => {
-    const result = checkBindAddress(withHost('0.0.0.0'));
+    const result = checkBindAddress('0.0.0.0');
     expect(result.severity).toBe('FAIL');
     expect(result.fixHint).toContain('tlbx config set');
   });
 
-  it('WARN when config could not be loaded', () => {
+  it('WARN when no host could be extracted', () => {
     const result = checkBindAddress(null);
     expect(result.severity).toBe('WARN');
+  });
+});
+
+describe('extractBindHost', () => {
+  it('reads server.http.host from a parsed config object', () => {
+    expect(
+      extractBindHost({ server: { http: { host: '127.0.0.1', port: 7331, path: '/mcp' } } }),
+    ).toBe('127.0.0.1');
+  });
+
+  it('reads a non-loopback host even though the schema would reject it', () => {
+    // This is the key behaviour: a non-loopback host is a schema error, but
+    // doctor still needs to surface it so the dedicated bind-address check
+    // can produce a targeted FAIL rather than a generic skip.
+    expect(extractBindHost({ server: { http: { host: '0.0.0.0' } } })).toBe('0.0.0.0');
+  });
+
+  it('returns null when the shape is missing or malformed', () => {
+    expect(extractBindHost(null)).toBeNull();
+    expect(extractBindHost({})).toBeNull();
+    expect(extractBindHost({ server: null })).toBeNull();
+    expect(extractBindHost({ server: { http: null } })).toBeNull();
+    expect(extractBindHost({ server: { http: { host: 42 } } })).toBeNull();
   });
 });
 
@@ -493,6 +517,64 @@ describe('runDoctor', () => {
     expect(code).toBe(0);
     expect(h.stdout.value).toContain('--fix');
     expect(h.stdout.value).toContain('no automatic fixes');
+  });
+
+  it('reports a targeted FAIL on bind-address even when the host is schema-invalid', async () => {
+    // `0.0.0.0` is rejected by `LoopbackHostSchema`, so the structural
+    // `config` check fails. Doctor must still surface a dedicated FAIL on
+    // `bind-address` with the `tlbx config set` fix hint instead of just
+    // skipping it.
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const fs = await import('node:fs/promises');
+    await fs.writeFile(cfg.target, configJsonWithHost('0.0.0.0'), 'utf8');
+    const h = makeHarness(cfg.target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] config');
+    expect(h.stdout.value).toContain('[FAIL] bind-address');
+    expect(h.stdout.value).toContain('tlbx config set server.http.host');
+  });
+
+  it('applies schema defaults so dependent checks do not throw on omitted fields', async () => {
+    // A hand-edited config that omits `namespacing.separator` (which has a
+    // schema default of `__`) used to bypass schema validation here, so
+    // `detectCollisions` would throw on `separator: undefined`. Now we run
+    // the schema parse so defaults are applied before downstream checks.
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const fs = await import('node:fs/promises');
+    const raw = {
+      ...DEFAULT_CONFIG,
+      namespacing: { format: 'server__tool', collisionStrategy: 'error' },
+      servers: {
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      },
+    };
+    await fs.writeFile(cfg.target, JSON.stringify(raw), 'utf8');
+    const h = makeHarness(cfg.target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      commands: { true: true },
+      cache: [
+        {
+          exposedName: 'github__create_issue',
+          serverName: 'github',
+          upstreamName: 'create_issue',
+          tool: { name: 'create_issue' },
+        },
+      ],
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('[PASS] namespace-collisions');
   });
 
   it('--fix in --json mode records fix.requested=true and fix.applied=[]', async () => {
