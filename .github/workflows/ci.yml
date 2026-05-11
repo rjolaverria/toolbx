@@ -5,10 +5,12 @@ on:
   push:
     branches: [main]
 
-# Cancel superseded runs on the same PR; let pushes to `main` finish so the
-# branch protection signal is always based on the latest tip.
+# PR runs share a per-branch group so a force-push or new commit cancels
+# the in-flight run for the same PR. Push runs to `main` are keyed by SHA
+# so every commit gets its own lane — runs neither cancel nor queue each
+# other, and the post-merge regression signal lands on every commit.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
