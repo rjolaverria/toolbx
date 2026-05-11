@@ -50,10 +50,14 @@ const SEARCH_TOOLS_DESCRIPTOR: Tool = {
   title: 'Search ToolBox tools',
   description:
     'Search across every enabled upstream MCP server for tools matching a query. ' +
-    'Returns ranked candidate tools without revealing them — use toolbox__reveal_tools ' +
-    'to expose a match for direct invocation. Ranking is deterministic: server-name ' +
-    'matches first, then exact tool-name, then description, then input-schema text, ' +
-    'then fuzzy substring matches. Ties break alphabetically by exposed name.',
+    'Returns ranked candidate tools; use toolbox__reveal_tools to expose any candidate ' +
+    'for direct invocation. When progressiveDisclosure.autoRevealExactServerMatches is ' +
+    'enabled (the shipped default) and the query exactly matches an enabled server name ' +
+    '(case-insensitive, trimmed), every tool exposed by that server is revealed for the ' +
+    'current session and the auto-revealed names are listed in the response summary. ' +
+    'Ranking is deterministic: server-name matches first, then exact tool-name, then ' +
+    'description, then input-schema text, then fuzzy substring matches. Ties break ' +
+    'alphabetically by exposed name.',
   inputSchema: {
     type: 'object',
     properties: {
