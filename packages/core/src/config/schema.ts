@@ -121,7 +121,7 @@ export const ProgressiveDisclosureSchema = z
     enabled: z.boolean(),
     mode: z.enum(['session', 'global']),
     bootstrapTools: z.boolean(),
-    autoRevealExactServerMatches: z.boolean(),
+    autoRevealExactServerMatches: z.boolean().default(true),
     maxSearchResults: z.number().int().positive(),
   })
   .strict();

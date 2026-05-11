@@ -168,6 +168,8 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   const bootstrapEnabled = deps.config.progressiveDisclosure.bootstrapTools;
   const visibilityMode = deps.config.progressiveDisclosure.mode;
   const maxSearchResults = deps.config.progressiveDisclosure.maxSearchResults;
+  const autoRevealExactServerMatches =
+    deps.config.progressiveDisclosure.autoRevealExactServerMatches;
 
   const registerHandlers: RegisterDownstreamHandlers = (server, downstreamSession) => {
     // Each downstream session owns its own bootstrap registry so the
@@ -187,6 +189,8 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
         registry: bootstrap,
         toolRegistry,
         maxSearchResults,
+        visibility,
+        autoRevealExactServerMatches,
       });
       bootstrap.add(createListAvailableServersBootstrap({ statusRegistry }));
       bootstrap.add(createRevealToolsBootstrap({ visibility, toolRegistry }));

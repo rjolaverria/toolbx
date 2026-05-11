@@ -1,6 +1,11 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { searchTools, type SearchMatchedField, type ToolSearchResult } from '@toolbox/core';
+import {
+  searchTools,
+  type SearchMatchedField,
+  type SessionVisibility,
+  type ToolSearchResult,
+} from '@toolbox/core';
 import { z } from 'zod';
 
 import type { ToolRegistry } from '../registry/index.js';
@@ -13,16 +18,17 @@ export { SEARCH_TOOLS_NAME };
 /**
  * `toolbox__search_tools` (M4-03) — the first progressive-disclosure
  * bootstrap tool. Surfaces ranked candidate tools across every enabled
- * upstream server without revealing them; reveal/hide is M4-04's job.
+ * upstream server.
  *
- * `progressiveDisclosure.autoRevealExactServerMatches` exists in config but
- * is intentionally NOT honoured here yet — the M4-03 task explicitly defers
- * any visibility mutation to M4-04 (`toolbox__reveal_tools`). Once that
- * lands, this file will accept a `SessionVisibility` and call
- * `visibility.reveal(serverTools)` when the query exactly matches a server
- * name AND the flag is set. The header note in
- * `packages/core/src/disclosure/session-visibility.ts` describes that future
- * wiring; it does not describe current behaviour.
+ * When `progressiveDisclosure.autoRevealExactServerMatches` is `true` (the
+ * shipped default) and the inbound query exactly matches an enabled server's
+ * name (case-insensitive, post-trim), every tool exposed by that server is
+ * added to the session's revealed set before the search response is built.
+ * The response summary names which exposed tools were auto-revealed so the
+ * caller doesn't have to follow up with `toolbox__reveal_tools`. The
+ * `SessionVisibility.reveal()` call emits a single `change` event, which the
+ * downstream-session debouncer in `notify-tools-changed.ts` collapses into
+ * one `notifications/tools/list_changed`.
  *
  * The tool descriptor is hand-written JSON Schema (matches the existing
  * gateway pattern). A small local Zod schema validates the inbound
@@ -44,10 +50,14 @@ const SEARCH_TOOLS_DESCRIPTOR: Tool = {
   title: 'Search ToolBox tools',
   description:
     'Search across every enabled upstream MCP server for tools matching a query. ' +
-    'Returns ranked candidate tools without revealing them — use toolbox__reveal_tools ' +
-    'to expose a match for direct invocation. Ranking is deterministic: server-name ' +
-    'matches first, then exact tool-name, then description, then input-schema text, ' +
-    'then fuzzy substring matches. Ties break alphabetically by exposed name.',
+    'Returns ranked candidate tools; use toolbox__reveal_tools to expose any candidate ' +
+    'for direct invocation. When progressiveDisclosure.autoRevealExactServerMatches is ' +
+    'enabled (the shipped default) and the query exactly matches an enabled server name ' +
+    '(case-insensitive, trimmed), every tool exposed by that server is revealed for the ' +
+    'current session and the auto-revealed names are listed in the response summary. ' +
+    'Ranking is deterministic: server-name matches first, then exact tool-name, then ' +
+    'description, then input-schema text, then fuzzy substring matches. Ties break ' +
+    'alphabetically by exposed name.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -82,6 +92,17 @@ export interface RegisterSearchToolsBootstrapDeps {
    * upper bound clamped against the caller-supplied `limit`.
    */
   maxSearchResults: number;
+  /**
+   * Per-session visibility used for the auto-reveal side effect. The search
+   * tool only mutates it when `autoRevealExactServerMatches` is `true` AND
+   * the query is an exact server-name match.
+   */
+  visibility: SessionVisibility;
+  /**
+   * Effective value of `progressiveDisclosure.autoRevealExactServerMatches`
+   * after defaulting. Read from the merged config — never `?? false`.
+   */
+  autoRevealExactServerMatches: boolean;
 }
 
 /**
@@ -89,7 +110,8 @@ export interface RegisterSearchToolsBootstrapDeps {
  * gates this on `progressiveDisclosure.bootstrapTools` from config.
  */
 export function registerSearchToolsBootstrap(deps: RegisterSearchToolsBootstrapDeps): void {
-  const { registry, toolRegistry, maxSearchResults } = deps;
+  const { registry, toolRegistry, maxSearchResults, visibility, autoRevealExactServerMatches } =
+    deps;
 
   const tool: BootstrapTool = {
     descriptor: SEARCH_TOOLS_DESCRIPTOR,
@@ -105,6 +127,13 @@ export function registerSearchToolsBootstrap(deps: RegisterSearchToolsBootstrapD
       const tools = toolRegistry.list();
       const hits = searchTools(parsed.data.query, tools, { limit: effectiveLimit });
 
+      // Auto-reveal runs against the full visible tool set (not the
+      // ranked-and-clamped `hits`) so that a server with more than
+      // `maxSearchResults` tools still reveals all of them on an exact match.
+      const autoRevealed = autoRevealExactServerMatches
+        ? autoRevealExactServerMatch(parsed.data.query, tools, visibility)
+        : [];
+
       const content = hits.map((hit) => ({
         type: 'text' as const,
         text: JSON.stringify(formatCandidate(hit)),
@@ -117,6 +146,7 @@ export function registerSearchToolsBootstrap(deps: RegisterSearchToolsBootstrapD
           returned: hits.length,
           limit: effectiveLimit,
           maxSearchResults,
+          autoRevealed,
         }),
       });
 
@@ -125,6 +155,35 @@ export function registerSearchToolsBootstrap(deps: RegisterSearchToolsBootstrapD
   };
 
   registry.add(tool);
+}
+
+/**
+ * Returns the exposed names that were newly revealed by this call (empty if
+ * the query did not exactly match an enabled server name, or if every tool
+ * for the matched server was already visible). Comparison is
+ * case-insensitive and ignores leading/trailing whitespace on the query;
+ * server names are validated at config load to be ASCII so a simple lowercase
+ * suffices.
+ */
+function autoRevealExactServerMatch(
+  query: string,
+  tools: readonly { readonly serverName: string; readonly exposedName: string }[],
+  visibility: SessionVisibility,
+): readonly string[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return [];
+  }
+  const matchingTools: string[] = [];
+  for (const tool of tools) {
+    if (tool.serverName.toLowerCase() === normalized) {
+      matchingTools.push(tool.exposedName);
+    }
+  }
+  if (matchingTools.length === 0) {
+    return [];
+  }
+  return visibility.reveal(matchingTools);
 }
 
 interface CandidateLine {

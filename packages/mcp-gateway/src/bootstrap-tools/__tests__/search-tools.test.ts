@@ -2,8 +2,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility, ToolBoxConfigSchema } from '@toolbox/core';
+import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
 import { registerToolsCallHandler } from '../../downstream-server/handlers/tools-call.js';
@@ -43,6 +43,11 @@ interface SummaryLine {
   readonly returned: number;
   readonly limit: number;
   readonly maxSearchResults: number;
+  readonly autoRevealed: readonly string[];
+}
+
+function noopVisibility(): SessionVisibility {
+  return createSessionVisibility({ mode: 'session' });
 }
 
 function tool(
@@ -69,6 +74,13 @@ interface ConnectOpts {
   registry: ToolRegistry;
   bootstrap: BootstrapToolRegistry;
   upstreams?: UpstreamSessionLookup;
+  /**
+   * When provided alongside `disclosureEnabled: true`, `tools/list` filters
+   * upstream tools through this visibility so tests can assert that an
+   * auto-reveal makes the revealed names appear on the next `tools/list`.
+   */
+  visibility?: SessionVisibility;
+  disclosureEnabled?: boolean;
 }
 
 async function connect(
@@ -79,7 +91,14 @@ async function connect(
     logger: createNoopLogger(),
     sessionId: 'search-tools-test',
     registerHandlers: (server, session) => {
-      registerToolsListHandler(server, session, opts.registry, opts.bootstrap);
+      const listOptions =
+        opts.visibility !== undefined
+          ? {
+              visibility: opts.visibility,
+              isDisclosureEnabled: (): boolean => opts.disclosureEnabled === true,
+            }
+          : {};
+      registerToolsListHandler(server, session, opts.registry, opts.bootstrap, listOptions);
       registerToolsCallHandler(server, session, opts.registry, opts.upstreams ?? NOOP_UPSTREAMS, {
         namespacing: NS,
         bootstrap: opts.bootstrap,
@@ -125,6 +144,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -179,6 +200,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -224,6 +247,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -265,6 +290,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 2,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -292,6 +319,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -313,6 +342,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -340,6 +371,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const beforeSnapshot = registry.list().map((e) => e.exposedName);
@@ -387,6 +420,8 @@ describe('toolbox__search_tools (M4-03)', () => {
       registry: bootstrap,
       toolRegistry: registry,
       maxSearchResults: 20,
+      visibility: noopVisibility(),
+      autoRevealExactServerMatches: false,
     });
 
     const { client, closeAll } = await connect({ registry, bootstrap });
@@ -399,6 +434,275 @@ describe('toolbox__search_tools (M4-03)', () => {
     expect(candidates[0]?.inputSchemaExcerpt.properties).toEqual([
       { name: 'outer', description: 'wrapper' },
     ]);
+    await closeAll();
+  });
+});
+
+describe('toolbox__search_tools auto-reveal (F1-02)', () => {
+  function populatedRegistry(): ToolRegistry {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues'), tool('create_issue'), tool('add_comment')],
+    });
+    registry.setServerEntry({
+      serverName: 'github',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('create_pull_request'), tool('list_issues')],
+    });
+    return registry;
+  }
+
+  it('reveals every tool of an exactly-matched server when the flag is true', async () => {
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: true,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      bootstrap,
+      visibility,
+      disclosureEnabled: true,
+    });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: 'jira' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect([...summary.autoRevealed].sort()).toEqual([
+      'jira__add_comment',
+      'jira__create_issue',
+      'jira__search_issues',
+    ]);
+    expect(visibility.list()).toEqual([
+      'jira__add_comment',
+      'jira__create_issue',
+      'jira__search_issues',
+    ]);
+
+    // The next tools/list from the same session must surface the
+    // auto-revealed names.
+    const listed = await client.listTools();
+    const upstreamNames = listed.tools
+      .map((t) => t.name)
+      .filter((name) => name.startsWith('jira__'));
+    expect(upstreamNames.sort()).toEqual([
+      'jira__add_comment',
+      'jira__create_issue',
+      'jira__search_issues',
+    ]);
+    await closeAll();
+  });
+
+  it('matches server names case-insensitively after trimming whitespace', async () => {
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: true,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: '  JIRA  ' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect(summary.autoRevealed.length).toBe(3);
+    expect(visibility.list().length).toBe(3);
+    await closeAll();
+  });
+
+  it('does not auto-reveal on a partial server-name match when the flag is true', async () => {
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: true,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: 'jir' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect(summary.autoRevealed).toEqual([]);
+    expect(visibility.list()).toEqual([]);
+    await closeAll();
+  });
+
+  it('does not auto-reveal on an exact server-name match when the flag is false', async () => {
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: false,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: 'jira' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect(summary.autoRevealed).toEqual([]);
+    expect(visibility.list()).toEqual([]);
+    await closeAll();
+  });
+
+  it('does not auto-reveal on a partial server-name match when the flag is false', async () => {
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: false,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: 'jir' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect(summary.autoRevealed).toEqual([]);
+    expect(visibility.list()).toEqual([]);
+    await closeAll();
+  });
+
+  it('uses the schema default (true) when the user config omits the flag', async () => {
+    // Round-trips through the config schema to prove the "unset in user
+    // config" cell of the matrix resolves to auto-reveal on. Building the
+    // full config inline keeps the test self-contained.
+    const parsed = ToolBoxConfigSchema.parse({
+      version: 1,
+      server: {
+        stdio: { enabled: true },
+        http: { enabled: true, host: '127.0.0.1', port: 7331, path: '/mcp' },
+      },
+      progressiveDisclosure: {
+        enabled: true,
+        mode: 'session',
+        bootstrapTools: true,
+        // autoRevealExactServerMatches intentionally omitted.
+        maxSearchResults: 20,
+      },
+      namespacing: { format: 'server__tool', collisionStrategy: 'error' },
+      servers: {},
+    });
+    expect(parsed.progressiveDisclosure.autoRevealExactServerMatches).toBe(true);
+
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: parsed.progressiveDisclosure.autoRevealExactServerMatches,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: 'jira' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect(summary.autoRevealed.length).toBe(3);
+    expect(visibility.list().length).toBe(3);
+    await closeAll();
+  });
+
+  it('emits exactly one visibility change event per auto-reveal even when several tools are revealed', async () => {
+    const registry = populatedRegistry();
+    const visibility = createSessionVisibility({ mode: 'session' });
+    let changeEvents = 0;
+    const unsubscribe = visibility.on('change', () => {
+      changeEvents += 1;
+    });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: true,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    await client.callTool({ name: SEARCH_TOOLS_NAME, arguments: { query: 'jira' } });
+
+    expect(changeEvents).toBe(1);
+
+    // A second call with the same exact match must not re-emit because every
+    // tool is already revealed.
+    await client.callTool({ name: SEARCH_TOOLS_NAME, arguments: { query: 'jira' } });
+    expect(changeEvents).toBe(1);
+
+    unsubscribe();
+    await closeAll();
+  });
+
+  it('does not auto-reveal tools from a disabled or disconnected server', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: { kind: 'disabled' },
+      enabled: false,
+      tools: [tool('search_issues'), tool('create_issue')],
+    });
+    const visibility = createSessionVisibility({ mode: 'session' });
+    const bootstrap = createBootstrapToolRegistry();
+    registerSearchToolsBootstrap({
+      registry: bootstrap,
+      toolRegistry: registry,
+      maxSearchResults: 20,
+      visibility,
+      autoRevealExactServerMatches: true,
+    });
+
+    const { client, closeAll } = await connect({ registry, bootstrap });
+    const result = (await client.callTool({
+      name: SEARCH_TOOLS_NAME,
+      arguments: { query: 'jira' },
+    })) as CallToolResult;
+    const { summary } = parseLines(result);
+
+    expect(summary.autoRevealed).toEqual([]);
+    expect(visibility.list()).toEqual([]);
     await closeAll();
   });
 });
