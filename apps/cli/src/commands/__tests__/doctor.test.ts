@@ -692,6 +692,33 @@ describe('runDoctor --fix fixers', () => {
     expect(await pathMissing(path.dirname(target))).toBe(true);
   });
 
+  it('--fix reports no available fix when the config parent is not a directory', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const fs = await import('node:fs/promises');
+    const blocker = path.join(cfg.dir, 'blocker');
+    await fs.writeFile(blocker, 'not a directory', 'utf8');
+    const target = path.join(blocker, 'config.json');
+    const h = makeHarness(target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      // Simulate a missing config file so the config fixer is reached; the
+      // parent path resolves to an existing *file*, which the fixer must
+      // refuse to clobber.
+      configSourceOverride: null,
+      confirm: true,
+    });
+
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] config');
+    expect(h.stdout.value).toContain('SKIPPED (no fix available): ');
+    expect(h.stdout.value).toContain('is not a directory');
+    expect(h.confirmPrompts).toHaveLength(0);
+    expect(await pathMissing(target)).toBe(true);
+  });
+
   it('--fix reports no available fix for a structurally broken config', async () => {
     const cfg = await makeTempConfig();
     harnesses.push(cfg);

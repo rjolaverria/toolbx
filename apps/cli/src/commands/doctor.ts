@@ -100,10 +100,12 @@ export function defaultDoctorDeps(): DoctorDeps {
       }
     },
     confirmFix: async (prompt) => {
-      if (process.stdin.isTTY !== true) {
+      if (process.stdin.isTTY !== true || process.stderr.isTTY !== true) {
         return false;
       }
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      // Prompt on stderr (like `tlbx server remove`) so it never corrupts
+      // stdout — important when stdout is redirected or carries `--json`.
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
       try {
         const answer = await rl.question(`${prompt} [y/N] `);
         return /^y(?:es)?$/i.test(answer.trim());
@@ -477,13 +479,15 @@ function missingEnvVarNames(
   return [...names].sort();
 }
 
-async function pathExists(target: string): Promise<boolean> {
+type DirState = 'directory' | 'missing' | 'not-a-directory';
+
+async function inspectDir(dir: string): Promise<DirState> {
   try {
-    await stat(target);
-    return true;
+    const stats = await stat(dir);
+    return stats.isDirectory() ? 'directory' : 'not-a-directory';
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
+      return 'missing';
     }
     throw error;
   }
@@ -503,7 +507,14 @@ function confirmAction(ctx: FixContext, action: string): Promise<boolean> {
 
 async function fixMissingConfig(ctx: FixContext): Promise<FixOutcome> {
   const dir = path.dirname(ctx.target);
-  const dirExisted = await pathExists(dir);
+  const dirState = await inspectDir(dir);
+  if (dirState === 'not-a-directory') {
+    return {
+      status: 'SKIPPED_NO_FIX',
+      summary: `${dir} exists but is not a directory — resolve it manually or point TOOLBOX_CONFIG elsewhere`,
+    };
+  }
+  const dirExisted = dirState === 'directory';
   const action = dirExisted
     ? `Write a default ToolBox config to ${ctx.target}`
     : `Create ${dir} and write a default ToolBox config to ${ctx.target}`;
@@ -578,10 +589,14 @@ function fixStatusLabel(status: FixStatus): string {
 }
 
 function formatFixLine(outcome: FixOutcome): string {
+  const label = fixStatusLabel(outcome.status);
   if (outcome.status === 'APPLIED') {
     return `--fix: ${outcome.summary} [APPLIED]`;
   }
-  return `--fix: ${fixStatusLabel(outcome.status)}`;
+  if (outcome.status === 'SKIPPED_NO_FIX' && outcome.summary !== NO_FIX.summary) {
+    return `--fix: ${label}: ${outcome.summary}`;
+  }
+  return `--fix: ${label}`;
 }
 
 function fixSummaryFooter(outcomes: ReadonlyMap<string, FixOutcome>): string {
