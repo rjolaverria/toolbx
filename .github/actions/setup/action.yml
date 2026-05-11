@@ -1,0 +1,22 @@
+name: Setup
+description: >
+  Shared CI setup — installs pnpm (version from the root `packageManager`
+  field), sets up Node (version from `.nvmrc`) with pnpm-store caching keyed
+  on `pnpm-lock.yaml`, and installs workspace dependencies with a frozen
+  lockfile.
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: '.nvmrc'
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# PR runs share a per-branch group so a force-push or new commit cancels
+# the in-flight run for the same PR. Push runs to `main` are keyed by SHA
+# so every commit gets its own lane — runs neither cancel nor queue each
+# other, and the post-merge regression signal lands on every commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # typescript-eslint's type-aware rules resolve workspace imports
+      # through each package's emitted `.d.ts` files (composite project
+      # references). Without a build, the integration tests under
+      # `apps/cli/test/integration/**` see `@toolbox/*` as `any`, which
+      # makes `no-unsafe-*` fire. `pnpm typecheck` happens to work without
+      # this step because it runs through Turbo (`dependsOn: ["^build"]`).
+      - run: pnpm build
+      - run: pnpm lint
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm format:check
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm test:run
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm test:integration
