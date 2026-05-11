@@ -81,6 +81,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [ ] **F1-04** — [Vitest coverage thresholds](tasks/F1-04-vitest-coverage-thresholds.md)
 - [ ] **F1-05** — [Gateway-level integration tests](tasks/F1-05-gateway-integration-tests.md)
 - [ ] **F1-06** — [Phase 2 spec clarifications](tasks/F1-06-phase2-spec-clarifications.md)
+- [ ] **F1-07** — [`tlbx serve --detach` and `tlbx stop`](tasks/F1-07-serve-detach-and-stop.md)
 
 ## Phase 2 — Electron Desktop UI
 
