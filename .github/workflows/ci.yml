@@ -26,6 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # typescript-eslint's type-aware rules resolve workspace imports
+      # through each package's emitted `.d.ts` files (composite project
+      # references). Without a build, the integration tests under
+      # `apps/cli/test/integration/**` see `@toolbox/*` as `any`, which
+      # makes `no-unsafe-*` fire. `pnpm typecheck` happens to work without
+      # this step because it runs through Turbo (`dependsOn: ["^build"]`).
+      - run: pnpm build
       - run: pnpm lint
 
   format:
