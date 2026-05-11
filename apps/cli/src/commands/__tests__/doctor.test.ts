@@ -43,17 +43,22 @@ interface Stub {
   nodeVersion?: string;
   cache?: readonly CachedTool[] | 'missing';
   configSourceOverride?: string | null;
+  /** Answer returned by the interactive confirm prompt (defaults to false). */
+  confirm?: boolean;
 }
 
 interface Harness {
   deps: DoctorDeps;
   stdout: { value: string };
   stderr: { value: string };
+  /** Every prompt string passed to `confirmFix`, in order. */
+  confirmPrompts: string[];
 }
 
 function makeHarness(target: string, stub: Stub = {}): Harness {
   const stdout = { value: '' };
   const stderr = { value: '' };
+  const confirmPrompts: string[] = [];
   const deps: DoctorDeps = {
     resolvePath: () => target,
     cwd: () => path.dirname(target),
@@ -88,8 +93,12 @@ function makeHarness(target: string, stub: Stub = {}): Harness {
         throw error;
       }
     },
+    confirmFix: (prompt) => {
+      confirmPrompts.push(prompt);
+      return Promise.resolve(stub.confirm ?? false);
+    },
   };
-  return { deps, stdout, stderr };
+  return { deps, stdout, stderr, confirmPrompts };
 }
 
 function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
@@ -504,7 +513,7 @@ describe('runDoctor', () => {
     expect(parsed.fix).toEqual({ requested: false, applied: [] });
   });
 
-  it('--fix reports that no automatic fixes were applied (Phase 1 stub)', async () => {
+  it('--fix is a no-op when every check passes or warns', async () => {
     const cfg = await makeTempConfig();
     harnesses.push(cfg);
     const h = makeHarness(cfg.target, {
@@ -515,8 +524,8 @@ describe('runDoctor', () => {
     const code = await runDoctor({ fix: true }, h.deps);
 
     expect(code).toBe(0);
-    expect(h.stdout.value).toContain('--fix');
-    expect(h.stdout.value).toContain('no automatic fixes');
+    expect(h.stdout.value).toContain('--fix: no failing checks to fix.');
+    expect(h.confirmPrompts).toHaveLength(0);
   });
 
   it('reports a targeted FAIL on bind-address even when the host is schema-invalid', async () => {
@@ -592,5 +601,250 @@ describe('runDoctor', () => {
       fix: { requested: boolean; applied: string[] };
     };
     expect(parsed.fix).toEqual({ requested: true, applied: [] });
+  });
+});
+
+describe('runDoctor --fix fixers', () => {
+  async function readJson(filePath: string): Promise<unknown> {
+    const fs = await import('node:fs/promises');
+    return JSON.parse(await fs.readFile(filePath, 'utf8')) as unknown;
+  }
+
+  async function pathMissing(filePath: string): Promise<boolean> {
+    const fs = await import('node:fs/promises');
+    try {
+      await fs.stat(filePath);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  it('--fix --yes creates a missing config directory and writes the default config', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'nested', 'config.json');
+    const h = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    // The config check was FAIL when observed, so the run still exits non-zero;
+    // the fix only takes effect on a subsequent invocation.
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('--fix: created config directory');
+    expect(h.stdout.value).toContain('[APPLIED]');
+    expect(h.confirmPrompts).toHaveLength(0);
+    expect(await readJson(target)).toEqual(DEFAULT_CONFIG);
+
+    const rerun = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+    const code2 = await runDoctor({}, rerun.deps);
+    expect(code2).toBe(0);
+    expect(rerun.stdout.value).toContain('[PASS] config');
+  });
+
+  it('--fix --yes writes the default config when the directory already exists', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'other.json');
+    const h = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toMatch(/--fix: wrote a default config to .*other\.json \[APPLIED\]/);
+    expect(await readJson(target)).toEqual(DEFAULT_CONFIG);
+  });
+
+  it('--fix prompts and applies the config fix when the prompt is accepted', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'yes-path', 'config.json');
+    const h = makeHarness(target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      confirm: true,
+    });
+
+    const code = await runDoctor({ fix: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.confirmPrompts).toHaveLength(1);
+    expect(h.stdout.value).toContain('[APPLIED]');
+    expect(await readJson(target)).toEqual(DEFAULT_CONFIG);
+  });
+
+  it('--fix leaves the config alone when the prompt is declined', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'declined', 'config.json');
+    const h = makeHarness(target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      confirm: false,
+    });
+
+    const code = await runDoctor({ fix: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.confirmPrompts).toHaveLength(1);
+    expect(h.stdout.value).toContain('SKIPPED (declined)');
+    expect(await pathMissing(target)).toBe(true);
+    expect(await pathMissing(path.dirname(target))).toBe(true);
+  });
+
+  it('--fix reports no available fix for a structurally broken config', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const fs = await import('node:fs/promises');
+    await fs.writeFile(cfg.target, '{ not valid json', 'utf8');
+    const h = makeHarness(cfg.target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      confirm: true,
+    });
+
+    const code = await runDoctor({ fix: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] config');
+    expect(h.stdout.value).toContain('SKIPPED (no fix available)');
+    expect(h.confirmPrompts).toHaveLength(0);
+  });
+
+  it('--fix reports no available fix for a FAIL check without a fixer', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        broken: { type: 'stdio', enabled: true, command: 'no-such-binary', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      commands: { 'no-such-binary': false },
+      cache: 'missing',
+    });
+
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] server-targets');
+    expect(h.stdout.value).toContain('SKIPPED (no fix available)');
+  });
+
+  it('--fix --yes prints an export snippet for missing env vars but stays FAIL', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        jira: {
+          type: 'http',
+          enabled: true,
+          url: 'https://jira.example.com/mcp',
+          auth: { type: 'bearer', tokenEnv: 'JIRA_TOKEN' },
+        },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      env: {},
+      cache: 'missing',
+    });
+
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] env-placeholders');
+    expect(h.stdout.value).toContain('export JIRA_TOKEN=...');
+    expect(h.stdout.value).toContain('[APPLIED]');
+  });
+
+  it('--fix does not print the env snippet when the prompt is declined', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        jira: {
+          type: 'http',
+          enabled: true,
+          url: 'https://jira.example.com/mcp',
+          auth: { type: 'bearer', tokenEnv: 'JIRA_TOKEN' },
+        },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      enginesNode: '>=22',
+      nodeVersion: 'v22.5.0',
+      env: {},
+      cache: 'missing',
+      confirm: false,
+    });
+
+    const code = await runDoctor({ fix: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.confirmPrompts).toHaveLength(1);
+    expect(h.stdout.value).toContain('SKIPPED (declined)');
+    expect(h.stdout.value).not.toContain('export JIRA_TOKEN');
+  });
+
+  it('--fix --yes --json records the per-check fix outcome', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'fresh', 'config.json');
+    const h = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+
+    const code = await runDoctor({ fix: true, yes: true, json: true }, h.deps);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(h.stdout.value) as {
+      checks: Array<{
+        id: string;
+        fix: { status: string; summary: string; lines: string[] } | null;
+      }>;
+      fix: { requested: boolean; applied: string[] };
+    };
+    const configCheck = parsed.checks.find((c) => c.id === 'config');
+    expect(configCheck?.fix?.status).toBe('APPLIED');
+    expect(parsed.fix).toEqual({ requested: true, applied: ['config'] });
+    const nodeCheck = parsed.checks.find((c) => c.id === 'node-version');
+    expect(nodeCheck?.fix).toBeNull();
+  });
+
+  it('--fix --json without --yes declines without prompting', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'json-no-yes', 'config.json');
+    const h = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+
+    const code = await runDoctor({ fix: true, json: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.confirmPrompts).toHaveLength(0);
+    const parsed = JSON.parse(h.stdout.value) as {
+      checks: Array<{ id: string; fix: { status: string } | null }>;
+      fix: { requested: boolean; applied: string[] };
+    };
+    expect(parsed.checks.find((c) => c.id === 'config')?.fix?.status).toBe('SKIPPED_DECLINED');
+    expect(parsed.fix).toEqual({ requested: true, applied: [] });
+    expect(await pathMissing(target)).toBe(true);
+  });
+
+  it('running --fix --yes twice is idempotent', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const target = path.join(cfg.dir, 'idem', 'config.json');
+
+    const first = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+    await runDoctor({ fix: true, yes: true }, first.deps);
+    const fs = await import('node:fs/promises');
+    const afterFirst = await fs.readFile(target, 'utf8');
+
+    const second = makeHarness(target, { enginesNode: '>=22', nodeVersion: 'v22.5.0' });
+    const code2 = await runDoctor({ fix: true, yes: true }, second.deps);
+    const afterSecond = await fs.readFile(target, 'utf8');
+
+    expect(afterSecond).toBe(afterFirst);
+    expect(code2).toBe(0);
+    expect(second.stdout.value).toContain('--fix: no failing checks to fix.');
   });
 });

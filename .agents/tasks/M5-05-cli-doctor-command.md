@@ -27,7 +27,7 @@ A self-check command that diagnoses common problems without forcing the user to 
 ## Out of scope
 
 - Auto-installing missing upstream MCP server packages.
-- Actually mutating the system in `--fix` (defer until specific safe fixers exist).
+- Actually mutating the system in `--fix` (defer until specific safe fixers exist). Deferral closed by F1-03 (`.agents/tasks/F1-03-doctor-fix-safe-fixers.md`), which adds the first real safe fixers (missing config dir/file, env-placeholder guided fix).
 
 ## Definition of done
 
