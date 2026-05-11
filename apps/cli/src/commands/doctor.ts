@@ -1,13 +1,16 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
+  DEFAULT_CONFIG,
   detectCollisions,
   LOOPBACK_HOSTS,
   readToolCache,
   resolveToolCachePath,
+  saveConfig,
   ToolBoxConfigSchema,
   ToolCacheMissingError,
   type CachedTool,
@@ -38,6 +41,7 @@ export interface DoctorOptions {
   config?: string;
   json?: true;
   fix?: boolean;
+  yes?: true;
 }
 
 export interface DoctorDeps extends ConfigValidateDeps {
@@ -49,6 +53,8 @@ export interface DoctorDeps extends ConfigValidateDeps {
   nodeVersion: () => string;
   /** Reads the resolved config source; returns null on ENOENT. */
   readConfigSource: (target: string) => Promise<string | null>;
+  /** Prompts the user to confirm a mutating fix. Resolves true to proceed. */
+  confirmFix: (prompt: string) => Promise<boolean>;
 }
 
 const PACKAGE_JSON_PATH = (() => {
@@ -91,6 +97,20 @@ export function defaultDoctorDeps(): DoctorDeps {
           return null;
         }
         throw error;
+      }
+    },
+    confirmFix: async (prompt) => {
+      if (process.stdin.isTTY !== true || process.stderr.isTTY !== true) {
+        return false;
+      }
+      // Prompt on stderr (like `tlbx server remove`) so it never corrupts
+      // stdout — important when stdout is redirected or carries `--json`.
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        const answer = await rl.question(`${prompt} [y/N] `);
+        return /^y(?:es)?$/i.test(answer.trim());
+      } finally {
+        rl.close();
       }
     },
   };
@@ -418,11 +438,195 @@ function loadValidatedConfig(parsed: unknown): ToolBoxConfig | null {
   return result.data;
 }
 
+export type FixStatus = 'APPLIED' | 'SKIPPED_DECLINED' | 'SKIPPED_NO_FIX';
+
+export interface FixOutcome {
+  status: FixStatus;
+  /** Short description of the action taken (only meaningful when APPLIED). */
+  summary: string;
+  /** Extra lines (e.g. a shell snippet) printed indented under the summary. */
+  lines?: readonly string[];
+}
+
+interface FixContext {
+  target: string;
+  source: string | null;
+  config: ToolBoxConfig | null;
+  issues: readonly ValidationIssue[];
+  options: DoctorOptions;
+  deps: DoctorDeps;
+}
+
+const NO_FIX: FixOutcome = { status: 'SKIPPED_NO_FIX', summary: 'no automatic fix available' };
+const DECLINED: FixOutcome = { status: 'SKIPPED_DECLINED', summary: 'declined' };
+
+const ENV_VAR_FROM_ISSUE_RE = /^environment variable "([A-Za-z_][A-Za-z0-9_]*)"/;
+
+function missingEnvVarNames(
+  config: ToolBoxConfig,
+  issues: readonly ValidationIssue[],
+): readonly string[] {
+  const names = new Set<string>();
+  for (const issue of issues) {
+    if (issue.category !== 'missing-env' || !isFromEnabledServer(issue, config)) {
+      continue;
+    }
+    const name = ENV_VAR_FROM_ISSUE_RE.exec(issue.message)?.[1];
+    if (name !== undefined) {
+      names.add(name);
+    }
+  }
+  return [...names].sort();
+}
+
+type DirState = 'directory' | 'missing' | 'not-a-directory';
+
+async function inspectDir(dir: string): Promise<DirState> {
+  try {
+    const stats = await stat(dir);
+    return stats.isDirectory() ? 'directory' : 'not-a-directory';
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return 'missing';
+    }
+    throw error;
+  }
+}
+
+function confirmAction(ctx: FixContext, action: string): Promise<boolean> {
+  if (ctx.options.yes === true) {
+    return Promise.resolve(true);
+  }
+  if (ctx.options.json === true) {
+    // An interactive prompt would corrupt the JSON document on stdout — in
+    // `--json` mode a fix only runs when `--yes` was passed.
+    return Promise.resolve(false);
+  }
+  return ctx.deps.confirmFix(`${action}?`);
+}
+
+async function fixMissingConfig(ctx: FixContext): Promise<FixOutcome> {
+  const dir = path.dirname(ctx.target);
+  const dirState = await inspectDir(dir);
+  if (dirState === 'not-a-directory') {
+    return {
+      status: 'SKIPPED_NO_FIX',
+      summary: `${dir} exists but is not a directory — resolve it manually or point TOOLBOX_CONFIG elsewhere`,
+    };
+  }
+  const dirExisted = dirState === 'directory';
+  const action = dirExisted
+    ? `Write a default ToolBox config to ${ctx.target}`
+    : `Create ${dir} and write a default ToolBox config to ${ctx.target}`;
+  if (!(await confirmAction(ctx, action))) {
+    return DECLINED;
+  }
+  if (!dirExisted) {
+    // Fail loud if the parent directory cannot be created (e.g. it lives on a
+    // read-only volume) — never silently fall back to the default location.
+    await mkdir(dir, { recursive: true });
+  }
+  await saveConfig(DEFAULT_CONFIG, ctx.target);
+  return {
+    status: 'APPLIED',
+    summary: dirExisted
+      ? `wrote a default config to ${ctx.target}`
+      : `created config directory ${dir} and wrote a default config to ${ctx.target}`,
+  };
+}
+
+async function fixMissingEnvVars(ctx: FixContext): Promise<FixOutcome> {
+  if (ctx.config === null) {
+    return NO_FIX;
+  }
+  const names = missingEnvVarNames(ctx.config, ctx.issues);
+  if (names.length === 0) {
+    return NO_FIX;
+  }
+  const action = `Print a copy-pasteable export snippet for ${names.length} environment variable(s)`;
+  if (!(await confirmAction(ctx, action))) {
+    return DECLINED;
+  }
+  return {
+    status: 'APPLIED',
+    summary: 'printed an export snippet for the missing environment variable(s)',
+    lines: names.map((name) => `export ${name}=...`),
+  };
+}
+
+function runFixerForCheck(check: CheckResult, ctx: FixContext): Promise<FixOutcome> {
+  if (check.id === 'config' && ctx.source === null) {
+    return fixMissingConfig(ctx);
+  }
+  if (check.id === 'env-placeholders') {
+    return fixMissingEnvVars(ctx);
+  }
+  return Promise.resolve(NO_FIX);
+}
+
+async function applyFixes(
+  checks: readonly CheckResult[],
+  ctx: FixContext,
+): Promise<Map<string, FixOutcome>> {
+  const outcomes = new Map<string, FixOutcome>();
+  for (const check of checks) {
+    if (check.severity !== 'FAIL') {
+      continue;
+    }
+    outcomes.set(check.id, await runFixerForCheck(check, ctx));
+  }
+  return outcomes;
+}
+
+function fixStatusLabel(status: FixStatus): string {
+  if (status === 'APPLIED') {
+    return 'APPLIED';
+  }
+  if (status === 'SKIPPED_DECLINED') {
+    return 'SKIPPED (declined)';
+  }
+  return 'SKIPPED (no fix available)';
+}
+
+function formatFixLine(outcome: FixOutcome): string {
+  const label = fixStatusLabel(outcome.status);
+  if (outcome.status === 'APPLIED') {
+    return `--fix: ${outcome.summary} [APPLIED]`;
+  }
+  if (outcome.status === 'SKIPPED_NO_FIX' && outcome.summary !== NO_FIX.summary) {
+    return `--fix: ${label}: ${outcome.summary}`;
+  }
+  return `--fix: ${label}`;
+}
+
+function fixSummaryFooter(outcomes: ReadonlyMap<string, FixOutcome>): string {
+  if (outcomes.size === 0) {
+    return '--fix: no failing checks to fix.';
+  }
+  let applied = 0;
+  let declined = 0;
+  let noFix = 0;
+  for (const outcome of outcomes.values()) {
+    if (outcome.status === 'APPLIED') {
+      applied += 1;
+    } else if (outcome.status === 'SKIPPED_DECLINED') {
+      declined += 1;
+    } else {
+      noFix += 1;
+    }
+  }
+  return `--fix: ${applied} applied, ${declined} declined, ${noFix} with no available fix.`;
+}
+
 function severitySymbol(severity: CheckSeverity): string {
   return severity;
 }
 
-function formatHuman(checks: readonly CheckResult[], options: DoctorOptions): string {
+function formatHuman(
+  checks: readonly CheckResult[],
+  options: DoctorOptions,
+  fixOutcomes: ReadonlyMap<string, FixOutcome>,
+): string {
   const lines: string[] = [];
   for (const check of checks) {
     lines.push(`[${severitySymbol(check.severity)}] ${check.id}: ${check.message}`);
@@ -434,6 +638,15 @@ function formatHuman(checks: readonly CheckResult[], options: DoctorOptions): st
     if (check.severity === 'FAIL' && check.fixHint !== undefined) {
       lines.push(`        fix: ${check.fixHint}`);
     }
+    const outcome = fixOutcomes.get(check.id);
+    if (outcome !== undefined) {
+      lines.push(`        ${formatFixLine(outcome)}`);
+      if (outcome.lines !== undefined) {
+        for (const line of outcome.lines) {
+          lines.push(`            ${line}`);
+        }
+      }
+    }
   }
   const counts = countSeverities(checks);
   lines.push('');
@@ -441,7 +654,7 @@ function formatHuman(checks: readonly CheckResult[], options: DoctorOptions): st
     `${checks.length} check(s): ${counts.pass} PASS, ${counts.warn} WARN, ${counts.fail} FAIL`,
   );
   if (options.fix === true) {
-    lines.push('--fix: no automatic fixes are available in Phase 1; nothing was changed.');
+    lines.push(fixSummaryFooter(fixOutcomes));
   }
   return `${lines.join('\n')}\n`;
 }
@@ -475,6 +688,7 @@ interface JsonReport {
     message: string;
     fixHint: string | null;
     details: readonly string[];
+    fix: { status: FixStatus; summary: string; lines: readonly string[] } | null;
   }>;
   summary: { pass: number; warn: number; fail: number };
   fix: { requested: boolean; applied: readonly string[] };
@@ -485,19 +699,33 @@ function toJsonReport(
   nodeVersion: string,
   checks: readonly CheckResult[],
   options: DoctorOptions,
+  fixOutcomes: ReadonlyMap<string, FixOutcome>,
 ): JsonReport {
+  const applied: string[] = [];
+  for (const [id, outcome] of fixOutcomes) {
+    if (outcome.status === 'APPLIED') {
+      applied.push(id);
+    }
+  }
   return {
     configPath,
     node: nodeVersion,
-    checks: checks.map((c) => ({
-      id: c.id,
-      severity: c.severity,
-      message: c.message,
-      fixHint: c.fixHint ?? null,
-      details: c.details ?? [],
-    })),
+    checks: checks.map((c) => {
+      const outcome = fixOutcomes.get(c.id);
+      return {
+        id: c.id,
+        severity: c.severity,
+        message: c.message,
+        fixHint: c.fixHint ?? null,
+        details: c.details ?? [],
+        fix:
+          outcome === undefined
+            ? null
+            : { status: outcome.status, summary: outcome.summary, lines: outcome.lines ?? [] },
+      };
+    }),
     summary: countSeverities(checks),
-    fix: { requested: options.fix === true, applied: [] },
+    fix: { requested: options.fix === true, applied },
   };
 }
 
@@ -530,14 +758,23 @@ export async function runDoctor(options: DoctorOptions, deps: DoctorDeps): Promi
   // of being swallowed by the generic config-validation failure path.
   checks.push(checkBindAddress(extractBindHost(parsed)));
 
+  const fixOutcomes: ReadonlyMap<string, FixOutcome> =
+    options.fix === true
+      ? await applyFixes(checks, { target, source, config, issues, options, deps })
+      : new Map<string, FixOutcome>();
+
   if (options.json === true) {
     deps.stdout(
-      `${JSON.stringify(toJsonReport(target, deps.nodeVersion(), checks, options), null, 2)}\n`,
+      `${JSON.stringify(toJsonReport(target, deps.nodeVersion(), checks, options, fixOutcomes), null, 2)}\n`,
     );
   } else {
-    deps.stdout(formatHuman(checks, options));
+    deps.stdout(formatHuman(checks, options, fixOutcomes));
   }
 
+  // The exit code reflects the checks as observed before any fix ran — a fix
+  // that mutates the system (writing a default config) only takes effect on
+  // the next `tlbx doctor` invocation, and a guided fix (the env snippet)
+  // leaves the underlying check FAIL until the user runs the snippet.
   return checks.some((c) => c.severity === 'FAIL') ? 1 : 0;
 }
 
@@ -545,10 +782,8 @@ export function doctorCommand(): CommandUnknownOpts {
   return new Command('doctor')
     .description('Run a self-check that diagnoses common ToolBox configuration problems.')
     .option('--json', 'emit machine-readable JSON instead of human output')
-    .option(
-      '--fix',
-      'apply safe automatic fixes (Phase 1: reports decisions only, applies nothing)',
-    )
+    .option('--fix', 'apply safe automatic fixes (prompts for confirmation unless --yes is given)')
+    .option('-y, --yes', 'apply fixes without prompting (only meaningful with --fix)')
     .option('-c, --config <path>', 'override the resolved config path')
     .action(async (opts) => {
       const code = await runDoctor(opts, defaultDoctorDeps());
