@@ -75,7 +75,7 @@ Phase 1 is complete: every milestone below (M0 through M5) is closed and the SPE
 
 These are items that fell out of the Phase 1 review (post M5-06). They are not part of any closed milestone — each was identified as a real gap or an intentional deferral that now needs scheduling. They should land before Phase 2 work begins.
 
-- [ ] **F1-01** — [GitHub Actions CI workflow](tasks/F1-01-github-actions-ci.md)
+- [x] **F1-01** — [GitHub Actions CI workflow](tasks/F1-01-github-actions-ci.md) — closed by this branch (`claude/next-task-TdN0y`)
 - [ ] **F1-02** — [Honor `progressiveDisclosure.autoRevealExactServerMatches` in search](tasks/F1-02-auto-reveal-exact-server-matches.md)
 - [ ] **F1-03** — [`tlbx doctor --fix` safe fixers](tasks/F1-03-doctor-fix-safe-fixers.md)
 - [ ] **F1-04** — [Vitest coverage thresholds](tasks/F1-04-vitest-coverage-thresholds.md)
