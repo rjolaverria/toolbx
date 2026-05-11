@@ -14,7 +14,7 @@ Today `tlbx serve` runs in the foreground and owns the terminal until killed. Us
 ## Deliverables
 
 - **Daemon state in `@toolbox/core`** — a small module (e.g. `packages/core/src/serve-daemon/`) that:
-  - Resolves the state file and log file paths next to the resolved config (mirroring `resolveToolCachePath`): default `~/.config/toolbox/serve-state.json` and `~/.config/toolbox/serve.log`. Honour `XDG_CONFIG_HOME` / `TOOLBOX_CONFIG` the same way the tool cache does, and place both files next to the config file when `--config` / `TOOLBOX_CONFIG` points at an explicit file.
+  - Resolves the state file and log file paths next to the resolved config path (mirroring `resolveToolCachePath`): `<config-dir>/serve-state.json` and `<config-dir>/serve.log` — e.g. `~/.config/toolbox/serve-state.json` and `~/.config/toolbox/serve.log` on POSIX, `%APPDATA%\ToolBox\serve-state.json` and `%APPDATA%\ToolBox\serve.log` on Windows. Honor `XDG_CONFIG_HOME` / `TOOLBOX_CONFIG` the same way the tool cache does, and place both files next to the config file when `--config` / `TOOLBOX_CONFIG` points at an explicit file.
   - Defines a Zod-validated `ServeDaemonState` shape: `{ pid, mode, url, logPath, startedAt }` (`mode` is `'http'` for now; `url` is the configured endpoint or `null`).
   - Provides `readServeState` (returns `null` on ENOENT or invalid file), `writeServeState`, `clearServeState`, and an `isProcessAlive(pid)` helper (`process.kill(pid, 0)` with ESRCH → false, EPERM → true).
   - Is re-exported from `@toolbox/core`'s public index.
@@ -29,13 +29,13 @@ Today `tlbx serve` runs in the foreground and owns the terminal until killed. Us
 - **`tlbx stop`** — new command (`apps/cli/src/commands/stop.ts`, registered in `apps/cli/src/index.ts`):
   - `-c, --config <path>` to find the state file next to a non-default config.
   - No state file, or a state file whose PID is not alive → report "not running" (clearing a stale file if present) and exit 0 (stop is idempotent).
-  - Otherwise send `SIGTERM`, poll for exit up to a timeout (~5s), and if still alive escalate to `SIGKILL` and poll a bit more. Clear the state file and report what happened (stopped / force-killed). All of `kill`, `sleep`, the state helpers, and the path resolver are injected so the behaviour is unit-testable without real processes.
-- **Tests** for: state read/write/clear + `isProcessAlive`; the path resolver honouring the env overrides; `runServeDetached` (rejects `--stdio`, refuses when already running, clears stale state, builds the right spawn argv, writes state, handles immediate child death); `runStop` (not-running, stale-state, SIGTERM-then-exit, SIGTERM-timeout-then-SIGKILL).
+  - Otherwise send `SIGTERM`, poll for exit up to a timeout (~5s), and if still alive escalate to `SIGKILL` and poll a bit more. Clear the state file and report what happened (stopped / force-killed). All of `kill`, `sleep`, the state helpers, and the path resolver are injected so the behavior is unit-testable without real processes.
+- **Tests** for: state read/write/clear + `isProcessAlive`; the path resolver honoring the env overrides; `runServeDetached` (rejects `--stdio`, refuses when already running, clears stale state, builds the right spawn argv, writes state, handles immediate child death); `runStop` (not-running, stale-state, SIGTERM-then-exit, SIGTERM-timeout-then-SIGKILL).
 - **Docs** — mention `tlbx serve --detach` and `tlbx stop` wherever `tlbx serve` is documented (README / CLI help text; `CLAUDE.md` if it enumerates commands).
 
 ## Acceptance criteria
 
-- `tlbx serve --detach` returns to the shell prompt immediately; `tlbx status` / the bound HTTP endpoint show the gateway is up; logs land in `serve.log`.
+- `tlbx serve --detach` returns to the shell prompt immediately; the bound HTTP endpoint responds and the daemon state file records the live pid; logs land in `serve.log`.
 - Running `tlbx serve --detach` again while one is already running fails with a clear "already running (pid N)" message and does not spawn a second process.
 - `tlbx stop` shuts down the detached gateway (graceful SIGTERM), removes the state file, and a subsequent `tlbx stop` reports "not running" and exits 0.
 - A stale state file (PID no longer alive) does not block `tlbx serve --detach` and is reported/cleaned by `tlbx stop`.
