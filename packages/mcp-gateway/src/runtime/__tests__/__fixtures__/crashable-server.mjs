@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Stdio MCP server used by the reconnect integration test. Mirrors
-// `echo-server.mjs` (echo + slow) and adds:
+// Stdio MCP server used by the reconnect integration test. Exposes:
+//   - `echo(message)`       — returns the message back as text content.
 //   - `crash`               — calls `process.exit(1)` to simulate an upstream
 //                             dying mid-session. The session module's
 //                             retry/backoff loop should reconnect on its own.
