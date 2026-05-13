@@ -14,6 +14,7 @@ import {
   type ToolBoxConfig,
   type WriteToolCacheInput,
 } from '@toolbox/core';
+import { defaultServeDetachDeps, runServeDetached } from './serve-detach.js';
 import {
   createDownstreamHttpServer,
   createDownstreamStdioServer,
@@ -263,10 +264,18 @@ export function serveCommand(): Command {
     .description('Start the ToolBox MCP gateway in stdio or HTTP mode.')
     .option('-s, --stdio', 'serve over stdio')
     .option('-H, --http', 'serve over Streamable HTTP using config.server.http (default)')
+    .option('-d, --detach', 'fork an HTTP gateway into the background and return to the shell')
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))
     .addOption(new Option('--log-format <format>', 'logger output format').choices(LOG_FORMATS))
     .action(async (opts) => {
+      if (opts.detach === true) {
+        const code = await runServeDetached(opts, defaultServeDetachDeps());
+        if (code !== 0) {
+          process.exit(code);
+        }
+        return;
+      }
       const code = await runServe(opts, defaultServeDeps());
       if (code !== 0) {
         process.exit(code);

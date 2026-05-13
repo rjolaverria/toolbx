@@ -139,3 +139,15 @@ export {
   type ToolCacheFile,
   type WriteToolCacheInput,
 } from './tool-cache/index.js';
+
+export {
+  clearServeState,
+  isProcessAlive,
+  readServeState,
+  resolveServeDaemonPaths,
+  ServeDaemonStateSchema,
+  serveDaemonPathsForConfig,
+  writeServeState,
+  type ServeDaemonPaths,
+  type ServeDaemonState,
+} from './serve-daemon/index.js';
