@@ -1,103 +1,33 @@
-import { fileURLToPath } from 'node:url';
-
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger, type ToolBoxConfig } from '@toolbox/core';
+import { createNoopLogger } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES } from '../../bootstrap-tools/index.js';
 import { createDownstreamHttpServer } from '../../downstream-server/http.js';
-import type { DownstreamHttpServer } from '../../downstream-server/types.js';
-import { createGatewayRuntime, type GatewayRuntime } from '../runtime.js';
+import { createGatewayRuntime } from '../runtime.js';
 
-const ECHO_FIXTURE = fileURLToPath(
-  new URL('../../upstream-client/__tests__/__fixtures__/echo-server.mjs', import.meta.url),
-);
+import {
+  connectHttpClient,
+  createIntegrationHarness,
+  makeIntegrationConfig,
+  startHarness,
+  waitFor,
+} from './__fixtures__/integration-helpers.js';
 
-const activeClients = new Set<Client>();
-const activeServers = new Set<DownstreamHttpServer>();
-const activeRuntimes = new Set<GatewayRuntime>();
+const harness = createIntegrationHarness();
 
 afterEach(async () => {
-  for (const client of activeClients) {
-    await client.close().catch(() => undefined);
-  }
-  activeClients.clear();
-  for (const server of activeServers) {
-    await server.stop().catch(() => undefined);
-  }
-  activeServers.clear();
-  for (const runtime of activeRuntimes) {
-    await runtime.dispose().catch(() => undefined);
-  }
-  activeRuntimes.clear();
+  await harness.cleanup();
 });
-
-function makeConfig(overrides?: Partial<ToolBoxConfig['progressiveDisclosure']>): ToolBoxConfig {
-  return {
-    version: 1,
-    server: {
-      stdio: { enabled: true },
-      http: { enabled: true, host: '127.0.0.1', port: 0, path: '/mcp' },
-    },
-    progressiveDisclosure: {
-      enabled: false,
-      mode: 'session',
-      bootstrapTools: false,
-      autoRevealExactServerMatches: false,
-      maxSearchResults: 20,
-      ...overrides,
-    },
-    namespacing: { separator: '__', format: 'server__tool', collisionStrategy: 'error' },
-    servers: {
-      echo: {
-        type: 'stdio',
-        enabled: true,
-        command: process.execPath,
-        args: [ECHO_FIXTURE],
-      },
-    },
-    tools: {},
-  };
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) {
-      throw new Error('waitFor timed out');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
 
 describe('gateway runtime + downstream HTTP integration', () => {
   it('round-trips initialize → tools/list → tools/call against a stdio upstream', async () => {
-    const config = makeConfig();
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const { runtime, downstream } = await startHarness({
+      config: makeIntegrationConfig(),
+      harness,
     });
-    activeServers.add(downstream);
-    await downstream.start();
 
-    const client = new Client(
-      { name: 'toolbox-serve-it-test', version: '0.0.0' },
-      { capabilities: {} },
-    );
-    activeClients.add(client);
-    await client.connect(new StreamableHTTPClientTransport(downstream.url) as Transport);
+    const client = await connectHttpClient(downstream.url, 'toolbox-serve-it-test', harness);
 
     expect(client.getServerVersion()).toMatchObject({ name: 'toolbox' });
 
@@ -116,40 +46,28 @@ describe('gateway runtime + downstream HTTP integration', () => {
     expect(status?.toolCount).toBe(3);
 
     await client.close();
-    activeClients.delete(client);
+    harness.clients.delete(client);
 
     await downstream.stop();
-    activeServers.delete(downstream);
+    harness.servers.delete(downstream);
 
     await runtime.dispose();
-    activeRuntimes.delete(runtime);
+    harness.runtimes.delete(runtime);
 
     expect(runtime.statusRegistry.get('echo')?.status.kind).toBe('stopped');
   }, 15_000);
 
   it('honours progressiveDisclosure.enabled across tools/list and tools/call, and reflects mid-session toggles', async () => {
-    const config = makeConfig({ enabled: true, bootstrapTools: true });
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const config = makeIntegrationConfig({
+      progressiveDisclosure: { enabled: true, bootstrapTools: true },
     });
-    activeServers.add(downstream);
-    await downstream.start();
+    const { runtime, downstream } = await startHarness({ config, harness });
 
-    const client = new Client(
-      { name: 'toolbox-disclosure-toggle-test', version: '0.0.0' },
-      { capabilities: {} },
+    const client = await connectHttpClient(
+      downstream.url,
+      'toolbox-disclosure-toggle-test',
+      harness,
     );
-    activeClients.add(client);
-    await client.connect(new StreamableHTTPClientTransport(downstream.url) as Transport);
 
     // Disclosure on, no reveals — listing is bootstrap-only.
     {
@@ -196,7 +114,6 @@ describe('gateway runtime + downstream HTTP integration', () => {
       expect(names).toContain('echo__echo');
       expect(names).toContain('echo__slow');
       expect(names).toContain('echo__emit_log');
-      // Bootstrap tools still surface alongside the upstream catalogue.
       for (const bootstrapName of BOOTSTRAP_TOOL_NAMES) {
         expect(names).toContain(bootstrapName);
       }
@@ -218,19 +135,10 @@ describe('gateway runtime + downstream HTTP integration', () => {
     ).rejects.toMatchObject({
       code: ErrorCode.InvalidRequest,
     });
-
-    await client.close();
-    activeClients.delete(client);
-
-    await downstream.stop();
-    activeServers.delete(downstream);
-
-    await runtime.dispose();
-    activeRuntimes.delete(runtime);
   }, 15_000);
 
   it('shuts down cleanly when the downstream HTTP server receives a SIGINT signal', async () => {
-    const config = makeConfig();
+    const config = makeIntegrationConfig();
     const logger = createNoopLogger();
 
     // Build a process-like EventEmitter so we can synthesise SIGINT without
@@ -241,7 +149,7 @@ describe('gateway runtime + downstream HTTP integration', () => {
     ).EventEmitter() as unknown as NodeJS.Process;
 
     const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
+    harness.runtimes.add(runtime);
     runtime.startUpstreams();
     await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
 
@@ -251,21 +159,18 @@ describe('gateway runtime + downstream HTTP integration', () => {
       registerHandlers: runtime.registerHandlers,
       process: fakeProcess,
     });
-    activeServers.add(downstream);
+    harness.servers.add(downstream);
     await downstream.start();
 
-    // Confirm the listener is up before signalling so the test exercises the
-    // signal-driven shutdown path rather than a no-op early-exit.
     expect(downstream.url.port).not.toBe('0');
 
-    // Simulate SIGINT — the downstream's own signal handler calls stop().
     fakeProcess.emit('SIGINT', 'SIGINT');
 
     await downstream.done;
-    activeServers.delete(downstream);
+    harness.servers.delete(downstream);
 
     await runtime.dispose();
-    activeRuntimes.delete(runtime);
+    harness.runtimes.delete(runtime);
 
     expect(runtime.statusRegistry.get('echo')?.status.kind).toBe('stopped');
   }, 15_000);
