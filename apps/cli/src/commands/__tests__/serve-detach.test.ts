@@ -249,6 +249,33 @@ describe('runServeDetached', () => {
     expect(call?.args).toContain('/custom/cfg.json');
   });
 
+  it('includes --config in the suggested stop hint when one was used', async () => {
+    const h = makeHarness();
+
+    await runServeDetached({ config: '/custom/cfg.json' }, h.deps);
+
+    expect(h.stdout.value).toMatch(/tlbx stop --config \/custom\/cfg\.json/);
+  });
+
+  it('returns 1 without opening the log fd when resolveEntryScript throws', async () => {
+    const h = makeHarness();
+    h.deps.resolveEntryScript = () => {
+      throw new Error('argv[1] is empty');
+    };
+    let openedFd = false;
+    h.deps.openLogFd = () => {
+      openedFd = true;
+      return Promise.resolve(42);
+    };
+
+    const code = await runServeDetached({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(openedFd).toBe(false);
+    expect(h.stderr.value).toMatch(/failed to resolve CLI entry script/);
+    expect(h.spawnCalls).toHaveLength(0);
+  });
+
   it('writes the state file with pid, url, logPath, startedAt', async () => {
     const h = makeHarness();
 

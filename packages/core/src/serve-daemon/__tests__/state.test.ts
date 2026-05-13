@@ -101,4 +101,34 @@ describe('readServeState / writeServeState / clearServeState', () => {
     const result = await readServeState(file);
     expect(result?.pid).toBe(12345);
   });
+
+  it('does not leave .tmp files behind after a successful write', async () => {
+    const dir = await makeTempDir();
+    const file = path.join(dir, 'serve-state.json');
+    await writeServeState(file, makeState());
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('rejects and leaves no tmp file when mkdir of the parent fails', async () => {
+    const dir = await makeTempDir();
+    // Create a regular file at the position where writeServeState wants to
+    // create a directory. fs.mkdir(..., { recursive: true }) on a path whose
+    // ancestor is a non-directory rejects with ENOTDIR / EEXIST.
+    const blockingFile = path.join(dir, 'not-a-dir');
+    await fs.writeFile(blockingFile, 'x');
+    const target = path.join(blockingFile, 'serve-state.json');
+    await expect(writeServeState(target, makeState())).rejects.toThrow();
+  });
+
+  it('surfaces the original error and cleans up the tmp file when rename fails', async () => {
+    // Pre-create the target as a directory so the final rename fails. The
+    // writeServeState catch should run, clean up the tmp file, and rethrow.
+    const dir = await makeTempDir();
+    const file = path.join(dir, 'serve-state.json');
+    await fs.mkdir(file);
+    await expect(writeServeState(file, makeState())).rejects.toThrow();
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
 });

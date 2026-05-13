@@ -117,9 +117,7 @@ export async function runStop(options: StopOptions, deps: StopDeps): Promise<num
     const code = (error as NodeJS.ErrnoException | null)?.code;
     if (code === 'ESRCH') {
       // Race: the process died between our liveness check and the signal.
-      await deps.clearState(statePath).catch(() => undefined);
-      deps.stdout(`tlbx stop: not running (cleared stale state for pid ${String(state.pid)})\n`);
-      return 0;
+      return reportStaleCleanup(state.pid, statePath, deps);
     }
     deps.stderr(`tlbx stop: failed to signal pid ${String(state.pid)}: ${errorMessage(error)}\n`);
     return 1;
@@ -127,9 +125,7 @@ export async function runStop(options: StopOptions, deps: StopDeps): Promise<num
 
   const stopped = await waitForExit(state.pid, deps.termTimeoutMs, deps);
   if (stopped) {
-    await deps.clearState(statePath).catch(() => undefined);
-    deps.stdout(`tlbx stop: stopped (pid ${String(state.pid)})\n`);
-    return 0;
+    return finalizeStopped(`stopped (pid ${String(state.pid)})`, statePath, deps);
   }
 
   // Escalate to SIGKILL.
@@ -153,8 +149,46 @@ export async function runStop(options: StopOptions, deps: StopDeps): Promise<num
     return 1;
   }
 
-  await deps.clearState(statePath).catch(() => undefined);
-  deps.stdout(`tlbx stop: force-killed (pid ${String(state.pid)})\n`);
+  return finalizeStopped(`force-killed (pid ${String(state.pid)})`, statePath, deps);
+}
+
+/**
+ * Clears the state file and reports the stop result. Surfaces clearState
+ * failures on stderr so the caller is told the daemon died but the on-disk
+ * record was not cleaned — silently swallowing here would let `tlbx stop`
+ * claim success while the next run still sees the stale file.
+ */
+async function finalizeStopped(
+  summary: string,
+  statePath: string,
+  deps: Pick<StopDeps, 'clearState' | 'stdout' | 'stderr'>,
+): Promise<number> {
+  try {
+    await deps.clearState(statePath);
+  } catch (error) {
+    deps.stderr(
+      `tlbx stop: ${summary} but failed to clear state file ${statePath}: ${errorMessage(error)}\n`,
+    );
+    return 1;
+  }
+  deps.stdout(`tlbx stop: ${summary}\n`);
+  return 0;
+}
+
+async function reportStaleCleanup(
+  pid: number,
+  statePath: string,
+  deps: Pick<StopDeps, 'clearState' | 'stdout' | 'stderr'>,
+): Promise<number> {
+  try {
+    await deps.clearState(statePath);
+  } catch (error) {
+    deps.stderr(
+      `tlbx stop: not running (pid ${String(pid)}) but failed to clear state file ${statePath}: ${errorMessage(error)}\n`,
+    );
+    return 1;
+  }
+  deps.stdout(`tlbx stop: not running (cleared stale state for pid ${String(pid)})\n`);
   return 0;
 }
 

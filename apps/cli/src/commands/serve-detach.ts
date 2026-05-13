@@ -215,6 +215,16 @@ export async function runServeDetached(
     }
   }
 
+  // Resolve the entry script before opening the log fd: it can throw on an
+  // unusual launch (no `argv[1]`), and we don't want that path to leak the fd.
+  let entry: string;
+  try {
+    entry = deps.resolveEntryScript();
+  } catch (error) {
+    deps.stderr(`tlbx serve: failed to resolve CLI entry script: ${errorMessage(error)}\n`);
+    return 1;
+  }
+
   let logFd: number;
   try {
     logFd = await deps.openLogFd(logPath);
@@ -224,7 +234,6 @@ export async function runServeDetached(
   }
 
   const childArgs = buildChildArgs(options, configPath);
-  const entry = deps.resolveEntryScript();
 
   let child: SpawnedChildHandle;
   try {
@@ -296,9 +305,13 @@ export async function runServeDetached(
     return 1;
   }
 
+  const stopHint =
+    options.config !== undefined && options.config.length > 0
+      ? `tlbx stop --config ${configPath}`
+      : 'tlbx stop';
   deps.stdout(`tlbx serve: started (pid ${String(pid)}) on ${url}\n`);
   deps.stdout(`logs: ${logPath}\n`);
   deps.stdout(`state: ${statePath}\n`);
-  deps.stdout('stop with: tlbx stop\n');
+  deps.stdout(`stop with: ${stopHint}\n`);
   return 0;
 }

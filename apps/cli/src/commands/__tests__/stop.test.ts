@@ -201,6 +201,53 @@ describe('runStop', () => {
     expect(h.clearState).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces clearState errors after a successful SIGTERM stop', async () => {
+    const h = makeHarness({
+      state: makeState({ pid: 100 }),
+      alivePids: [100],
+      killBehavior: 'graceful',
+      clearStateError: Object.assign(new Error('EACCES'), { code: 'EACCES' }),
+    });
+
+    const code = await runStop({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/stopped \(pid 100\)/);
+    expect(h.stderr.value).toMatch(/failed to clear state file/);
+  });
+
+  it('surfaces clearState errors after force-kill', async () => {
+    const h = makeHarness({
+      state: makeState({ pid: 100 }),
+      alivePids: [100],
+      killBehavior: 'force',
+      clearStateError: Object.assign(new Error('EACCES'), { code: 'EACCES' }),
+    });
+
+    const code = await runStop({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/force-killed/);
+    expect(h.stderr.value).toMatch(/failed to clear state file/);
+  });
+
+  it('surfaces clearState errors on the SIGTERM ESRCH race path', async () => {
+    const err = new Error('no such process') as NodeJS.ErrnoException;
+    err.code = 'ESRCH';
+    const h = makeHarness({
+      state: makeState({ pid: 100 }),
+      alivePids: [100],
+      termBehaviorError: err,
+      clearStateError: Object.assign(new Error('EACCES'), { code: 'EACCES' }),
+    });
+
+    const code = await runStop({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/not running/);
+    expect(h.stderr.value).toMatch(/failed to clear state file/);
+  });
+
   it('honors --config when resolving the state file path', async () => {
     const h = makeHarness({ state: null });
     const customResolveDaemonPaths = vi.fn((configPath: string) => ({
