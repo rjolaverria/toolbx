@@ -1,76 +1,20 @@
-import { fileURLToPath } from 'node:url';
-
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ToolListChangedNotificationSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger, type ToolBoxConfig } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createDownstreamHttpServer } from '../../downstream-server/http.js';
-import type { DownstreamHttpServer } from '../../downstream-server/types.js';
-import { createGatewayRuntime, type GatewayRuntime } from '../runtime.js';
+import {
+  createIntegrationHarness,
+  makeIntegrationConfig,
+  startHarness,
+} from './__fixtures__/integration-helpers.js';
 
-const ECHO_FIXTURE = fileURLToPath(
-  new URL('../../upstream-client/__tests__/__fixtures__/echo-server.mjs', import.meta.url),
-);
-
-const activeClients = new Set<Client>();
-const activeServers = new Set<DownstreamHttpServer>();
-const activeRuntimes = new Set<GatewayRuntime>();
+const harness = createIntegrationHarness();
 
 afterEach(async () => {
-  for (const client of activeClients) {
-    await client.close().catch(() => undefined);
-  }
-  activeClients.clear();
-  for (const server of activeServers) {
-    await server.stop().catch(() => undefined);
-  }
-  activeServers.clear();
-  for (const runtime of activeRuntimes) {
-    await runtime.dispose().catch(() => undefined);
-  }
-  activeRuntimes.clear();
+  await harness.cleanup();
 });
-
-function makeConfig(overrides?: Partial<ToolBoxConfig['progressiveDisclosure']>): ToolBoxConfig {
-  return {
-    version: 1,
-    server: {
-      stdio: { enabled: true },
-      http: { enabled: true, host: '127.0.0.1', port: 0, path: '/mcp' },
-    },
-    progressiveDisclosure: {
-      enabled: false,
-      mode: 'session',
-      bootstrapTools: true,
-      autoRevealExactServerMatches: false,
-      maxSearchResults: 20,
-      ...overrides,
-    },
-    namespacing: { separator: '__', format: 'server__tool', collisionStrategy: 'error' },
-    servers: {
-      echo: {
-        type: 'stdio',
-        enabled: true,
-        command: process.execPath,
-        args: [ECHO_FIXTURE],
-      },
-    },
-    tools: {},
-  };
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) {
-      throw new Error('waitFor timed out');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
 
 interface NotificationCounter {
   client: Client;
@@ -86,9 +30,9 @@ function attachToolsListChangedCounter(client: Client): NotificationCounter {
   return { client, count: () => received };
 }
 
-async function connectClient(url: URL, name: string): Promise<NotificationCounter> {
+async function connectCountingClient(url: URL, name: string): Promise<NotificationCounter> {
   const client = new Client({ name, version: '0.0.0' }, { capabilities: {} });
-  activeClients.add(client);
+  harness.clients.add(client);
   const counter = attachToolsListChangedCounter(client);
   await client.connect(new StreamableHTTPClientTransport(url) as Transport);
   return counter;
@@ -103,23 +47,12 @@ function tool(name: string): Tool {
 
 describe('M4-06 tools/list_changed notification wiring', () => {
   it('reveal_tools with multiple names produces a single notification on the calling session', async () => {
-    const config = makeConfig();
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const config = makeIntegrationConfig({
+      progressiveDisclosure: { bootstrapTools: true },
     });
-    activeServers.add(downstream);
-    await downstream.start();
+    const { downstream } = await startHarness({ config, harness });
 
-    const counter = await connectClient(downstream.url, 'reveal-test');
+    const counter = await connectCountingClient(downstream.url, 'reveal-test');
 
     await counter.client.callTool({
       name: 'toolbox__reveal_tools',
@@ -133,24 +66,13 @@ describe('M4-06 tools/list_changed notification wiring', () => {
   }, 15_000);
 
   it('an upstream tool-set change notifies every active downstream session', async () => {
-    const config = makeConfig();
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const config = makeIntegrationConfig({
+      progressiveDisclosure: { bootstrapTools: true },
     });
-    activeServers.add(downstream);
-    await downstream.start();
+    const { runtime, downstream } = await startHarness({ config, harness });
 
-    const counterA = await connectClient(downstream.url, 'upstream-test-a');
-    const counterB = await connectClient(downstream.url, 'upstream-test-b');
+    const counterA = await connectCountingClient(downstream.url, 'upstream-test-a');
+    const counterB = await connectCountingClient(downstream.url, 'upstream-test-b');
 
     // Drive a fresh tool list through the registry — equivalent to the
     // upstream emitting tools_list_changed with a different tool set.
@@ -168,24 +90,13 @@ describe('M4-06 tools/list_changed notification wiring', () => {
   }, 15_000);
 
   it('notifyAllSessionsToolsChanged() broadcasts a notification to every active session', async () => {
-    const config = makeConfig();
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const config = makeIntegrationConfig({
+      progressiveDisclosure: { bootstrapTools: true },
     });
-    activeServers.add(downstream);
-    await downstream.start();
+    const { runtime, downstream } = await startHarness({ config, harness });
 
-    const counterA = await connectClient(downstream.url, 'broadcast-test-a');
-    const counterB = await connectClient(downstream.url, 'broadcast-test-b');
+    const counterA = await connectCountingClient(downstream.url, 'broadcast-test-a');
+    const counterB = await connectCountingClient(downstream.url, 'broadcast-test-b');
 
     runtime.notifyAllSessionsToolsChanged();
 
@@ -196,28 +107,17 @@ describe('M4-06 tools/list_changed notification wiring', () => {
   }, 15_000);
 
   it('detaches per-session listeners on session close so a closed client is not still scheduled', async () => {
-    const config = makeConfig();
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const config = makeIntegrationConfig({
+      progressiveDisclosure: { bootstrapTools: true },
     });
-    activeServers.add(downstream);
-    await downstream.start();
+    const { runtime, downstream } = await startHarness({ config, harness });
 
-    const counterA = await connectClient(downstream.url, 'cleanup-test-a');
-    const counterB = await connectClient(downstream.url, 'cleanup-test-b');
+    const counterA = await connectCountingClient(downstream.url, 'cleanup-test-a');
+    const counterB = await connectCountingClient(downstream.url, 'cleanup-test-b');
 
     // Close client A and let the transport finalise.
     await counterA.client.close();
-    activeClients.delete(counterA.client);
+    harness.clients.delete(counterA.client);
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     // A registry change after A's close should still notify B exactly once
@@ -232,28 +132,16 @@ describe('M4-06 tools/list_changed notification wiring', () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     expect(counterB.count()).toBe(1);
-    // A is closed; we never observed any tools/list_changed for it post-close.
     expect(counterA.count()).toBe(0);
   }, 15_000);
 
   it('hide_tools that removes nothing emits no notification (no visibility change)', async () => {
-    const config = makeConfig();
-    const logger = createNoopLogger();
-
-    const runtime = createGatewayRuntime({ config, logger, processEnv: process.env });
-    activeRuntimes.add(runtime);
-    runtime.startUpstreams();
-    await waitFor(() => runtime.statusRegistry.get('echo')?.status.kind === 'connected');
-
-    const downstream = createDownstreamHttpServer({
-      logger,
-      http: { host: '127.0.0.1', port: 0, path: '/mcp' },
-      registerHandlers: runtime.registerHandlers,
+    const config = makeIntegrationConfig({
+      progressiveDisclosure: { bootstrapTools: true },
     });
-    activeServers.add(downstream);
-    await downstream.start();
+    const { downstream } = await startHarness({ config, harness });
 
-    const counter = await connectClient(downstream.url, 'hide-noop-test');
+    const counter = await connectCountingClient(downstream.url, 'hide-noop-test');
 
     await counter.client.callTool({
       name: 'toolbox__hide_tools',
