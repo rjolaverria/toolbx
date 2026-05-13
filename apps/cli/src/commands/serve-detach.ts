@@ -46,6 +46,11 @@ export interface ServeDetachDeps {
   openLogFd: (logPath: string) => Promise<number>;
   closeFd: (fd: number) => Promise<void>;
   spawn: (command: string, args: readonly string[], options: SpawnOptions) => SpawnedChildHandle;
+  /**
+   * Signals an already-spawned child by pid. Used to tear down an
+   * orphaned background process when state persistence fails after spawn.
+   */
+  kill: (pid: number, signal: NodeJS.Signals) => void;
   /** Resolves the CLI entry script the child should run (`process.argv[1]`). */
   resolveEntryScript: () => string;
   /** Path to the Node binary the child should run under (`process.execPath`). */
@@ -95,6 +100,9 @@ export function defaultServeDetachDeps(): ServeDetachDeps {
         },
       };
       return handle;
+    },
+    kill: (pid, signal) => {
+      process.kill(pid, signal);
     },
     resolveEntryScript: () => {
       const argv1 = process.argv[1];
@@ -276,6 +284,14 @@ export async function runServeDetached(
   try {
     await deps.writeState(statePath, state);
   } catch (error) {
+    // We have a running, unrecorded child. Without state, `tlbx stop` cannot
+    // find it and a second `tlbx serve --detach` will collide on the port,
+    // so tear the orphan down before reporting failure.
+    try {
+      deps.kill(pid, 'SIGTERM');
+    } catch {
+      // best-effort: pid may already be gone (ESRCH) or unreachable.
+    }
     deps.stderr(`tlbx serve: failed to write state file ${statePath}: ${errorMessage(error)}\n`);
     return 1;
   }

@@ -86,6 +86,13 @@ describe('defaultServeDetachDeps', () => {
     expect(deps.processEnv).toBe(process.env);
     expect(typeof deps.now().toISOString()).toBe('string');
 
+    // Verify the default kill arrow forwards to process.kill without actually
+    // signaling anything — spy and assert.
+    const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+    deps.kill(process.pid, 'SIGTERM');
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGTERM');
+    killSpy.mockRestore();
+
     // The default entry script resolver reads process.argv[1]; it is guaranteed
     // to be a non-empty string in any normal Node run (vitest passes its own
     // CLI entry), so the function should not throw.

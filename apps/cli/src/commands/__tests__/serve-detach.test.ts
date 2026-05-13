@@ -52,6 +52,12 @@ interface Stub {
   openLogFdError?: Error;
   resolvedConfigPath?: string;
   entryScript?: string;
+  killError?: Error;
+}
+
+interface KillCall {
+  pid: number;
+  signal: NodeJS.Signals;
 }
 
 interface SpawnCall {
@@ -67,6 +73,7 @@ interface Harness {
   spawnCalls: SpawnCall[];
   writeStateCalls: Array<{ path: string; state: ServeDaemonState }>;
   clearStateCalls: string[];
+  killCalls: KillCall[];
   closedFds: number[];
   childHandle: FakeChildHandle;
 }
@@ -77,6 +84,7 @@ function makeHarness(stub: Stub = {}): Harness {
   const spawnCalls: SpawnCall[] = [];
   const writeStateCalls: Array<{ path: string; state: ServeDaemonState }> = [];
   const clearStateCalls: string[] = [];
+  const killCalls: KillCall[] = [];
   const closedFds: number[] = [];
   const childHandle = stub.spawnHandle ?? makeFakeChild();
   const config: ToolBoxConfig = stub.config ?? DEFAULT_CONFIG;
@@ -122,6 +130,12 @@ function makeHarness(stub: Stub = {}): Harness {
       }
       return childHandle;
     },
+    kill: (pid, signal) => {
+      killCalls.push({ pid, signal });
+      if (stub.killError) {
+        throw stub.killError;
+      }
+    },
     resolveEntryScript: () => stub.entryScript ?? '/path/to/cli/dist/index.js',
     nodeExecPath: () => '/path/to/node',
     processEnv: { TOOLBOX_TEST: '1' },
@@ -143,6 +157,7 @@ function makeHarness(stub: Stub = {}): Harness {
     spawnCalls,
     writeStateCalls,
     clearStateCalls,
+    killCalls,
     closedFds,
     childHandle,
   };
@@ -319,6 +334,31 @@ describe('runServeDetached', () => {
     await runServeDetached({}, h.deps);
 
     expect(h.closedFds).toContain(42);
+  });
+
+  it('kills the orphaned child when writeState fails so it is not leaked', async () => {
+    const h = makeHarness({ writeStateError: new Error('ENOSPC') });
+
+    const code = await runServeDetached({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/failed to write state file/);
+    expect(h.killCalls).toEqual([{ pid: 9999, signal: 'SIGTERM' }]);
+  });
+
+  it('swallows kill failures during orphan cleanup (best-effort)', async () => {
+    const err = new Error('no such process') as NodeJS.ErrnoException;
+    err.code = 'ESRCH';
+    const h = makeHarness({
+      writeStateError: new Error('ENOSPC'),
+      killError: err,
+    });
+
+    const code = await runServeDetached({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.killCalls).toHaveLength(1);
+    expect(h.stderr.value).toMatch(/failed to write state file/);
   });
 
   it('formats IPv6 loopback host as [::1] in the recorded URL', async () => {
