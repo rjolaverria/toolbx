@@ -179,6 +179,15 @@ Use discriminated unions (sum types) when modelling objects that have distinct c
 
 Write a test for every function that contains non-trivial logic. Skip tests that would only verify what TypeScript or ESLint already enforce statically (type correctness, exhaustiveness, lint rules).
 
+### Coverage thresholds
+
+`pnpm coverage` enforces per-package floors configured in the root `vitest.config.ts` under `coverage.thresholds`. The floors are baselines, not goals — they exist to fail CI on a real regression, not to lock the suite at its current shape.
+
+- **Raising a floor is encouraged** when coverage has improved; bump it in the same PR that adds the new tests.
+- **Lowering a floor needs a justification in the PR description** — explain why the missing coverage is intentional (deleted feature, intentionally excluded surface, etc.). Don't silently relax the gate to make the build pass.
+
+Floors carry a roughly 2-point slack below the captured baseline so routine noise doesn't break the build, but a genuine regression of more than two points does.
+
 ## Task Workflow
 
 All planned work for this repo is tracked in `.agents/TASKS.md` (master todo list) with one detail file per task in `.agents/tasks/<task-id>.md`. Every task is derived from `.agents/SPECS.md` and is a deliverable.

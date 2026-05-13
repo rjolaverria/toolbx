@@ -53,6 +53,24 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm test:run
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # `pnpm coverage` runs `vitest run --coverage` directly (no Turbo), so
+      # the CLI tests need workspace `dist/` output to resolve `@toolbox/*`.
+      - run: pnpm build
+      - run: pnpm coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: error
+
   integration:
     name: Integration
     runs-on: ubuntu-latest
