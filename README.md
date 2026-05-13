@@ -35,8 +35,14 @@ npx tlbx init
 npx tlbx server add-stdio github -- npx -y @modelcontextprotocol/server-github
 npx tlbx server add-http jira --url https://jira.example.com/mcp
 
-# Start ToolBox as an MCP server
+# Start ToolBox as an MCP server (foreground)
 npx tlbx serve
+
+# Or fork the HTTP gateway into the background and return to the shell prompt
+npx tlbx serve --detach
+
+# Stop a background gateway
+npx tlbx stop
 
 # Print a config snippet to paste into your MCP client
 npx tlbx client print-config claude
