@@ -78,7 +78,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-01** — [GitHub Actions CI workflow](tasks/F1-01-github-actions-ci.md) — closed by 7917215
 - [x] **F1-02** — [Honor `progressiveDisclosure.autoRevealExactServerMatches` in search](tasks/F1-02-auto-reveal-exact-server-matches.md) — closed by 96c1da8
 - [x] **F1-03** — [`tlbx doctor --fix` safe fixers](tasks/F1-03-doctor-fix-safe-fixers.md) — closed by f596b9e
-- [ ] **F1-04** — [Vitest coverage thresholds](tasks/F1-04-vitest-coverage-thresholds.md)
+- [x] **F1-04** — [Vitest coverage thresholds](tasks/F1-04-vitest-coverage-thresholds.md) — closed by c868c1c
 - [ ] **F1-05** — [Gateway-level integration tests](tasks/F1-05-gateway-integration-tests.md)
 - [ ] **F1-06** — [Phase 2 spec clarifications](tasks/F1-06-phase2-spec-clarifications.md)
 - [ ] **F1-07** — [`tlbx serve --detach` and `tlbx stop`](tasks/F1-07-serve-detach-and-stop.md)
