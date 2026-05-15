@@ -113,10 +113,16 @@ ToolBox should internally preserve the original mapping:
 ### 2.3.1 Namespace collisions across proxied and custom tools
 
 **Decision.** Custom tools (Phase 3) and proxied upstream tools share one flat exposed-name
-space. A custom tool whose `<namespace>__<name>` would collide with any namespaced proxied tool
-exposed by an enabled upstream server is rejected — at import time and at gateway startup. The
-rule applies symmetrically: an upstream server whose name collides with an existing custom tool
-namespace is rejected at `tlbx server add-*` time.
+space. Reservation is scoped to **any configured upstream server**, not only enabled ones —
+disabled servers still hold their namespace so toggling `enabled` can never introduce a
+collision. Concretely:
+
+- A custom tool is rejected at import time if its `@toolbox-tool namespace` equals the `name`
+  of any entry in `config.servers` (regardless of that server's `enabled` flag), or if
+  `<namespace>__<name>` matches any tool currently exposed by an enabled upstream server. The
+  same check runs at gateway startup as a defense against hand-edited config.
+- An upstream server is rejected at `tlbx server add-*` time if its name equals the namespace
+  of any imported custom tool.
 
 In practice this means a custom tool's `@toolbox-tool namespace` must not equal the `name` of
 any configured upstream server, and vice versa.
