@@ -527,7 +527,9 @@ The config carries a top-level `"version": <integer>`. Every released binary dec
 `tlbx config migrate` is the only forward path. It reads the current file, applies the chain of
 migration functions from the loaded version to the binary's current version (each migration is
 a pure function written in the same PR that bumps the version), writes the result to disk
-**after backing up the original to `<config>.bak.<isoDate>`**, and exits non-zero if any step
+**after backing up the original to `<config>.bak.<yyyyMMddTHHmmssZ>`** (a filesystem-safe
+basic-ISO-8601 timestamp; `:` is intentionally omitted because it is illegal in Windows
+filenames), and exits non-zero if any step
 fails.
 
 Each version bump must:
@@ -637,17 +639,18 @@ Phase 2's UI bridges to that.
   refreshable token expiration mid-session. Phase 1 does not transition into this state; the
   type exists in `ServerStatus` so consumers don't have to be re-typed when OAuth lands.
 - **Exiting either state.** The user (a) makes the credential available — for bearer, exports
-  the env var in the shell that runs `tlbx serve`; (b) restarts the affected upstream session.
-  In Phase 1 the supported restart paths are:
+  the env var in the shell that runs `tlbx serve`; (b) restarts the gateway so the new
+  environment is picked up. In Phase 1 the only supported recovery path is a full gateway
+  restart:
 
   ```bash
-  npx tlbx server disable <name> && npx tlbx server enable <name>   # toggles config; takes
-                                                                    # effect on next serve
-  npx tlbx stop && npx tlbx serve --detach                          # restart the gateway
+  npx tlbx stop && npx tlbx serve --detach   # restart the gateway with the updated env
   ```
 
-  There is intentionally no in-process "retry now" command in Phase 1 — the gateway has no
-  way to learn that the env var changed without being restarted.
+  `tlbx server disable && tlbx server enable` only edits the config file and does **not**
+  recover a running gateway on its own; that pair is for permanently turning a server off or
+  back on between runs. There is intentionally no in-process "retry now" command in Phase 1 —
+  the gateway has no way to learn that the env var changed without being restarted.
 
 - **Phase 2 UI bridge.** P2-03 surfaces the missing `tokenEnv` name and a "How to fix"
   explanation that mirrors the CLI flow above. The UI's "Restart server" action calls into
