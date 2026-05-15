@@ -110,6 +110,38 @@ ToolBox should internally preserve the original mapping:
 }
 ```
 
+### 2.3.1 Namespace collisions across proxied and custom tools
+
+**Decision.** Custom tools (Phase 3) and proxied upstream tools share one flat exposed-name
+space. Reservation is scoped to **any configured upstream server**, not only enabled ones —
+disabled servers still hold their namespace so toggling `enabled` can never introduce a
+collision. Concretely:
+
+- A custom tool is rejected at import time if its `@toolbox-tool namespace` equals the `name`
+  of any entry in `config.servers` (regardless of that server's `enabled` flag), or if
+  `<namespace>__<name>` matches any tool currently exposed by an enabled upstream server. The
+  same check runs at gateway startup as a defense against hand-edited config.
+- An upstream server is rejected at `tlbx server add-*` time if its name equals the namespace
+  of any imported custom tool.
+
+In practice this means a custom tool's `@toolbox-tool namespace` must not equal the `name` of
+any configured upstream server, and vice versa.
+
+**Alternatives considered.**
+
+- _Auto-prefix custom tools_ (e.g. `custom__personal__send_slack_summary`): rejected because it
+  changes the exposed-name format from `server__tool` and complicates the namespacing module.
+- _Last-write-wins shadowing_ (e.g. custom tool overrides upstream): rejected because the
+  surprise factor is high — a user adding a custom tool would silently displace a working
+  upstream tool with the same name.
+- _Defer the decision to Phase 3_: rejected because P3-02 already states this is an error;
+  putting the rule in §2.3 makes namespacing self-consistent before custom tools land.
+
+**Reasoning.** Namespacing is mandatory (§9, principle 4); collisions must be impossible or
+explicit. Hard error at import is the only behavior that lets a user trust that `personal__foo`
+always refers to the thing they think it refers to. The error message names the colliding
+entity so the user can rename one side.
+
 ## 2.4 Progressive Disclosure
 
 Progressive disclosure should be configurable on/off.
@@ -170,6 +202,38 @@ Agent now sees:
 - jira__search_issues
 - jira__get_issue
 ```
+
+### 2.4.1 What "session" means for progressive disclosure
+
+**Decision.** A "session" — the unit that owns a revealed-tool set when
+`progressiveDisclosure.mode = "session"` — is one **downstream MCP transport session**:
+
+- **stdio downstream:** one transport session lasts for the lifetime of the ToolBox process
+  that the MCP client spawned. The revealed set is in-memory and dies with the process.
+- **HTTP downstream:** one transport session is one Streamable HTTP MCP session as defined by
+  `mcp-session-id`. The revealed set lives for the lifetime of that session id and is dropped
+  when the transport closes.
+
+Re-issuing `initialize` over an already-open transport does **not** reset the revealed set —
+the visibility state is bound to the transport, not the `initialize` exchange. When
+`progressiveDisclosure.mode = "global"`, all transports in the same ToolBox process share one
+revealed set.
+
+**Alternatives considered.**
+
+- _Per-`initialize`-call scope:_ rejected because MCP clients re-initialize during reconnect,
+  protocol-version negotiation, and capability refresh; tying visibility to that boundary would
+  surprise users with sudden tool-list resets.
+- _Per-client-process scope:_ rejected for Phase 1 — there is no reliable client identity over
+  stdio (no PID handshake) and treating two HTTP requests from the same client process as one
+  session would require an out-of-band identifier we don't have.
+- _Persisted (disk-backed) per-client memory:_ rejected as out of scope for Phase 1; deferred
+  until a multi-client identity story exists.
+
+**Reasoning.** Binding visibility to the transport session matches what is already
+implementable: the downstream `Server` instance and its transport are the only objects with a
+clean creation/teardown boundary today. Phase 2 may add a longer-lived "client identity" notion
+on top, but that is additive and does not require revisiting this rule.
 
 ## 2.5 Server Status and Auth Status
 
@@ -334,6 +398,42 @@ npx tlbx auth logout <server>
 npx tlbx auth status
 ```
 
+### 4.2.1 Scope of `tlbx tools enable / disable`
+
+**Decision.** `tlbx tools enable <name>` and `tlbx tools disable <name>` are **global and
+persisted**: they write to `config.tools[<exposedName>] = { enabled: boolean }` in the ToolBox
+config file. There is no per-session enable/disable.
+
+Precedence with progressive disclosure (when it is on):
+
+```
+disabled  → never appears in tools/list and tools/call rejects, regardless of reveal state.
+enabled   → eligible for inclusion in tools/list; whether it is *actually* listed still
+            depends on `progressiveDisclosure.enabled` and the per-session revealed set.
+```
+
+"Disabled but revealed" is therefore not a visible state — disable trumps reveal. Hiding a
+tool with `toolbox__hide_tools` only affects the current session's revealed set; it does not
+write to the config and does not survive process restart.
+
+The CLI clears the override (rather than persisting `{ enabled: true }`) when the user enables
+a tool whose default is already "enabled," keeping the config minimal.
+
+**Alternatives considered.**
+
+- _Per-session disable in addition to global disable:_ rejected because reveal/hide already
+  covers the per-session use case (hide a tool you don't want in context).
+- _Reveal trumps disable (revealing un-disables):_ rejected because `disable` is the user's
+  explicit "I never want this tool" signal; an agent calling `reveal_tools` should not be
+  able to override it.
+- _Disable hides the tool from `tools/list` but still allows `tools/call`:_ rejected; the two
+  must move together so disabled tools can't be invoked by name from cached client state.
+
+**Reasoning.** Users reach for `disable` when a tool is dangerous, noisy, or duplicates another
+one. The expectation is "off means off everywhere," and the configuration must reflect that
+across restarts and across all downstream sessions. Reveal/hide is the orthogonal,
+context-saving knob for individual sessions.
+
 ## 4.3 What `client print-config` Does
 
 `npx tlbx client print-config claude` should print the exact config snippet a user needs to paste into Claude Desktop's MCP configuration so Claude connects to ToolBox as one MCP server.
@@ -415,6 +515,52 @@ npx tlbx client print-config claude --json
 }
 ```
 
+### 4.4.1 Config schema versioning and migration policy
+
+The config carries a top-level `"version": <integer>`. Every released binary declares one
+**current schema version** and a (possibly empty) list of **migratable previous versions**.
+
+**Decision (Phase 1: only version 1 exists, so the policy is forward-looking).**
+
+| Loaded `version`            | Behavior                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| equal to current            | Load normally.                                                                                                |
+| in `migratablePrev` list    | `tlbx` refuses to start and prints `tlbx config migrate` instructions. The migration is opt-in, never silent. |
+| older than `migratablePrev` | Hard-fail with a "config too old; pin an older ToolBox release or recreate via `tlbx init`" error.            |
+| newer than current          | Hard-fail with "config was written by a newer ToolBox; upgrade the CLI" — never best-effort load.             |
+| missing / non-integer       | Hard-fail at schema validation (already enforced by `z.literal(1)` today).                                    |
+
+`tlbx config migrate` is the only forward path. It reads the current file, applies the chain of
+migration functions from the loaded version to the binary's current version (each migration is
+a pure function written in the same PR that bumps the version), writes the result to disk
+**after backing up the original to `<config>.bak.<yyyyMMddTHHmmssZ>`** (a filesystem-safe
+basic-ISO-8601 timestamp; `:` is intentionally omitted because it is illegal in Windows
+filenames), and exits non-zero if any step
+fails.
+
+Each version bump must:
+
+1. Add a migration function and a test that runs it on the previous version's example config.
+2. Update the table above with the new `current` and `migratablePrev` values.
+3. Note the change in `CHANGELOG.md`.
+
+**Alternatives considered.**
+
+- _Best-effort forward-compatibility (drop unknown fields, fill in defaults):_ rejected.
+  Silent fixes hide real config errors and let two ToolBox installations on the same machine
+  disagree about what the config means.
+- _Hard-fail on every mismatch, never migrate:_ rejected because it forces users to re-`init`
+  and lose hand-edited settings on every breaking schema change.
+- _Auto-migrate on load with no opt-in:_ rejected because a misbehaving migration could
+  irreversibly mangle the user's config; an explicit `migrate` step preserves the backup and
+  lets the user inspect the diff.
+
+**Reasoning.** Schema bumps are rare but they will happen (e.g. when OAuth, sandboxing limits,
+or per-client settings land). The policy splits the safe automation (read v1, write v1) from
+the riskier path (rewriting a file the user might have hand-edited), and forces every bump to
+ship its own migration in the same PR — so the only way to add an un-migratable change is
+deliberate.
+
 ## 4.5 Tool Search
 
 For the MVP, use deterministic search instead of embeddings.
@@ -479,6 +625,65 @@ resource subscriptions
 OAuth dynamic client registration
 remote multi-user auth
 ```
+
+### 4.6.1 Auth recovery flow
+
+ToolBox surfaces two auth-related server states (§2.5): `auth_required` and `auth_expired`.
+This subsection specifies how a user moves a server out of those states in Phase 1 and how
+Phase 2's UI bridges to that.
+
+**Decision (Phase 1).**
+
+- **Credential storage.** The Phase 1 config stores only an _environment variable name_
+  (`auth.tokenEnv`) for bearer auth. The token itself lives in the user's process environment.
+  ToolBox never writes the token to the config file, never writes it to disk under any other
+  path, and never logs its value. No keychain integration in Phase 1.
+- **Entering `auth_required`.** Set when the upstream client cannot connect because the bearer
+  env var named by `auth.tokenEnv` is missing or empty at connect time. The gateway stops
+  retrying that server (no backoff loop while the user fixes the env var).
+- **Entering `auth_expired`.** Reserved for future OAuth flows where ToolBox can detect a
+  refreshable token expiration mid-session. Phase 1 does not transition into this state; the
+  type exists in `ServerStatus` so consumers don't have to be re-typed when OAuth lands.
+- **Exiting either state.** The user (a) makes the credential available — for bearer, exports
+  the env var in the shell that runs `tlbx serve`; (b) restarts the gateway so the new
+  environment is picked up. In Phase 1 the only supported recovery path is a full gateway
+  restart:
+
+  ```bash
+  npx tlbx stop && npx tlbx serve --detach   # restart the gateway with the updated env
+  ```
+
+  `tlbx server disable && tlbx server enable` only edits the config file and does **not**
+  recover a running gateway on its own; that pair is for permanently turning a server off or
+  back on between runs. There is intentionally no in-process "retry now" command in Phase 1 —
+  the gateway has no way to learn that the env var changed without being restarted.
+
+- **Phase 2 UI bridge.** P2-03 surfaces the missing `tokenEnv` name and a "How to fix"
+  explanation that mirrors the CLI flow above. The UI's "Restart server" action calls into
+  `@toolbox/core` to drive the same dispose-and-restart sequence; it does not introduce a
+  separate credential store.
+
+**Future auth commands.** §4.2 lists `npx tlbx auth login/logout/status` as future. When those
+commands ship (alongside OAuth or a keychain backend) they will become the supported recovery
+path for any non-env-var auth type, and the env-var flow above will remain valid for plain
+bearer.
+
+**Alternatives considered.**
+
+- _Persist tokens in the ToolBox config:_ rejected. The config is plain JSON in
+  `~/.config/toolbox/`, not protected, and synced through dotfile repos by many users. Putting
+  secrets there is a footgun.
+- _Persist tokens in an OS keychain by default:_ deferred. Keychain support is desirable but
+  belongs in its own task with its own threat model — Phase 1 ships only the env-var path.
+- _Auto-poll the env var and recover without restart:_ rejected. Polling `process.env` is
+  cheap but the env of a long-running process is fixed at spawn; the value the user sets in
+  their shell would not propagate. We would have to watch a sentinel file or shell-out to the
+  user's shell rc, which is a larger scope than this section's decision.
+
+**Reasoning.** Phase 1's job is to make the auth model predictable and Phase 2's UI a thin
+shell over the CLI behavior. The env-var path keeps secrets out of ToolBox's storage entirely,
+which is the conservative default; richer flows (OAuth, keychain) layer in later without
+breaking the rule that ToolBox owns no plaintext credentials by default.
 
 ## 4.7 Phase 1 Repo Structure
 
