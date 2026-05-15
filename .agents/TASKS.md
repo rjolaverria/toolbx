@@ -80,7 +80,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-03** — [`tlbx doctor --fix` safe fixers](tasks/F1-03-doctor-fix-safe-fixers.md) — closed by f596b9e
 - [x] **F1-04** — [Vitest coverage thresholds](tasks/F1-04-vitest-coverage-thresholds.md) — closed by c868c1c
 - [x] **F1-05** — [Gateway-level integration tests](tasks/F1-05-gateway-integration-tests.md) — closed by e5e5e57
-- [ ] **F1-06** — [Phase 2 spec clarifications](tasks/F1-06-phase2-spec-clarifications.md)
+- [x] **F1-06** — [Phase 2 spec clarifications](tasks/F1-06-phase2-spec-clarifications.md) — closed by d34c15b
 - [x] **F1-07** — [`tlbx serve --detach` and `tlbx stop`](tasks/F1-07-serve-detach-and-stop.md) — closed by d8853bf
 
 ## Phase 2 — Electron Desktop UI
