@@ -186,6 +186,12 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
   // from the .bak file*, never silently lost. We document and accept this:
   // closing the residual gap requires a native locking module, which is out
   // of scope for v1 — the install flow is invoked rarely and interactively.
+  //
+  // The unique timestamp + pid suffix on backupPath makes accidental
+  // collision effectively impossible, which is the practical substitute for
+  // a portable "rename, no-replace" syscall.
+  const backupPath = `${configPath}.bak.${timestampForBackup()}.${process.pid}`;
+
   let currentStat: { mtimeMs: number; size: number };
   try {
     currentStat = await fs.stat(configPath);
@@ -212,11 +218,6 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
   //   2. rename(tmp → orig) — atomically lands the merged content at the
   //      live path. If step 2 fails, rollback by renaming the backup back
   //      into place so the user is not left with a missing config file.
-  //
-  // The unique timestamp + pid suffix on backupPath makes accidental
-  // collision effectively impossible, which is the practical substitute for
-  // a portable "rename, no-replace" syscall.
-  const backupPath = `${configPath}.bak.${timestampForBackup()}.${process.pid}`;
   try {
     await fs.rename(configPath, backupPath);
   } catch (error) {
