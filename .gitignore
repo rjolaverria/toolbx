@@ -96,3 +96,7 @@ storybook-static/
 # Temp files
 tmp/
 temp/
+
+# Superpowers plans and scratch
+docs/superpowers/
+
