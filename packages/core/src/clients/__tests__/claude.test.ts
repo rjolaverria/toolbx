@@ -99,10 +99,13 @@ describe('createClaudeAdapter — install()', () => {
     }
   });
 
-  it('creates the backup as a hard link of the pre-install file', async () => {
-    // Hard-linking eliminates the copy-then-rename race that an
-    // earlier copyFile-based implementation had. Verify it by stat'ing
-    // both paths and comparing inodes.
+  it('moves the pre-install inode to the backup and lands a fresh inode at the live path', async () => {
+    // Atomic-rename backup flow: after install, the backup path should
+    // hold the inode that used to live at configPath, and configPath
+    // should hold a *new* inode (our merged tmp file). This proves the
+    // backup is decoupled from any subsequent in-place mutation of the
+    // live config — the leak that a shared-inode hard-link approach
+    // would have.
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     await fs.writeFile(configPath, '{}');
@@ -116,7 +119,9 @@ describe('createClaudeAdapter — install()', () => {
       return;
     }
     const backupInode = (await fs.stat(result.backupPath)).ino;
+    const liveInode = (await fs.stat(configPath)).ino;
     expect(backupInode).toBe(originalInode);
+    expect(liveInode).not.toBe(originalInode);
   });
 
   it('preserves existing mcpServers entries when adding toolbox', async () => {

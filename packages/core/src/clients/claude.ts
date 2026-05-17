@@ -188,17 +188,23 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     };
   }
 
-  // Hard-link the original to the backup path so the backup captures the
-  // inode currently at configPath atomically. Using fs.link instead of
-  // fs.copyFile closes the race window between "snapshot the original" and
-  // "rename our tmp over it" — there is no copy step left to interleave with
-  // a concurrent writer. fs.link also fails with EEXIST if the backup path
-  // already exists, giving us exclusive-create semantics for the backup
-  // without an extra check. The timestamp+pid suffix makes a collision
-  // effectively impossible in practice.
+  // Atomic file replacement, two-rename style:
+  //
+  //   1. rename(orig → backup) — moves the verified original inode to the
+  //      backup path atomically. After this, the live path is empty and the
+  //      backup is decoupled from anything that happens at the live path
+  //      next, so a concurrent O_TRUNC writer cannot bleed into the backup
+  //      (the way it could with a shared-inode hard-link approach).
+  //   2. rename(tmp → orig) — atomically lands the merged content at the
+  //      live path. If step 2 fails, rollback by renaming the backup back
+  //      into place so the user is not left with a missing config file.
+  //
+  // The unique timestamp + pid suffix on backupPath makes accidental
+  // collision effectively impossible, which is the practical substitute for
+  // a portable "rename, no-replace" syscall.
   const backupPath = `${configPath}.bak.${timestampForBackup()}.${process.pid}`;
   try {
-    await fs.link(configPath, backupPath);
+    await fs.rename(configPath, backupPath);
   } catch (error) {
     await unlinkIfExists(tmpPath);
     throw error;
@@ -207,8 +213,16 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
   try {
     await fs.rename(tmpPath, configPath);
   } catch (error) {
+    // Best-effort rollback: restore the original from backup so the user
+    // is not left with a missing config file. We swallow the rollback
+    // error because we are already on the error path; the original
+    // failure is what the caller needs to see.
+    try {
+      await fs.rename(backupPath, configPath);
+    } catch {
+      // backup remains at backupPath; surface the original error below.
+    }
     await unlinkIfExists(tmpPath);
-    await unlinkIfExists(backupPath);
     throw error;
   }
 
