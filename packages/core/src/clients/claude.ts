@@ -172,6 +172,20 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     }
   }
 
+  // Pre-compute the backup path before the verification stat so the only
+  // thing between "verify unchanged" and "atomically move the original" is
+  // the rename syscall itself. This shrinks the verification-to-replacement
+  // race window to a single adjacent syscall pair — the smallest gap
+  // achievable without OS-level file locking (which Claude Code does not
+  // cooperatively honor, so it would not actually help us here).
+  //
+  // Residual race: a concurrent writer that mutates configPath after this
+  // stat returns but before fs.rename runs (microseconds) would have its
+  // update moved to the backup path; the merged-from-stale content would
+  // still land at the live path. The newer content is therefore *recoverable
+  // from the .bak file*, never silently lost. We document and accept this:
+  // closing the residual gap requires a native locking module, which is out
+  // of scope for v1 — the install flow is invoked rarely and interactively.
   let currentStat: { mtimeMs: number; size: number };
   try {
     currentStat = await fs.stat(configPath);
