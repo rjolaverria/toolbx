@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { homedir as osHomedir } from 'node:os';
 import * as path from 'node:path';
@@ -27,19 +28,30 @@ interface ToolboxEntry {
   env: Record<string, string>;
 }
 
-export interface CreateClaudeAdapterOptions extends ClientAdapterEnv {
-  /**
-   * Test-only hook. Runs after the tmp file is written but before the
-   * concurrent-modification re-stat. Used to simulate Claude Code rewriting
-   * `~/.claude.json` mid-install. Do not use in production.
-   */
+export type CreateClaudeAdapterOptions = ClientAdapterEnv;
+
+/**
+ * Hooks reserved for tests inside this module. Not part of the public
+ * `CreateClaudeAdapterOptions` because downstream consumers must not depend
+ * on these — they exist only to make the concurrent-write races inside
+ * `installClaudeMcpEntry` reachable from vitest. The public factory routes
+ * through `createClaudeAdapter`, which always passes an empty hooks object.
+ */
+export interface InternalInstallHooks {
   readonly afterTmpWrite?: () => Promise<void>;
+  readonly afterMoveOriginalToBackup?: () => Promise<void>;
 }
 
 export function createClaudeAdapter(options: CreateClaudeAdapterOptions = {}): ClientAdapter {
+  return createClaudeAdapterInternal(options, {});
+}
+
+export function createClaudeAdapterInternal(
+  options: CreateClaudeAdapterOptions,
+  hooks: InternalInstallHooks,
+): ClientAdapter {
   const homedir = options.homedir ?? osHomedir;
   const configPath = resolveConfigPath(homedir);
-  const afterTmpWrite = options.afterTmpWrite;
 
   return {
     name: 'claude',
@@ -55,7 +67,7 @@ export function createClaudeAdapter(options: CreateClaudeAdapterOptions = {}): C
       }
     },
     async install(opts: InstallOpts): Promise<InstallResult> {
-      return installClaudeMcpEntry({ configPath, opts, afterTmpWrite });
+      return installClaudeMcpEntry({ configPath, opts, hooks });
     },
   };
 }
@@ -69,16 +81,14 @@ function resolveConfigPath(homedir: () => string): string {
 interface InstallContext {
   readonly configPath: string;
   readonly opts: InstallOpts;
-  readonly afterTmpWrite?: (() => Promise<void>) | undefined;
+  readonly hooks: InternalInstallHooks;
 }
 
 async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult> {
-  const { configPath, opts } = ctx;
+  const { configPath, opts, hooks } = ctx;
 
-  let initialStat: { mtimeMs: number; size: number };
   let source: string;
   try {
-    initialStat = await fs.stat(configPath);
     source = await fs.readFile(configPath, 'utf8');
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | null)?.code;
@@ -91,6 +101,7 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     }
     throw error;
   }
+  const initialHash = sha256(source);
 
   let parsed: Record<string, unknown>;
   try {
@@ -111,7 +122,26 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     };
   }
 
-  const existingServers = readMcpServers(parsed);
+  // Reject (rather than silently overwrite) an mcpServers value that exists
+  // but is the wrong shape. Silent replacement would clash with the rest of
+  // the flow, which goes to lengths to preserve user state and require
+  // --force on every other conflict.
+  const mcpServersRaw = parsed.mcpServers;
+  if (
+    mcpServersRaw !== undefined &&
+    mcpServersRaw !== null &&
+    (typeof mcpServersRaw !== 'object' || Array.isArray(mcpServersRaw))
+  ) {
+    return {
+      ok: false,
+      reason: '~/.claude.json mcpServers is not a JSON object',
+      hint: 'open ~/.claude.json and replace mcpServers with `{}`, then re-run',
+    };
+  }
+  const existingServers =
+    mcpServersRaw === undefined || mcpServersRaw === null
+      ? undefined
+      : (mcpServersRaw as Record<string, unknown>);
   const existingToolbox = existingServers?.[TOOLBOX_KEY];
 
   if (existingToolbox !== undefined) {
@@ -124,10 +154,16 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
       };
     }
     if (!opts.force) {
+      // Intentional: a conflicting toolbox entry without --force returns an
+      // error even in dryRun mode. dryRun is for previewing the actual
+      // outcome of the same flags; previewing the force-overwrite shape
+      // requires `dryRun: true, force: true`, which keeps the contract
+      // consistent (dryRun mirrors the non-dryRun result, just without
+      // filesystem writes) rather than implying "no --force needed".
       return {
         ok: false,
         reason: 'mcpServers.toolbox already present with different command/args',
-        hint: 're-run with --force to overwrite',
+        hint: 're-run with --force to overwrite (use dryRun + force to preview)',
       };
     }
   }
@@ -149,7 +185,12 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     };
   }
 
-  const tmpPath = `${configPath}.tmp.${process.pid}`;
+  // tmp filename includes randomUUID so two concurrent install() calls in
+  // the same Node process (e.g. tlbx setup orchestrating multiple adapters,
+  // or the future Electron app running install in parallel) do not collide
+  // on the wx-flagged open and accidentally unlink each other's tmp files
+  // on the cleanup path.
+  const tmpPath = `${configPath}.tmp.${process.pid}.${randomUUID()}`;
   try {
     const handle = await fs.open(tmpPath, 'wx', 0o600);
     try {
@@ -163,61 +204,54 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     throw error;
   }
 
-  if (ctx.afterTmpWrite) {
+  if (hooks.afterTmpWrite) {
     try {
-      await ctx.afterTmpWrite();
+      await hooks.afterTmpWrite();
     } catch (error) {
       await unlinkIfExists(tmpPath);
       throw error;
     }
   }
 
-  // Pre-compute the backup path before the verification stat so the only
-  // thing between "verify unchanged" and "atomically move the original" is
-  // the rename syscall itself. This shrinks the verification-to-replacement
-  // race window to a single adjacent syscall pair — the smallest gap
-  // achievable without OS-level file locking (which Claude Code does not
-  // cooperatively honor, so it would not actually help us here).
-  //
-  // Residual race: a concurrent writer that mutates configPath after this
-  // stat returns but before fs.rename runs (microseconds) would have its
-  // update moved to the backup path; the merged-from-stale content would
-  // still land at the live path. The newer content is therefore *recoverable
-  // from the .bak file*, never silently lost. We document and accept this:
-  // closing the residual gap requires a native locking module, which is out
-  // of scope for v1 — the install flow is invoked rarely and interactively.
-  //
-  // The unique timestamp + pid suffix on backupPath makes accidental
-  // collision effectively impossible, which is the practical substitute for
-  // a portable "rename, no-replace" syscall.
-  const backupPath = `${configPath}.bak.${timestampForBackup()}.${process.pid}`;
+  // Pre-compute the backup path before the verification so the only thing
+  // between "verify unchanged" and "atomically move the original" is the
+  // rename syscall itself.
+  const backupPath = `${configPath}.bak.${timestampForBackup()}.${process.pid}.${randomUUID()}`;
 
-  let currentStat: { mtimeMs: number; size: number };
+  // Verify the live file still matches what we read, using a content hash
+  // (not mtime+size) so that a same-length rewrite within the filesystem's
+  // timestamp granularity cannot silently slip past the check.
+  let currentSource: string;
   try {
-    currentStat = await fs.stat(configPath);
+    currentSource = await fs.readFile(configPath, 'utf8');
   } catch (error) {
     await unlinkIfExists(tmpPath);
     throw error;
   }
-  if (currentStat.mtimeMs !== initialStat.mtimeMs || currentStat.size !== initialStat.size) {
+  if (sha256(currentSource) !== initialHash) {
     await unlinkIfExists(tmpPath);
     return {
       ok: false,
-      reason: 'Claude Code modified ~/.claude.json while we were merging',
+      reason: '~/.claude.json was modified by another process while we were merging',
       hint: 're-run `tlbx client install claude`',
     };
   }
 
-  // Atomic file replacement, two-rename style:
+  // Atomic file replacement, two-step:
   //
-  //   1. rename(orig → backup) — moves the verified original inode to the
-  //      backup path atomically. After this, the live path is empty and the
-  //      backup is decoupled from anything that happens at the live path
-  //      next, so a concurrent O_TRUNC writer cannot bleed into the backup
-  //      (the way it could with a shared-inode hard-link approach).
-  //   2. rename(tmp → orig) — atomically lands the merged content at the
-  //      live path. If step 2 fails, rollback by renaming the backup back
-  //      into place so the user is not left with a missing config file.
+  //   1. rename(orig → backup) — atomically moves the verified original
+  //      inode to the backup path. After this, the live path is empty and
+  //      the backup is decoupled from any subsequent in-place mutation of
+  //      the live path (which is why fs.link would have been wrong — a
+  //      shared inode lets an O_TRUNC writer leak into the backup).
+  //   2. link(tmp → orig) + unlink(tmp) — atomically creates the live
+  //      file from our tmp inode, but *fails with EEXIST* if a concurrent
+  //      writer (Claude Code, an editor, etc.) recreated the live file
+  //      during the gap between the renames. That makes the second step
+  //      a true compare-and-swap: it cannot silently clobber a newer
+  //      file the way an unconditional rename(tmp, orig) would. On EEXIST
+  //      we leave the concurrent writer's update at the live path and
+  //      preserve the original at the .bak path for recovery.
   try {
     await fs.rename(configPath, backupPath);
   } catch (error) {
@@ -225,21 +259,49 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     throw error;
   }
 
+  if (hooks.afterMoveOriginalToBackup) {
+    try {
+      await hooks.afterMoveOriginalToBackup();
+    } catch (error) {
+      try {
+        await fs.rename(backupPath, configPath);
+      } catch {
+        // backup remains at backupPath; surface the original error below.
+      }
+      await unlinkIfExists(tmpPath);
+      throw error;
+    }
+  }
+
   try {
-    await fs.rename(tmpPath, configPath);
-  } catch (error) {
-    // Best-effort rollback: restore the original from backup so the user
-    // is not left with a missing config file. We swallow the rollback
-    // error because we are already on the error path; the original
-    // failure is what the caller needs to see.
+    await fs.link(tmpPath, configPath);
+  } catch (linkError) {
+    const code = (linkError as NodeJS.ErrnoException | null)?.code;
+    if (code === 'EEXIST') {
+      // Concurrent writer beat us to it after we moved the original out.
+      // Do not clobber their write. Leave their content at the live path
+      // and keep the .bak so the user can reconcile.
+      await unlinkIfExists(tmpPath);
+      return {
+        ok: false,
+        reason:
+          'another process wrote to ~/.claude.json after we moved the original aside; refusing to overwrite',
+        hint: `inspect ${backupPath} for the pre-install content and re-run if you still want to install`,
+      };
+    }
+    // Other link failure: rollback by moving the backup back into place.
     try {
       await fs.rename(backupPath, configPath);
     } catch {
       // backup remains at backupPath; surface the original error below.
     }
     await unlinkIfExists(tmpPath);
-    throw error;
+    throw linkError;
   }
+
+  // The live path now has the tmp inode (via the hard link). Remove the
+  // tmp path so we leave a single name for the new inode.
+  await unlinkIfExists(tmpPath);
 
   return {
     ok: true,
@@ -248,17 +310,6 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     backupPath,
     diff,
   };
-}
-
-function readMcpServers(parsed: Record<string, unknown>): Record<string, unknown> | undefined {
-  const raw = parsed.mcpServers;
-  if (raw === undefined || raw === null) {
-    return undefined;
-  }
-  if (typeof raw !== 'object' || Array.isArray(raw)) {
-    return undefined;
-  }
-  return raw as Record<string, unknown>;
 }
 
 function toolboxEntryMatches(value: unknown): boolean {
@@ -307,6 +358,10 @@ function timestampForBackup(): string {
   // ISO-8601 with colons replaced so the backup is a legal filename on every
   // platform we target. Example: `2026-05-17T18-30-45-123Z`.
   return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function sha256(input: string): string {
+  return createHash('sha256').update(input, 'utf8').digest('hex');
 }
 
 async function unlinkIfExists(filePath: string): Promise<void> {

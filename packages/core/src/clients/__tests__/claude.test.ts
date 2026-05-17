@@ -4,7 +4,11 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createClaudeAdapter } from '../claude.js';
+import {
+  createClaudeAdapter,
+  createClaudeAdapterInternal,
+  type InternalInstallHooks,
+} from '../claude.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -23,17 +27,8 @@ async function makeFakeHome(): Promise<string> {
   return dir;
 }
 
-function makeAdapter(
-  home: string,
-  overrides: { afterTmpWrite?: () => Promise<void> } = {},
-): ReturnType<typeof createClaudeAdapter> {
-  const base = {
-    homedir: () => home,
-    platform: 'darwin' as const,
-  };
-  return createClaudeAdapter(
-    overrides.afterTmpWrite ? { ...base, afterTmpWrite: overrides.afterTmpWrite } : base,
-  );
+function makeAdapter(home: string, hooks: InternalInstallHooks = {}) {
+  return createClaudeAdapterInternal({ homedir: () => home, platform: 'darwin' }, hooks);
 }
 
 async function readToolboxEntry(home: string): Promise<unknown> {
@@ -53,7 +48,7 @@ const TOOLBOX_ENTRY = {
 describe('createClaudeAdapter — detect()', () => {
   it('returns null when ~/.claude.json is missing', async () => {
     const home = await makeFakeHome();
-    const adapter = makeAdapter(home);
+    const adapter = createClaudeAdapter({ homedir: () => home, platform: 'darwin' });
     expect(await adapter.detect()).toBeNull();
   });
 
@@ -61,7 +56,7 @@ describe('createClaudeAdapter — detect()', () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     await fs.writeFile(configPath, '{}');
-    const adapter = makeAdapter(home);
+    const adapter = createClaudeAdapter({ homedir: () => home, platform: 'darwin' });
     expect(await adapter.detect()).toEqual({ name: 'claude', configPath });
   });
 
@@ -69,7 +64,7 @@ describe('createClaudeAdapter — detect()', () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     await fs.writeFile(configPath, '{not json');
-    const adapter = makeAdapter(home);
+    const adapter = createClaudeAdapter({ homedir: () => home, platform: 'darwin' });
     expect(await adapter.detect()).toEqual({ name: 'claude', configPath });
   });
 });
@@ -100,12 +95,10 @@ describe('createClaudeAdapter — install()', () => {
   });
 
   it('moves the pre-install inode to the backup and lands a fresh inode at the live path', async () => {
-    // Atomic-rename backup flow: after install, the backup path should
-    // hold the inode that used to live at configPath, and configPath
-    // should hold a *new* inode (our merged tmp file). This proves the
-    // backup is decoupled from any subsequent in-place mutation of the
-    // live config — the leak that a shared-inode hard-link approach
-    // would have.
+    // The two-step backup flow (rename orig→backup, link tmp→orig) leaves
+    // the backup decoupled from any subsequent in-place mutation of the
+    // live config, because they have distinct inodes once the install
+    // finishes. This test pins both halves of that property.
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     await fs.writeFile(configPath, '{}');
@@ -247,7 +240,28 @@ describe('createClaudeAdapter — install()', () => {
     expect(entries.filter((name) => name.includes('.bak.'))).toEqual([]);
   });
 
-  it('aborts without artifacts when the original file changes between read and rename', async () => {
+  it('returns ok:false when mcpServers exists but is not an object', async () => {
+    const home = await makeFakeHome();
+    const configPath = path.join(home, '.claude.json');
+    const malformed = { mcpServers: ['not', 'an', 'object'] };
+    await fs.writeFile(configPath, JSON.stringify(malformed, null, 2));
+    const originalBytes = await fs.readFile(configPath);
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toMatch(/mcpServers/);
+    expect(result.hint).toBeDefined();
+
+    // Nothing touched — user keeps the file they started with.
+    expect(await fs.readFile(configPath)).toEqual(originalBytes);
+  });
+
+  it('aborts without artifacts when content changes between read and verification', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     const initial = { mcpServers: {} };
@@ -257,7 +271,7 @@ describe('createClaudeAdapter — install()', () => {
     const adapter = makeAdapter(home, {
       afterTmpWrite: async () => {
         // Simulate Claude Code rewriting ~/.claude.json (e.g. via /mcp) after
-        // we read it but before we rename our tmp file over it.
+        // we read it but before we link our tmp file into place.
         await new Promise((resolve) => setTimeout(resolve, 20));
         await fs.writeFile(configPath, JSON.stringify({ tampered: true }) + '\n');
       },
@@ -278,6 +292,64 @@ describe('createClaudeAdapter — install()', () => {
     const entries = await fs.readdir(home);
     expect(entries.filter((name) => name.includes('.bak.'))).toEqual([]);
     expect(entries.filter((name) => name.includes('.tmp.'))).toEqual([]);
+  });
+
+  it('detects same-size content rewrites via content hash, not just mtime+size', async () => {
+    const home = await makeFakeHome();
+    const configPath = path.join(home, '.claude.json');
+    // Two distinct JSON objects with the same length on disk.
+    const before = '{"mcpServers":{"a":1}}';
+    const after = '{"mcpServers":{"b":2}}';
+    expect(before.length).toBe(after.length);
+    await fs.writeFile(configPath, before);
+
+    const adapter = makeAdapter(home, {
+      afterTmpWrite: async () => {
+        await fs.writeFile(configPath, after);
+      },
+    });
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toMatch(/modified/i);
+    // Tampered content remains intact, no install happened.
+    expect(await fs.readFile(configPath, 'utf8')).toBe(after);
+  });
+
+  it('refuses to clobber a file that appears at the live path between renames', async () => {
+    // Race: after we move the original to backup, but before we link our
+    // merged tmp file into place, a concurrent writer drops a new file at
+    // configPath. The link must fail with EEXIST and we must keep the
+    // concurrent writer's content, not overwrite it.
+    const home = await makeFakeHome();
+    const configPath = path.join(home, '.claude.json');
+    await fs.writeFile(configPath, '{}');
+    const concurrentContent = JSON.stringify({ writtenByOther: true }) + '\n';
+
+    const adapter = makeAdapter(home, {
+      afterMoveOriginalToBackup: async () => {
+        await fs.writeFile(configPath, concurrentContent, { flag: 'wx' });
+      },
+    });
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toMatch(/another process/i);
+    expect(result.hint).toContain('.bak.');
+
+    // Live file is the concurrent writer's content, not ours.
+    expect(await fs.readFile(configPath, 'utf8')).toBe(concurrentContent);
+    // No tmp file leaked.
+    const entries = await fs.readdir(home);
+    expect(entries.filter((name) => name.includes('.tmp.'))).toEqual([]);
+    // .bak still exists for recovery.
+    expect(entries.filter((name) => name.includes('.bak.')).length).toBe(1);
   });
 
   it('dryRun returns the diff without touching the filesystem', async () => {
