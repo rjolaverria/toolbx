@@ -22,7 +22,7 @@ The friction we're fixing is "I just heard about ToolBox, what do I run?". Today
        • Claude Code  (~/.claude.json)
        • Codex        (~/.codex/config.toml)
      ```
-     If none are detected, skip to step 4 with a note.
+     If none are detected, print a one-line note (e.g. `No MCP clients detected — you can wire one up later with `tlbx client install <client>`.`) and continue to step 3 — the user can still add an upstream server in this run. Step 4 then becomes a no-op for this invocation.
   3. **Optional upstream server prompt.** Unless `--no-server` is passed, prompt:
      ```
      Add an upstream MCP server now? [Y/n]

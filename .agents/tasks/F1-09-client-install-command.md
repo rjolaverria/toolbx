@@ -21,7 +21,7 @@ Add the remaining two adapters — Codex and OpenCode — and a new `tlbx client
   - Reuse whichever TOML library `apps/cli/src/commands/client-print-config.ts` already imports for the Codex branch (around line 95+). Do not add a new dep.
 
 - **`packages/core/src/clients/opencode.ts`** — OpenCode adapter:
-  - Confirm the config path against OpenCode's current docs before coding (CLAUDE.md library-docs rule applies). Today's `client print-config` Codex branch is the existing reference for what we emit; do the equivalent for OpenCode.
+  - Confirm the config path against OpenCode's current docs before coding (CLAUDE.md library-docs rule applies). The merge shape must match exactly what the existing `client print-config opencode` branch in `apps/cli/src/commands/client-print-config.ts` emits today — read that branch first and have the adapter produce the same on-disk result. Do **not** model the OpenCode adapter on the Codex branch; OpenCode uses a different config format.
   - Same install contract as the other two adapters.
 
 - **`packages/core/src/clients/index.ts`** — re-exports `claudeAdapter`, `codexAdapter`, `opencodeAdapter`, `detectClients`, and the public types from F1-08.
