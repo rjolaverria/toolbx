@@ -188,9 +188,17 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
     };
   }
 
-  const backupPath = `${configPath}.bak.${timestampForBackup()}`;
+  // Hard-link the original to the backup path so the backup captures the
+  // inode currently at configPath atomically. Using fs.link instead of
+  // fs.copyFile closes the race window between "snapshot the original" and
+  // "rename our tmp over it" — there is no copy step left to interleave with
+  // a concurrent writer. fs.link also fails with EEXIST if the backup path
+  // already exists, giving us exclusive-create semantics for the backup
+  // without an extra check. The timestamp+pid suffix makes a collision
+  // effectively impossible in practice.
+  const backupPath = `${configPath}.bak.${timestampForBackup()}.${process.pid}`;
   try {
-    await fs.copyFile(configPath, backupPath);
+    await fs.link(configPath, backupPath);
   } catch (error) {
     await unlinkIfExists(tmpPath);
     throw error;

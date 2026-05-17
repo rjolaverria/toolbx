@@ -99,6 +99,26 @@ describe('createClaudeAdapter — install()', () => {
     }
   });
 
+  it('creates the backup as a hard link of the pre-install file', async () => {
+    // Hard-linking eliminates the copy-then-rename race that an
+    // earlier copyFile-based implementation had. Verify it by stat'ing
+    // both paths and comparing inodes.
+    const home = await makeFakeHome();
+    const configPath = path.join(home, '.claude.json');
+    await fs.writeFile(configPath, '{}');
+    const originalInode = (await fs.stat(configPath)).ino;
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.backupPath) {
+      return;
+    }
+    const backupInode = (await fs.stat(result.backupPath)).ino;
+    expect(backupInode).toBe(originalInode);
+  });
+
   it('preserves existing mcpServers entries when adding toolbox', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
