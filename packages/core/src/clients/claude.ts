@@ -125,12 +125,15 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
   // Reject (rather than silently overwrite) an mcpServers value that exists
   // but is the wrong shape. Silent replacement would clash with the rest of
   // the flow, which goes to lengths to preserve user state and require
-  // --force on every other conflict.
+  // --force on every other conflict. `mcpServers: null` is treated as
+  // malformed (not "absent") because the key was deliberately set to a
+  // non-object value — overwriting that without asking would be the same
+  // kind of silent stomp the array/string/number rejection guards against.
   const mcpServersRaw = parsed.mcpServers;
+  const mcpServersAbsent = mcpServersRaw === undefined;
   if (
-    mcpServersRaw !== undefined &&
-    mcpServersRaw !== null &&
-    (typeof mcpServersRaw !== 'object' || Array.isArray(mcpServersRaw))
+    !mcpServersAbsent &&
+    (mcpServersRaw === null || typeof mcpServersRaw !== 'object' || Array.isArray(mcpServersRaw))
   ) {
     return {
       ok: false,
@@ -138,10 +141,7 @@ async function installClaudeMcpEntry(ctx: InstallContext): Promise<InstallResult
       hint: 'open ~/.claude.json and replace mcpServers with `{}`, then re-run',
     };
   }
-  const existingServers =
-    mcpServersRaw === undefined || mcpServersRaw === null
-      ? undefined
-      : (mcpServersRaw as Record<string, unknown>);
+  const existingServers = mcpServersAbsent ? undefined : (mcpServersRaw as Record<string, unknown>);
   const existingToolbox = existingServers?.[TOOLBOX_KEY];
 
   if (existingToolbox !== undefined) {

@@ -261,6 +261,29 @@ describe('createClaudeAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(originalBytes);
   });
 
+  it('returns ok:false when mcpServers is explicitly null', async () => {
+    // `mcpServers: null` is a deliberately-set non-object value, distinct
+    // from the key being absent. The adapter must refuse to silently
+    // replace it for the same reason it refuses the array/string/number
+    // cases.
+    const home = await makeFakeHome();
+    const configPath = path.join(home, '.claude.json');
+    await fs.writeFile(configPath, JSON.stringify({ mcpServers: null }, null, 2));
+    const originalBytes = await fs.readFile(configPath);
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toMatch(/mcpServers/);
+    expect(result.hint).toBeDefined();
+
+    expect(await fs.readFile(configPath)).toEqual(originalBytes);
+  });
+
   it('aborts without artifacts when content changes between read and verification', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
