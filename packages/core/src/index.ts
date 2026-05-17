@@ -151,3 +151,16 @@ export {
   type ServeDaemonPaths,
   type ServeDaemonState,
 } from './serve-daemon/index.js';
+
+export {
+  claudeAdapter,
+  createClaudeAdapter,
+  detectClients,
+  type ClientAdapter,
+  type ClientAdapterEnv,
+  type ClientName,
+  type CreateClaudeAdapterOptions,
+  type DetectedClient,
+  type InstallOpts,
+  type InstallResult,
+} from './clients/index.js';
