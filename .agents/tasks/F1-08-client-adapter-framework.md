@@ -51,7 +51,7 @@ We're going with **direct file writes** for all clients (including Claude Code),
 
 - **`packages/core/src/clients/claude.ts`** — Claude Code adapter:
   - Config path: `~/.claude.json` on POSIX, `%USERPROFILE%\.claude.json` on Windows. **Do not** read `~/.claude/settings.json` — that's a different file (Claude Code user settings, not MCP servers).
-  - `detect()` returns `{ configPath }` iff the file exists and parses as JSON. Missing file → null (not an error — Claude Code creates it on first run).
+  - `detect()` returns `{ configPath }` iff the file exists. Missing file → null (not an error — Claude Code creates it on first run). **Do not parse the JSON in `detect()`**: a malformed `~/.claude.json` must still be detected so that `install()`'s parse error and recovery hint (step 2) reach the user, instead of `setup` silently reporting "Claude Code not detected".
   - `install()`:
     1. Read file, capture `mtime` and content hash.
     2. Parse JSON. If unparseable, return `{ ok: false, reason: 'config is not valid JSON', hint: 'open ~/.claude.json and fix the syntax error, then re-run' }`.
