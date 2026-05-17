@@ -360,6 +360,7 @@ Initial command surface:
 
 ```bash
 npx tlbx init
+npx tlbx setup
 npx tlbx serve
 npx tlbx status
 npx tlbx doctor
@@ -385,10 +386,15 @@ npx tlbx config validate
 npx tlbx config set progressiveDisclosure.enabled true
 npx tlbx config set progressiveDisclosure.enabled false
 
+npx tlbx client install <claude|codex|opencode>
 npx tlbx client print-config claude
 npx tlbx client print-config codex
 npx tlbx client print-config opencode
 ```
+
+`tlbx setup` is the recommended first-run command. It composes `init`, an optional `server add-stdio` prompt, and `client install` for every detected MCP client so a new user reaches a working ToolBox in one step. `init` and the individual commands remain available for scripting and CI.
+
+`tlbx client install <client>` writes the ToolBox MCP server entry directly into the named client's config file (atomic write with a timestamped backup). It is the preferred wiring mechanism; `client print-config` remains as a manual-paste fallback.
 
 Future auth commands:
 
@@ -436,24 +442,28 @@ context-saving knob for individual sessions.
 
 ## 4.3 What `client print-config` Does
 
-`npx tlbx client print-config claude` should print the exact config snippet a user needs to paste into Claude Desktop's MCP configuration so Claude connects to ToolBox as one MCP server.
+`npx tlbx client print-config claude` prints the exact config snippet a user needs to paste into **Claude Code**'s user-scope MCP config (`~/.claude.json` on POSIX, `%USERPROFILE%\.claude.json` on Windows) so Claude Code connects to ToolBox as one MCP server. The `claude` keyword targets Claude Code, not Claude Desktop — Desktop is not supported by ToolBox in Phase 1.
 
-Example:
+Most users should reach for `tlbx client install claude` instead — it writes the same snippet into the file directly (atomic write with a backup). `print-config` exists as a manual-paste fallback and as the documentation source for the snippet shape.
+
+Example snippet (the JSON block that gets merged into the top-level `mcpServers` object in `~/.claude.json`):
 
 ```json
 {
   "mcpServers": {
     "toolbox": {
+      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "tlbx", "serve", "--stdio"]
+      "args": ["-y", "tlbx", "serve", "--stdio"],
+      "env": {}
     }
   }
 }
 ```
 
-This gives the user a simple copy-paste setup flow.
+All four fields (`type`, `command`, `args`, `env`) are required by Claude Code's schema; keep `args` and `env` present even when empty.
 
-The command should also support variants:
+The command also supports:
 
 ```bash
 npx tlbx client print-config claude --stdio
