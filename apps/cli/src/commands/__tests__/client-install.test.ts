@@ -238,6 +238,35 @@ describe('runClientInstall', () => {
     expect(h.stderr.value).toMatch(/create it/);
   });
 
+  it('reports a no-op when the real install returns already-installed after a preview', async () => {
+    let call = 0;
+    const adapter = fakeAdapter({
+      install: () => {
+        call++;
+        if (call === 1) {
+          return Promise.resolve({
+            ok: true,
+            status: 'installed',
+            configPath: '/tmp/cfg',
+            diff: '+ change',
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 'already-installed',
+          configPath: '/tmp/cfg',
+          diff: '',
+        });
+      },
+    });
+    const h = makeHarness(adapter, { confirm: () => Promise.resolve(true) });
+    const code = await runClientInstall('claude', { ...baseOpts, yes: true }, h.deps);
+    expect(code).toBe(0);
+    expect(h.stdout.value).toMatch(/already wired into Claude Code/);
+    expect(h.stdout.value).not.toMatch(/Wrote /);
+    expect(h.stdout.value).not.toMatch(/Restart Claude Code/);
+  });
+
   it('exits 1 when the real install returns ok:false after a successful dry-run', async () => {
     let call = 0;
     const adapter = fakeAdapter({

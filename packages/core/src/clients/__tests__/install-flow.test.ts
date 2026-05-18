@@ -197,6 +197,40 @@ describe('runInstallFlow', () => {
     expect(entries.filter((e) => e.includes('.bak.')).length).toBe(1);
   });
 
+  it('rolls back when the afterMoveOriginalToBackup hook throws (file existed)', async () => {
+    // Exercises the rollback branch where the original was already on disk
+    // before install: backup → restore on hook error, surface the thrown
+    // error, leave no tmp/bak debris behind.
+    const file = await makeTmpFile('original\n');
+    const originalBytes = await fs.readFile(file);
+
+    const hooks: InternalInstallFlowHooks = {
+      afterMoveOriginalToBackup: () => {
+        return Promise.reject(new Error('simulated hook failure'));
+      },
+    };
+
+    await expect(
+      runInstallFlow({
+        configPath: file,
+        opts: { dryRun: false, force: false },
+        hooks,
+        merge: () => ({
+          ok: true,
+          status: 'installed',
+          nextContent: 'next\n',
+          diff: '+ next',
+        }),
+      }),
+    ).rejects.toThrow(/simulated hook failure/);
+
+    // Original content restored from backup; no tmp or bak leaked.
+    expect(await fs.readFile(file)).toEqual(originalBytes);
+    const entries = await fs.readdir(path.dirname(file));
+    expect(entries.filter((e) => e.includes('.bak.'))).toEqual([]);
+    expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([]);
+  });
+
   it('passes exists:false to merge when the config file is absent', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-install-flow-'));
     cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));

@@ -183,6 +183,35 @@ describe('createCodexAdapter — install()', () => {
     });
   });
 
+  it('emits a TOML-shaped diff covering both previous and next blocks on conflict', async () => {
+    // Pins both halves of formatDiff(): the `-` block rendered from the
+    // existing TOML table, and the `+` block from the merged entry. Also
+    // exercises formatTomlValue's array + string branches with a different
+    // shape than the empty-config case above.
+    const home = await makeFakeHome();
+    const configPath = await ensureCodexDir(home);
+    const initial = [
+      '[mcp_servers.toolbox]',
+      'command = "old-binary"',
+      'args = ["legacy"]',
+      '',
+    ].join('\n');
+    await fs.writeFile(configPath, initial);
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: true, force: true });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.diff).toContain('- [mcp_servers.toolbox]');
+    expect(result.diff).toContain('-   command = "old-binary"');
+    expect(result.diff).toContain('-   args = ["legacy"]');
+    expect(result.diff).toContain('+ [mcp_servers.toolbox]');
+    expect(result.diff).toContain('+   command = "npx"');
+  });
+
   it('returns ok:false when the file is malformed TOML', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);

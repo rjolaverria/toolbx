@@ -127,6 +127,15 @@ export async function runClientInstall(
     return 1;
   }
 
+  // The preview claimed status: 'installed', but a concurrent process (or a
+  // hand-edit between the two install() calls) could land the same entry in
+  // the meantime. Honor whatever the apply step actually returns so we never
+  // tell the user "Wrote …" when no write happened.
+  if (applied.status === 'already-installed') {
+    deps.write(`already wired into ${displayName} (${applied.configPath}); no changes.\n`);
+    return 0;
+  }
+
   deps.write(`Wrote ${applied.configPath}\n`);
   if (applied.backupPath !== undefined) {
     deps.write(`backup at ${applied.backupPath}\n`);
