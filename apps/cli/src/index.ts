@@ -9,6 +9,7 @@ import { doctorCommand } from './commands/doctor.js';
 import { initCommand } from './commands/init.js';
 import { serveCommand } from './commands/serve.js';
 import { serverCommand } from './commands/server.js';
+import { setupCommand } from './commands/setup.js';
 import { statusCommand } from './commands/status.js';
 import { stopCommand } from './commands/stop.js';
 import { toolsCommand } from './commands/tools.js';
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
     .description('ToolBox — local MCP gateway and proxy')
     .version('0.0.0');
 
+  program.addCommand(setupCommand());
   program.addCommand(initCommand());
   program.addCommand(serverCommand());
   program.addCommand(serveCommand());
