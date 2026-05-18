@@ -135,6 +135,17 @@ describe('runClientPrintConfig', () => {
     expect(h.stdout.value).not.toMatch(/Claude Desktop/i);
   });
 
+  it('claude friendly http output omits the `client install claude` tip (install only writes the stdio entry)', async () => {
+    const cfg = await makeTempConfig(withHttp({ host: '127.0.0.1', port: 7331, path: '/mcp' }));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('claude', { http: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).not.toContain('tlbx client install claude');
+  });
+
   it.each(CLIENT_X_TRANSPORT)(
     '--json output for %s/%s parses cleanly and matches snapshot',
     async (client, transport) => {

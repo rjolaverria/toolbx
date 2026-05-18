@@ -124,8 +124,6 @@ exports[`runClientPrintConfig > default friendly output for claude/http contains
 
 Run \`tlbx serve --http\` first, then merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code points at the running ToolBox.
 
-Tip: \`tlbx client install claude\` writes the same entry for you (with a timestamped backup).
-
 \`\`\`json
 {
   "mcpServers": {

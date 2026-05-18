@@ -91,11 +91,13 @@ function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http
       },
     };
   }
+  // The `client install claude` hint is intentionally omitted here:
+  // `install` only writes the stdio entry, so suggesting it under --http
+  // would point users at the wrong shape.
   return {
     description: [
       CLAUDE_CODE_LOCATION,
       "Run `tlbx serve --http` first, then merge the JSON block below into the file's top-level `mcpServers` object so Claude Code points at the running ToolBox.",
-      CLAUDE_CODE_INSTALL_HINT,
     ].join('\n\n'),
     json: {
       mcpServers: {
