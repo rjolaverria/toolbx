@@ -86,8 +86,7 @@ npx tlbx stop
 # Install the ToolBox entry into one client's config file
 npx tlbx client install claude
 
-# Or print a config snippet to paste yourself
-# TODO(F1-11): Claude Code semantics for `client print-config` will land with that task.
+# Or print a config snippet to paste into ~/.claude.json yourself
 npx tlbx client print-config claude
 ```
 

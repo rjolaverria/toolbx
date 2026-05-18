@@ -4,6 +4,7 @@ exports[`runClientPrintConfig > --json output for claude/http parses cleanly and
 "{
   "mcpServers": {
     "toolbox": {
+      "type": "http",
       "url": "http://127.0.0.1:7331/mcp"
     }
   }
@@ -15,13 +16,15 @@ exports[`runClientPrintConfig > --json output for claude/stdio parses cleanly an
 "{
   "mcpServers": {
     "toolbox": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
         "tlbx",
         "serve",
         "--stdio"
-      ]
+      ],
+      "env": {}
     }
   }
 }
@@ -117,12 +120,15 @@ exports[`runClientPrintConfig > --json output for opencode/stdio parses cleanly 
 `;
 
 exports[`runClientPrintConfig > default friendly output for claude/http contains an explanation and a fenced code block 1`] = `
-"Add this to your Claude Desktop MCP config (claude_desktop_config.json) after starting \`tlbx serve --http\`, then restart Claude Desktop:
+"Open Claude Code's user-scope MCP config — \`~/.claude.json\` on POSIX, \`%USERPROFILE%\\.claude.json\` on Windows.
+
+Run \`tlbx serve --http\` first, then merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code points at the running ToolBox.
 
 \`\`\`json
 {
   "mcpServers": {
     "toolbox": {
+      "type": "http",
       "url": "http://127.0.0.1:7331/mcp"
     }
   }
@@ -132,19 +138,25 @@ exports[`runClientPrintConfig > default friendly output for claude/http contains
 `;
 
 exports[`runClientPrintConfig > default friendly output for claude/stdio contains an explanation and a fenced code block 1`] = `
-"Add this to your Claude Desktop MCP config (claude_desktop_config.json), then restart Claude Desktop:
+"Open Claude Code's user-scope MCP config — \`~/.claude.json\` on POSIX, \`%USERPROFILE%\\.claude.json\` on Windows.
+
+Merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code launches ToolBox over stdio on demand.
+
+Tip: \`tlbx client install claude\` writes the same entry for you (with a timestamped backup).
 
 \`\`\`json
 {
   "mcpServers": {
     "toolbox": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
         "tlbx",
         "serve",
         "--stdio"
-      ]
+      ],
+      "env": {}
     }
   }
 }

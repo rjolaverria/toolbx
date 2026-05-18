@@ -84,7 +84,7 @@ describe('runClientPrintConfig', () => {
     expect(h.stderr.value).toContain('No ToolBox config found');
   });
 
-  it('claude stdio default snippet matches SPECS §4.3 exactly', async () => {
+  it('claude stdio default snippet matches SPECS §4.3 exactly (Claude Code shape)', async () => {
     const cfg = await makeTempConfig();
     harnesses.push(cfg);
     const h = makeHarness(cfg.target);
@@ -96,11 +96,54 @@ describe('runClientPrintConfig', () => {
     expect(parsed).toEqual({
       mcpServers: {
         toolbox: {
+          type: 'stdio',
           command: 'npx',
           args: ['-y', 'tlbx', 'serve', '--stdio'],
+          env: {},
         },
       },
     });
+  });
+
+  it('claude friendly stdio output points users at ~/.claude.json, not claude_desktop_config.json', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('claude', {}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('~/.claude.json');
+    expect(h.stdout.value).toContain('%USERPROFILE%\\.claude.json');
+    expect(h.stdout.value).toContain('mcpServers');
+    expect(h.stdout.value).toContain('tlbx client install claude');
+    expect(h.stdout.value).not.toContain('claude_desktop_config.json');
+    expect(h.stdout.value).not.toMatch(/Claude Desktop/i);
+  });
+
+  it('claude friendly http output points users at ~/.claude.json, not Claude Desktop', async () => {
+    const cfg = await makeTempConfig(withHttp({ host: '127.0.0.1', port: 7331, path: '/mcp' }));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('claude', { http: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('~/.claude.json');
+    expect(h.stdout.value).toContain('mcpServers');
+    expect(h.stdout.value).not.toContain('claude_desktop_config.json');
+    expect(h.stdout.value).not.toMatch(/Claude Desktop/i);
+  });
+
+  it('claude friendly http output omits the `client install claude` tip (install only writes the stdio entry)', async () => {
+    const cfg = await makeTempConfig(withHttp({ host: '127.0.0.1', port: 7331, path: '/mcp' }));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const code = await runClientPrintConfig('claude', { http: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).not.toContain('tlbx client install claude');
   });
 
   it.each(CLIENT_X_TRANSPORT)(
@@ -228,8 +271,10 @@ describe('runClientPrintConfig', () => {
     expect(parsed).toEqual({
       mcpServers: {
         toolbox: {
+          type: 'stdio',
           command: 'npx',
           args: ['-y', 'tlbx', 'serve', '--stdio'],
+          env: {},
         },
       },
     });

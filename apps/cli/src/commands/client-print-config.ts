@@ -11,6 +11,8 @@ import {
 export const SUPPORTED_CLIENTS = ['claude', 'codex', 'opencode', 'generic'] as const;
 export type ClientId = (typeof SUPPORTED_CLIENTS)[number];
 
+const SUPPORTED_CLIENT_HINT = 'claude (Claude Code) | codex | opencode | generic';
+
 export type Transport = 'stdio' | 'http';
 
 export interface PrintConfigOptions {
@@ -64,27 +66,43 @@ function codexHttpToml(url: string): string {
   return ['[mcp_servers.toolbox]', `url = ${tomlString(url)}`, ''].join('\n');
 }
 
+const CLAUDE_CODE_LOCATION =
+  "Open Claude Code's user-scope MCP config — `~/.claude.json` on POSIX, `%USERPROFILE%\\.claude.json` on Windows.";
+const CLAUDE_CODE_INSTALL_HINT =
+  'Tip: `tlbx client install claude` writes the same entry for you (with a timestamped backup).';
+
 function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http']): Snippet {
   if (transport === 'stdio') {
     return {
-      description:
-        'Add this to your Claude Desktop MCP config (claude_desktop_config.json), then restart Claude Desktop:',
+      description: [
+        CLAUDE_CODE_LOCATION,
+        "Merge the JSON block below into the file's top-level `mcpServers` object so Claude Code launches ToolBox over stdio on demand.",
+        CLAUDE_CODE_INSTALL_HINT,
+      ].join('\n\n'),
       json: {
         mcpServers: {
           toolbox: {
+            type: 'stdio',
             command: STDIO_COMMAND,
             args: [...STDIO_ARGS],
+            env: {},
           },
         },
       },
     };
   }
+  // The `client install claude` hint is intentionally omitted here:
+  // `install` only writes the stdio entry, so suggesting it under --http
+  // would point users at the wrong shape.
   return {
-    description:
-      'Add this to your Claude Desktop MCP config (claude_desktop_config.json) after starting `tlbx serve --http`, then restart Claude Desktop:',
+    description: [
+      CLAUDE_CODE_LOCATION,
+      "Run `tlbx serve --http` first, then merge the JSON block below into the file's top-level `mcpServers` object so Claude Code points at the running ToolBox.",
+    ].join('\n\n'),
     json: {
       mcpServers: {
         toolbox: {
+          type: 'http',
           url: buildHttpUrl(http),
         },
       },
@@ -267,7 +285,7 @@ export function clientCommand(registerExtras: ReadonlyArray<(cmd: Command) => vo
   cmd
     .command('print-config')
     .description('Print a copy-paste MCP config snippet for the chosen client.')
-    .argument('<client>', `target client (${SUPPORTED_CLIENTS.join(' | ')})`, parseClient)
+    .argument('<client>', `target client (${SUPPORTED_CLIENT_HINT})`, parseClient)
     .addOption(new Option('--stdio', 'render the stdio transport snippet (default)'))
     .addOption(new Option('--http', 'render the Streamable HTTP transport snippet'))
     .addOption(
