@@ -89,4 +89,24 @@ describe('detectClients', () => {
       { name: 'opencode', configPath: opencodePath },
     ]);
   });
+
+  it('tolerates one adapter throwing and still reports the others', async () => {
+    // A self-pointing symlink at the Claude config path makes `fs.stat`
+    // throw ELOOP — neither ENOENT (the "absent" signal the adapter
+    // tolerates) nor a successful stat. Without per-adapter tolerance,
+    // `detectClients` would let that throw bubble out and skip the codex
+    // and opencode probes entirely.
+    const home = await makeFakeHome();
+    const codexPath = await writeCodexConfig(home);
+    const opencodePath = await writeOpencodeConfig(home);
+    const claudePath = path.join(home, '.claude.json');
+    await fs.symlink(claudePath, claudePath);
+
+    const detected = await detectClients({ homedir: () => home, platform: 'darwin', env: {} });
+
+    expect(detected).toEqual([
+      { name: 'codex', configPath: codexPath },
+      { name: 'opencode', configPath: opencodePath },
+    ]);
+  });
 });

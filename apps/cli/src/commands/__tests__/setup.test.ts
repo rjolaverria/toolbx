@@ -143,6 +143,7 @@ function makeHarness(opts: MakeHarnessOptions = {}): Harness {
 const baseOptions: SetupOptions = {
   yes: false,
   noServer: false,
+  force: false,
   clients: undefined,
   transport: undefined,
   config: undefined,
@@ -583,6 +584,38 @@ describe('runSetup', () => {
 
     expect(code).not.toBe(0);
     expect(h.stdout.value).not.toMatch(/All set/i);
+  });
+
+  it('threads setup --force through both install calls per client', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const claudeCalls: InstallOpts[] = [];
+    const adapters = {
+      claude: fakeAdapter({
+        name: 'claude',
+        configPath: '/fake/.claude.json',
+        install: (opts) => {
+          claudeCalls.push(opts);
+          return Promise.resolve({
+            ok: true,
+            status: 'installed',
+            configPath: '/fake/.claude.json',
+            backupPath: '/fake/.claude.json.bak',
+            diff: '+ overwrite',
+          });
+        },
+      }),
+    };
+    const detected: DetectedClient[] = [{ name: 'claude', configPath: '/fake/.claude.json' }];
+    const h = makeHarness({ configPath, detected, adapters });
+
+    const code = await runSetup({ ...baseOptions, yes: true, noServer: true, force: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(claudeCalls).toEqual([
+      { dryRun: true, force: true },
+      { dryRun: false, force: true },
+    ]);
   });
 
   it('honors --client to scope installs to a single named client', async () => {

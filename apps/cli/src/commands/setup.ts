@@ -42,6 +42,13 @@ export interface Prompter {
 export interface SetupOptions {
   readonly yes: boolean;
   readonly noServer: boolean;
+  /**
+   * Pass-through for `install({ force })`. Needed when a previous setup
+   * wrote the toolbox client entry without `--config` and the current run
+   * wants to replace it with a `--config <path>`-bearing version, since
+   * the adapters refuse to overwrite a conflicting entry without this.
+   */
+  readonly force: boolean;
   readonly clients: readonly string[] | undefined;
   readonly transport: string | undefined;
   readonly config: string | undefined;
@@ -313,7 +320,7 @@ async function applyClientInstalls(
     deps.write(`\n${displayName}:\n`);
     let preview: InstallResult;
     try {
-      preview = await adapter.install({ dryRun: true, force: false });
+      preview = await adapter.install({ dryRun: true, force: options.force });
     } catch (error) {
       // An adapter that throws (e.g. EACCES on the config file, unreadable
       // directory, smol-toml exploding on a binary file, …) must not abort
@@ -362,7 +369,7 @@ async function applyClientInstalls(
     const displayName = DISPLAY_NAMES[item.client.name];
     let applied: InstallResult;
     try {
-      applied = await item.adapter.install({ dryRun: false, force: false });
+      applied = await item.adapter.install({ dryRun: false, force: options.force });
     } catch (error) {
       deps.writeErr(
         `  ✗ ${displayName}: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -639,10 +646,16 @@ export function setupCommand(): Command {
     .option('--no-server', 'skip the upstream-server prompt entirely')
     .option('--transport <transport>', 'reserved; only stdio is supported in v1')
     .option('-c, --config <path>', 'override the resolved config path')
+    .option(
+      '--force',
+      'overwrite an existing toolbox entry in a client config (e.g. to switch to --config <path>)',
+      false,
+    )
     .action(async (opts) => {
       const options: SetupOptions = {
         yes: opts.yes === true,
         noServer: opts.server === false,
+        force: opts.force === true,
         clients: opts.client,
         transport: opts.transport,
         config: opts.config,
