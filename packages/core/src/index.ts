@@ -154,12 +154,18 @@ export {
 
 export {
   claudeAdapter,
+  codexAdapter,
   createClaudeAdapter,
+  createCodexAdapter,
+  createOpencodeAdapter,
   detectClients,
+  opencodeAdapter,
   type ClientAdapter,
   type ClientAdapterEnv,
   type ClientName,
   type CreateClaudeAdapterOptions,
+  type CreateCodexAdapterOptions,
+  type CreateOpencodeAdapterOptions,
   type DetectedClient,
   type InstallOpts,
   type InstallResult,

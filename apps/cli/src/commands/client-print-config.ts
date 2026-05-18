@@ -261,8 +261,8 @@ function parseClient(value: string): string {
   return value;
 }
 
-export function clientCommand(): Command {
-  const cmd = new Command('client').description('Print MCP client setup snippets for ToolBox.');
+export function clientCommand(registerExtras: ReadonlyArray<(cmd: Command) => void> = []): Command {
+  const cmd = new Command('client').description('Configure MCP clients for ToolBox.');
 
   cmd
     .command('print-config')
@@ -283,6 +283,10 @@ export function clientCommand(): Command {
         process.exit(code);
       }
     });
+
+  for (const register of registerExtras) {
+    register(cmd);
+  }
 
   return cmd;
 }

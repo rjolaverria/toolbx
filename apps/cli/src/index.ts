@@ -2,6 +2,7 @@
 
 import { Command } from '@commander-js/extra-typings';
 
+import { registerClientInstall } from './commands/client-install.js';
 import { clientCommand } from './commands/client-print-config.js';
 import { configCommand } from './commands/config.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
   program.addCommand(stopCommand());
   program.addCommand(statusCommand());
   program.addCommand(toolsCommand());
-  program.addCommand(clientCommand());
+  program.addCommand(clientCommand([registerClientInstall]));
   program.addCommand(configCommand());
   program.addCommand(doctorCommand());
 

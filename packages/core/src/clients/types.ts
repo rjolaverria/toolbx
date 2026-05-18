@@ -22,6 +22,13 @@ export type InstallResult =
 
 export interface ClientAdapter {
   readonly name: ClientName;
+  /**
+   * Path to the file this adapter targets. Exposed so callers (CLI, future
+   * Electron UI) can include it in user-facing diagnostics — particularly the
+   * "not detected" branch where `detect()` returns null but the caller still
+   * needs to tell the user which path was checked.
+   */
+  readonly configPath: string;
   detect(): Promise<DetectedClient | null>;
   install(opts: InstallOpts): Promise<InstallResult>;
 }

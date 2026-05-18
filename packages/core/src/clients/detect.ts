@@ -1,16 +1,16 @@
 import { createClaudeAdapter } from './claude.js';
+import { createCodexAdapter } from './codex.js';
+import { createOpencodeAdapter } from './opencode.js';
 import type { ClientAdapter, ClientAdapterEnv, DetectedClient } from './types.js';
 
 /**
- * Builds the list of client adapters available in the current build.
- *
- * Adapters are listed in detection order. F1-08 ships Claude Code only; F1-09
- * adds Codex and OpenCode. Keeping the registry inside `detectClients` (rather
- * than a module-level constant) lets callers inject test-only environment
- * overrides without touching a shared singleton.
+ * Builds the list of client adapters available in the current build. Adapters
+ * are listed in detection order. Keeping the registry inside `detectClients`
+ * (rather than a module-level constant) lets callers inject test-only
+ * environment overrides without touching a shared singleton.
  */
 function buildAdapters(env: ClientAdapterEnv): ClientAdapter[] {
-  return [createClaudeAdapter(env)];
+  return [createClaudeAdapter(env), createCodexAdapter(env), createOpencodeAdapter(env)];
 }
 
 /**

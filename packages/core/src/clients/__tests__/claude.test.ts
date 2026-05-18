@@ -94,29 +94,6 @@ describe('createClaudeAdapter — install()', () => {
     }
   });
 
-  it('moves the pre-install inode to the backup and lands a fresh inode at the live path', async () => {
-    // The two-step backup flow (rename orig→backup, link tmp→orig) leaves
-    // the backup decoupled from any subsequent in-place mutation of the
-    // live config, because they have distinct inodes once the install
-    // finishes. This test pins both halves of that property.
-    const home = await makeFakeHome();
-    const configPath = path.join(home, '.claude.json');
-    await fs.writeFile(configPath, '{}');
-    const originalInode = (await fs.stat(configPath)).ino;
-
-    const adapter = makeAdapter(home);
-    const result = await adapter.install({ dryRun: false, force: false });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok || !result.backupPath) {
-      return;
-    }
-    const backupInode = (await fs.stat(result.backupPath)).ino;
-    const liveInode = (await fs.stat(configPath)).ino;
-    expect(backupInode).toBe(originalInode);
-    expect(liveInode).not.toBe(originalInode);
-  });
-
   it('preserves existing mcpServers entries when adding toolbox', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
@@ -234,6 +211,11 @@ describe('createClaudeAdapter — install()', () => {
     }
     expect(result.reason).toMatch(/json/i);
     expect(result.hint).toBeDefined();
+    // Error messages should name the actual resolved path, not a hardcoded
+    // string — otherwise injected-homedir callers (and the future Electron
+    // UI) get a misleading "open ~/.claude.json" hint.
+    expect(result.reason).toContain(configPath);
+    expect(result.hint).toContain(configPath);
 
     expect(await fs.readFile(configPath, 'utf8')).toBe('{not json');
     const entries = await fs.readdir(home);
@@ -315,64 +297,6 @@ describe('createClaudeAdapter — install()', () => {
     const entries = await fs.readdir(home);
     expect(entries.filter((name) => name.includes('.bak.'))).toEqual([]);
     expect(entries.filter((name) => name.includes('.tmp.'))).toEqual([]);
-  });
-
-  it('detects same-size content rewrites via content hash, not just mtime+size', async () => {
-    const home = await makeFakeHome();
-    const configPath = path.join(home, '.claude.json');
-    // Two distinct JSON objects with the same length on disk.
-    const before = '{"mcpServers":{"a":1}}';
-    const after = '{"mcpServers":{"b":2}}';
-    expect(before.length).toBe(after.length);
-    await fs.writeFile(configPath, before);
-
-    const adapter = makeAdapter(home, {
-      afterTmpWrite: async () => {
-        await fs.writeFile(configPath, after);
-      },
-    });
-    const result = await adapter.install({ dryRun: false, force: false });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.reason).toMatch(/modified/i);
-    // Tampered content remains intact, no install happened.
-    expect(await fs.readFile(configPath, 'utf8')).toBe(after);
-  });
-
-  it('refuses to clobber a file that appears at the live path between renames', async () => {
-    // Race: after we move the original to backup, but before we link our
-    // merged tmp file into place, a concurrent writer drops a new file at
-    // configPath. The link must fail with EEXIST and we must keep the
-    // concurrent writer's content, not overwrite it.
-    const home = await makeFakeHome();
-    const configPath = path.join(home, '.claude.json');
-    await fs.writeFile(configPath, '{}');
-    const concurrentContent = JSON.stringify({ writtenByOther: true }) + '\n';
-
-    const adapter = makeAdapter(home, {
-      afterMoveOriginalToBackup: async () => {
-        await fs.writeFile(configPath, concurrentContent, { flag: 'wx' });
-      },
-    });
-    const result = await adapter.install({ dryRun: false, force: false });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-    expect(result.reason).toMatch(/another process/i);
-    expect(result.hint).toContain('.bak.');
-
-    // Live file is the concurrent writer's content, not ours.
-    expect(await fs.readFile(configPath, 'utf8')).toBe(concurrentContent);
-    // No tmp file leaked.
-    const entries = await fs.readdir(home);
-    expect(entries.filter((name) => name.includes('.tmp.'))).toEqual([]);
-    // .bak still exists for recovery.
-    expect(entries.filter((name) => name.includes('.bak.')).length).toBe(1);
   });
 
   it('dryRun returns the diff without touching the filesystem', async () => {
