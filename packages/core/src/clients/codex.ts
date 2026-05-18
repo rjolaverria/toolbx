@@ -64,7 +64,8 @@ export function createCodexAdapterInternal(
         configPath,
         opts,
         hooks,
-        merge: ({ currentText, exists }) => mergeCodexConfig({ currentText, exists, opts }),
+        merge: ({ currentText, exists, configPath: resolvedPath }) =>
+          mergeCodexConfig({ currentText, exists, configPath: resolvedPath, opts }),
       });
     },
   };
@@ -75,16 +76,18 @@ export const codexAdapter: ClientAdapter = createCodexAdapter();
 interface MergeInput {
   readonly currentText: string;
   readonly exists: boolean;
+  readonly configPath: string;
   readonly opts: InstallOpts;
 }
 
 function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, opts } = input;
+  const { currentText, exists, configPath, opts } = input;
   if (!exists) {
+    const dir = path.dirname(configPath);
     return {
       ok: false,
       reason: 'Codex config not found',
-      hint: 'launch Codex once (or `mkdir -p ~/.codex && touch ~/.codex/config.toml`) to create the file, then re-run',
+      hint: `launch Codex once (or \`mkdir -p ${dir} && touch ${configPath}\`) to create the file, then re-run`,
     };
   }
 
@@ -95,8 +98,8 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
     const detail = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      reason: '~/.codex/config.toml is not valid TOML',
-      hint: `open ~/.codex/config.toml and fix the syntax error (${detail}), then re-run`,
+      reason: `${configPath} is not valid TOML`,
+      hint: `open ${configPath} and fix the syntax error (${detail}), then re-run`,
     };
   }
 
@@ -108,8 +111,8 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
   ) {
     return {
       ok: false,
-      reason: '~/.codex/config.toml mcp_servers is not a TOML table',
-      hint: 'open ~/.codex/config.toml and remove the `mcp_servers = ...` line so we can create the table, then re-run',
+      reason: `${configPath} mcp_servers is not a TOML table`,
+      hint: `open ${configPath} and remove the \`mcp_servers = ...\` line so we can create the table, then re-run`,
     };
   }
   const existingServers = serversAbsent ? undefined : (serversRaw as Record<string, unknown>);

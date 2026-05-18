@@ -71,7 +71,8 @@ export function createClaudeAdapterInternal(
         configPath,
         opts,
         hooks,
-        merge: ({ currentText, exists }) => mergeClaudeConfig({ currentText, exists, opts }),
+        merge: ({ currentText, exists, configPath: resolvedPath }) =>
+          mergeClaudeConfig({ currentText, exists, configPath: resolvedPath, opts }),
       });
     },
   };
@@ -86,16 +87,17 @@ function resolveConfigPath(homedir: () => string): string {
 interface MergeInput {
   readonly currentText: string;
   readonly exists: boolean;
+  readonly configPath: string;
   readonly opts: InstallOpts;
 }
 
 function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, opts } = input;
+  const { currentText, exists, configPath, opts } = input;
   if (!exists) {
     return {
       ok: false,
       reason: 'Claude Code config not found',
-      hint: 'launch Claude Code once to create ~/.claude.json, then re-run',
+      hint: `launch Claude Code once to create ${configPath}, then re-run`,
     };
   }
 
@@ -105,16 +107,16 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
       return {
         ok: false,
-        reason: '~/.claude.json is not a JSON object',
-        hint: 'open ~/.claude.json and replace the file contents with `{}`, then re-run',
+        reason: `${configPath} is not a JSON object`,
+        hint: `open ${configPath} and replace the file contents with \`{}\`, then re-run`,
       };
     }
     parsed = raw as Record<string, unknown>;
   } catch {
     return {
       ok: false,
-      reason: '~/.claude.json is not valid JSON',
-      hint: 'open ~/.claude.json and fix the syntax error, then re-run',
+      reason: `${configPath} is not valid JSON`,
+      hint: `open ${configPath} and fix the syntax error, then re-run`,
     };
   }
 
@@ -129,8 +131,8 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
   ) {
     return {
       ok: false,
-      reason: '~/.claude.json mcpServers is not a JSON object',
-      hint: 'open ~/.claude.json and replace mcpServers with `{}`, then re-run',
+      reason: `${configPath} mcpServers is not a JSON object`,
+      hint: `open ${configPath} and replace mcpServers with \`{}\`, then re-run`,
     };
   }
   const existingServers = mcpServersAbsent ? undefined : (mcpServersRaw as Record<string, unknown>);

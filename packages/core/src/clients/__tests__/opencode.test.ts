@@ -57,6 +57,20 @@ describe('createOpencodeAdapter — detect()', () => {
     const adapter = createOpencodeAdapter({ homedir: () => home, platform: 'darwin' });
     expect(await adapter.detect()).toEqual({ name: 'opencode', configPath });
   });
+
+  it('honors OPENCODE_CONFIG env var when resolving the config path', async () => {
+    const home = await makeFakeHome();
+    const overridePath = path.join(home, 'custom-opencode.json');
+    await fs.writeFile(overridePath, '{}');
+
+    const adapter = createOpencodeAdapter({
+      homedir: () => home,
+      platform: 'darwin',
+      env: { OPENCODE_CONFIG: overridePath },
+    });
+    expect(adapter.configPath).toBe(overridePath);
+    expect(await adapter.detect()).toEqual({ name: 'opencode', configPath: overridePath });
+  });
 });
 
 describe('createOpencodeAdapter — install()', () => {
@@ -211,6 +225,57 @@ describe('createOpencodeAdapter — install()', () => {
       return;
     }
     expect(result.reason).toMatch(/OpenCode/);
+    expect(result.hint).toBeDefined();
+  });
+
+  it('parses JSONC with comments and trailing commas, preserving them on write', async () => {
+    // OpenCode's docs say the config supports JSONC. JSON.parse would have
+    // thrown on the comment; the modify()/applyEdits() flow must keep the
+    // comment verbatim in the written file.
+    const home = await makeFakeHome();
+    const configPath = await ensureOpencodeDir(home);
+    const initial =
+      '{\n' +
+      '  // user theme preference\n' +
+      '  "theme": "tokyonight",\n' +
+      '  "mcp": {\n' +
+      '    /* existing entries */\n' +
+      '    "github": { "type": "local", "command": ["npx", "-y", "github-mcp"], "enabled": true },\n' +
+      '  },\n' +
+      '}\n';
+    await fs.writeFile(configPath, initial);
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const written = await fs.readFile(configPath, 'utf8');
+    expect(written).toContain('// user theme preference');
+    expect(written).toContain('/* existing entries */');
+    // toolbox entry is present
+    expect(written).toContain('"toolbox"');
+    expect(written).toMatch(/"type":\s*"local"/);
+    // github entry is preserved
+    expect(written).toContain('"github"');
+  });
+
+  it('returns ok:false when JSONC has a real syntax error (not just comments)', async () => {
+    const home = await makeFakeHome();
+    const configPath = await ensureOpencodeDir(home);
+    // Missing closing brace.
+    await fs.writeFile(configPath, '{ "mcp": {\n');
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toMatch(/JSONC|JSON/);
     expect(result.hint).toBeDefined();
   });
 

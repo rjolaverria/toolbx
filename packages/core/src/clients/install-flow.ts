@@ -17,6 +17,8 @@ export interface InstallFlowMergeInput {
   readonly currentText: string;
   /** Whether the configPath existed when we read it. */
   readonly exists: boolean;
+  /** Resolved on-disk path; surfaced so adapter error messages can name it. */
+  readonly configPath: string;
   readonly opts: InstallOpts;
 }
 
@@ -66,7 +68,7 @@ export async function runInstallFlow(ctx: InstallFlowContext): Promise<InstallRe
   }
   const initialHash = sha256(currentText);
 
-  const merged = merge({ currentText, exists, opts });
+  const merged = merge({ currentText, exists, configPath, opts });
   if (!merged.ok) {
     return merged;
   }

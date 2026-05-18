@@ -211,6 +211,11 @@ describe('createClaudeAdapter — install()', () => {
     }
     expect(result.reason).toMatch(/json/i);
     expect(result.hint).toBeDefined();
+    // Error messages should name the actual resolved path, not a hardcoded
+    // string — otherwise injected-homedir callers (and the future Electron
+    // UI) get a misleading "open ~/.claude.json" hint.
+    expect(result.reason).toContain(configPath);
+    expect(result.hint).toContain(configPath);
 
     expect(await fs.readFile(configPath, 'utf8')).toBe('{not json');
     const entries = await fs.readdir(home);
