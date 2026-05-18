@@ -227,6 +227,23 @@ describe('createCodexAdapter — install()', () => {
     expect(result.hint).toBeDefined();
   });
 
+  it('emits a TOML-shaped diff that mirrors the eventual file content', async () => {
+    const home = await makeFakeHome();
+    const configPath = await ensureCodexDir(home);
+    await fs.writeFile(configPath, '');
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: true, force: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.diff).toContain('+ [mcp_servers.toolbox]');
+    expect(result.diff).toContain('+   command = "npx"');
+    expect(result.diff).toContain('+   args = ["-y", "tlbx", "serve", "--stdio"]');
+  });
+
   it('dryRun returns the diff without touching disk', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);

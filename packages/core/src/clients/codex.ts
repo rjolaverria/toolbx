@@ -47,6 +47,7 @@ export function createCodexAdapterInternal(
 
   return {
     name: 'codex',
+    configPath,
     async detect(): Promise<DetectedClient | null> {
       try {
         await fs.stat(configPath);
@@ -122,7 +123,7 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
       return {
         ok: false,
         reason: 'mcp_servers.toolbox already present with different command/args',
-        hint: 're-run with --force to overwrite (use dryRun + force to preview)',
+        hint: 're-run with --force to overwrite (use --dry-run --force to preview)',
       };
     }
   }
@@ -151,8 +152,34 @@ function toolboxEntryMatches(value: unknown): boolean {
 function formatDiff(previous: unknown, next: unknown): string {
   const lines: string[] = [];
   if (previous !== undefined) {
-    lines.push('- mcp_servers.toolbox = ' + JSON.stringify(previous));
+    appendTomlTable(lines, '-', previous);
   }
-  lines.push('+ mcp_servers.toolbox = ' + JSON.stringify(next));
+  appendTomlTable(lines, '+', next);
   return lines.join('\n');
+}
+
+/**
+ * Emits a TOML-shaped block prefixed with `-` or `+` so the dry-run diff
+ * mirrors what the user would actually see in `~/.codex/config.toml`. The
+ * previous JSON-shaped output mixed TOML dotted keys with JSON values, which
+ * was misleading for copy/paste.
+ */
+function appendTomlTable(lines: string[], prefix: '-' | '+', value: unknown): void {
+  lines.push(`${prefix} [${MCP_SERVERS_KEY}.${TOOLBOX_KEY}]`);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    lines.push(`${prefix}   <invalid entry: ${JSON.stringify(value)}>`);
+    return;
+  }
+  for (const [key, fieldValue] of Object.entries(value)) {
+    lines.push(`${prefix}   ${key} = ${formatTomlValue(fieldValue)}`);
+  }
+}
+
+function formatTomlValue(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(formatTomlValue).join(', ')}]`;
+  }
+  return JSON.stringify(value);
 }

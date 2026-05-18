@@ -54,6 +54,7 @@ export function createClaudeAdapterInternal(
 
   return {
     name: 'claude',
+    configPath,
     async detect(): Promise<DetectedClient | null> {
       try {
         await fs.stat(configPath);
@@ -143,7 +144,7 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
       return {
         ok: false,
         reason: 'mcpServers.toolbox already present with different command/args',
-        hint: 're-run with --force to overwrite (use dryRun + force to preview)',
+        hint: 're-run with --force to overwrite (use --dry-run --force to preview)',
       };
     }
   }

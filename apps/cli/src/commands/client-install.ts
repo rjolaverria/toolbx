@@ -12,6 +12,12 @@ import {
 
 const SUPPORTED: readonly ClientName[] = ['claude', 'codex', 'opencode'];
 
+const DISPLAY_NAMES: Readonly<Record<ClientName, string>> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+};
+
 function isClientName(value: string): value is ClientName {
   return (SUPPORTED as readonly string[]).includes(value);
 }
@@ -76,24 +82,25 @@ export async function runClientInstall(
     return 1;
   }
 
+  const displayName = DISPLAY_NAMES[rawClient];
   const detected = await adapter.detect();
   if (!detected) {
     deps.writeErr(
-      `${rawClient}: not detected. Launch ${rawClient} once to create its config, then re-run.\n`,
+      `${displayName}: not detected at ${adapter.configPath}. Launch ${displayName} once to create its config, then re-run.\n`,
     );
     return 1;
   }
 
   const preview = await adapter.install({ dryRun: true, force: options.force });
   if (!preview.ok) {
-    deps.writeErr(`${rawClient}: ${preview.reason}\n`);
+    deps.writeErr(`${displayName}: ${preview.reason}\n`);
     if (preview.hint !== undefined) {
       deps.writeErr(`hint: ${preview.hint}\n`);
     }
     return 1;
   }
   if (preview.status === 'already-installed') {
-    deps.write(`already wired into ${rawClient} (${preview.configPath}); no changes.\n`);
+    deps.write(`already wired into ${displayName} (${preview.configPath}); no changes.\n`);
     return 0;
   }
 
@@ -113,7 +120,7 @@ export async function runClientInstall(
 
   const applied = await adapter.install({ dryRun: false, force: options.force });
   if (!applied.ok) {
-    deps.writeErr(`${rawClient}: ${applied.reason}\n`);
+    deps.writeErr(`${displayName}: ${applied.reason}\n`);
     if (applied.hint !== undefined) {
       deps.writeErr(`hint: ${applied.hint}\n`);
     }
@@ -124,7 +131,7 @@ export async function runClientInstall(
   if (applied.backupPath !== undefined) {
     deps.write(`backup at ${applied.backupPath}\n`);
   }
-  deps.write(`Restart ${rawClient} to pick up the change.\n`);
+  deps.write(`Restart ${displayName} to pick up the change.\n`);
   return 0;
 }
 

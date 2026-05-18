@@ -22,17 +22,20 @@ interface TestHarness {
 
 interface FakeAdapterBehavior {
   name?: ClientName;
+  configPath?: string;
   detect?: () => Promise<DetectedClient | null>;
   install?: (opts: InstallOpts) => Promise<InstallResult>;
 }
 
 function fakeAdapter(behavior: FakeAdapterBehavior = {}): ClientAdapter {
+  const name = behavior.name ?? 'claude';
   return {
-    name: behavior.name ?? 'claude',
+    name,
+    configPath: behavior.configPath ?? '/tmp/x',
     detect:
       behavior.detect ??
       ((): Promise<DetectedClient | null> =>
-        Promise.resolve({ name: 'claude', configPath: '/tmp/x' })),
+        Promise.resolve({ name, configPath: behavior.configPath ?? '/tmp/x' })),
     install:
       behavior.install ??
       ((): Promise<InstallResult> => Promise.resolve({ ok: false, reason: 'unused' })),
@@ -76,12 +79,16 @@ describe('runClientInstall', () => {
     expect(h.stderr.value).toMatch(/claude, codex, opencode/);
   });
 
-  it('exits 1 with a "not detected" message when detect returns null', async () => {
-    const adapter = fakeAdapter({ detect: () => Promise.resolve(null) });
+  it('exits 1 with a "not detected" message including the configPath and friendly name', async () => {
+    const adapter = fakeAdapter({
+      configPath: '/fake/home/.claude.json',
+      detect: () => Promise.resolve(null),
+    });
     const h = makeHarness(adapter);
     const code = await runClientInstall('claude', baseOpts, h.deps);
     expect(code).toBe(1);
-    expect(h.stderr.value).toMatch(/not detected/);
+    expect(h.stderr.value).toMatch(/not detected at \/fake\/home\/\.claude\.json/);
+    expect(h.stderr.value).toMatch(/Claude Code/);
   });
 
   it('prints the diff and exits 0 on --dry-run, calling install only once', async () => {
@@ -147,7 +154,7 @@ describe('runClientInstall', () => {
     ]);
     expect(h.stdout.value).toMatch(/Wrote \/tmp\/cfg/);
     expect(h.stdout.value).toMatch(/backup at \/tmp\/cfg\.bak\.xyz/);
-    expect(h.stdout.value).toMatch(/Restart claude/i);
+    expect(h.stdout.value).toMatch(/Restart Claude Code/);
   });
 
   it('skips the prompt with --yes', async () => {
