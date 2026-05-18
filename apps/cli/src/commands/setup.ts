@@ -169,15 +169,14 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
       ? path.resolve(deps.cwd(), options.config)
       : deps.resolveConfigPath();
 
-  // When the user pinned a custom config path, propagate it into the wired
-  // client entries so the gateway opens the same file we just initialized.
-  // Without this the clients would still launch `npx -y tlbx serve --stdio`
-  // against the default `~/.config/toolbox/config.json` and silently diverge
-  // from what `tlbx setup --config <path>` produced.
-  const extraServeArgs: readonly string[] | undefined =
-    options.config !== undefined && options.config.length > 0
-      ? (['--config', target] as const)
-      : undefined;
+  // Always pin the wired client entries to the same absolute config path
+  // setup just operated on. `target` can come from three different inputs
+  // — `--config <path>`, `TOOLBOX_CONFIG`, `XDG_CONFIG_HOME`, or the
+  // platform default — and only the last one can be re-derived by the
+  // gateway at client-spawn time. Sending `--config <abs target>` makes
+  // the wired entry self-describing in every case, even when the user's
+  // env at gateway-launch time differs from what it was during setup.
+  const extraServeArgs: readonly string[] = ['--config', target];
 
   let configCreated: boolean;
   try {
@@ -289,7 +288,7 @@ async function applyClientInstalls(
   detected: readonly DetectedClient[],
   options: SetupOptions,
   deps: SetupDeps,
-  extraServeArgs: readonly string[] | undefined,
+  extraServeArgs: readonly string[],
 ): Promise<InstallSummary> {
   const summary: InstallSummary = {
     successes: 0,
@@ -309,10 +308,7 @@ async function applyClientInstalls(
   const pending: Pending[] = [];
 
   for (const client of detected) {
-    const adapter = deps.resolveAdapter(
-      client.name,
-      extraServeArgs !== undefined ? { extraServeArgs } : undefined,
-    );
+    const adapter = deps.resolveAdapter(client.name, { extraServeArgs });
     if (!adapter) {
       continue;
     }

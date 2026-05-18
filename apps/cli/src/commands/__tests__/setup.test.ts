@@ -922,6 +922,38 @@ describe('runSetup integration (real adapters with a temp HOME)', () => {
     expect(codexBackupsAfter.length).toBe(1);
   });
 
+  it('propagates the resolved config path into wired entries even when --config is not set', async () => {
+    // The user runs `TOOLBOX_CONFIG=… tlbx setup` (or relies on
+    // XDG_CONFIG_HOME). `options.config` is `undefined`, but the resolved
+    // target is non-default, so the wired client entry must still carry
+    // `--config <target>` — otherwise the gateway the client spawns would
+    // load a different file than the one setup just initialized.
+    const home = await makeTempDir('toolbox-cli-setup-home-');
+    const configPath = path.join(home, 'env-resolved-toolbox.json');
+    const claudePath = path.join(home, '.claude.json');
+    await fs.writeFile(claudePath, '{}\n', 'utf8');
+
+    const deps = defaultSetupDeps({
+      env: { homedir: () => home, platform: 'darwin', env: {} },
+      stdout: () => undefined,
+      stderr: () => undefined,
+      prompter: queuedPrompter({ text: [], confirm: [] }),
+      resolveConfigPath: () => configPath,
+    });
+
+    const code = await runSetup({ ...baseOptions, yes: true, noServer: true }, deps);
+    expect(code).toBe(0);
+
+    const claudeContent = await fs.readFile(claudePath, 'utf8');
+    const parsed = JSON.parse(claudeContent) as {
+      mcpServers?: { toolbox?: { args?: string[] } };
+    };
+    const args = parsed.mcpServers?.toolbox?.args;
+    expect(args).toBeDefined();
+    expect(args).toContain('--config');
+    expect(args).toContain(configPath);
+  });
+
   it('propagates --config into the wired client entries so the gateway opens the same file', async () => {
     const home = await makeTempDir('toolbox-cli-setup-home-');
     const configPath = path.join(home, 'custom-toolbox.json');
