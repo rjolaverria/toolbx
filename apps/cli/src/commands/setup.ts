@@ -171,11 +171,15 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
     }
   }
 
+  let serverAddFailed = false;
   if (!options.noServer) {
     if (options.yes) {
       deps.write('Add an upstream MCP server later with: tlbx server add-stdio <name> -- <cmd>\n');
     } else {
-      await promptForServer(target, deps);
+      const outcome = await promptForServer(target, deps);
+      if (outcome === 'failed') {
+        serverAddFailed = true;
+      }
     }
   }
 
@@ -183,6 +187,13 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
 
   printSummary(installResults, deps);
 
+  // A failed interactive server-add is a direct user-requested step that did
+  // not complete, so it dominates the exit code regardless of client wiring
+  // outcomes. Client-install failures still fall through to the existing
+  // "every step failed" rule below.
+  if (serverAddFailed) {
+    return 1;
+  }
   if (installResults.failures > 0 && installResults.successes === 0) {
     return 1;
   }
@@ -420,15 +431,17 @@ export function parseShellCommand(input: string): string[] {
   return tokens;
 }
 
-async function promptForServer(target: string, deps: SetupDeps): Promise<void> {
+type ServerPromptOutcome = 'skipped' | 'added' | 'failed';
+
+async function promptForServer(target: string, deps: SetupDeps): Promise<ServerPromptOutcome> {
   const wantsServer = await deps.prompter.confirm('\nAdd an upstream MCP server now? [Y/n] ');
   if (!wantsServer) {
-    return;
+    return 'skipped';
   }
 
   const name = await promptUntilValidName(deps);
   if (name === null) {
-    return;
+    return 'failed';
   }
 
   const commandLine = (
@@ -436,7 +449,7 @@ async function promptForServer(target: string, deps: SetupDeps): Promise<void> {
   ).trim();
   if (commandLine.length === 0) {
     deps.writeErr('Empty command; skipping server addition.\n');
-    return;
+    return 'failed';
   }
   let tokens: string[];
   try {
@@ -444,11 +457,11 @@ async function promptForServer(target: string, deps: SetupDeps): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.writeErr(`Could not parse command: ${message}. Skipping server addition.\n`);
-    return;
+    return 'failed';
   }
   if (tokens.length === 0) {
     deps.writeErr('Empty command; skipping server addition.\n');
-    return;
+    return 'failed';
   }
 
   const envEntries: string[] = [];
@@ -478,7 +491,8 @@ async function promptForServer(target: string, deps: SetupDeps): Promise<void> {
     },
   };
   const addOptions = envEntries.length > 0 ? { env: envEntries } : {};
-  await runAddStdio(name, tokens, addOptions, serverDeps);
+  const exitCode = await runAddStdio(name, tokens, addOptions, serverDeps);
+  return exitCode === 0 ? 'added' : 'failed';
 }
 
 async function promptUntilValidName(deps: SetupDeps): Promise<string | null> {

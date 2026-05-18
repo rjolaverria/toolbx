@@ -3,7 +3,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
+  DEFAULT_CONFIG,
   loadConfig,
+  saveConfig,
   type ClientAdapter,
   type ClientName,
   type DetectedClient,
@@ -607,6 +609,38 @@ describe('runSetup', () => {
     expect(h.stderr.value).toMatch(/__/);
     const loaded = await loadConfig(configPath);
     expect(loaded.servers['good-name']).toBeDefined();
+  });
+
+  it('returns non-zero when interactive server-add fails (duplicate name)', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    await saveConfig(
+      {
+        ...DEFAULT_CONFIG,
+        servers: {
+          existing: { type: 'stdio', enabled: true, command: 'echo', args: ['hi'] },
+        },
+      },
+      configPath,
+    );
+    const prompter = queuedPrompter({
+      text: ['existing', 'echo hi', ''],
+      confirm: [true],
+    });
+    const h = makeHarness({ configPath, detected: [], prompter });
+
+    const code = await runSetup({ ...baseOptions, noServer: false }, h.deps);
+
+    expect(code).not.toBe(0);
+    expect(h.stderr.value).toMatch(/already exists/i);
+    // The pre-existing server entry must be untouched after the failed add.
+    const loaded = await loadConfig(configPath);
+    expect(loaded.servers.existing).toEqual({
+      type: 'stdio',
+      enabled: true,
+      command: 'echo',
+      args: ['hi'],
+    });
   });
 
   it('preserves whitespace inside quoted arguments when adding a stdio server', async () => {
