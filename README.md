@@ -27,6 +27,45 @@ ToolBox acts as both an **MCP server** to downstream clients and an **MCP client
 
 > ToolBox is under active development. The CLI surface below is the target shape — see [`.agents/SPECS.md`](./.agents/SPECS.md) and [`.agents/TASKS.md`](./.agents/TASKS.md) for what is implemented today.
 
+One command, run anywhere:
+
+```bash
+npx tlbx setup
+```
+
+`tlbx setup` is the happy path. It creates `~/.config/toolbox/config.json` if it's missing, walks you through adding one upstream MCP server (optional), detects every installed MCP client on your machine — Claude Code, Codex, OpenCode — and writes a `toolbox` entry into each one's config file with a timestamped backup. You confirm once, the diffs are previewed before any write, and the next launch of those clients spawns the gateway on demand over stdio.
+
+```text
+$ npx tlbx setup
+✓ Created config at ~/.config/toolbox/config.json
+Detected MCP clients:
+  • Claude Code  (~/.claude.json)
+  • Codex        (~/.codex/config.toml)
+
+Add an upstream MCP server now? [Y/n] n
+
+Claude Code:
+  + mcpServers.toolbox = {"type":"stdio","command":"npx","args":["-y","tlbx","serve","--stdio"],"env":{}}
+
+Codex:
+  + [mcp_servers.toolbox]
+  +   command = "npx"
+  +   args = ["-y", "tlbx", "serve", "--stdio"]
+
+Wire ToolBox into Claude Code, Codex? [Y/n] y
+  ✓ Claude Code: wrote ~/.claude.json (backup ~/.claude.json.bak.…)
+  ✓ Codex: wrote ~/.codex/config.toml (backup ~/.codex/config.toml.bak.…)
+
+✓ All set. Restart Claude Code, Codex to pick up the new server.
+Add more upstream servers anytime:  tlbx server add-stdio <name> -- <cmd>
+```
+
+Useful flags: `-y/--yes` skips every confirm (good for scripts), `--no-server` skips the upstream-server prompt entirely, and `--client <name>` scopes wiring to a single client (repeatable). Re-running `tlbx setup` is idempotent — it detects existing `toolbox` entries and does not create a second backup.
+
+### Advanced / scripting
+
+For CI, agent loops, or anyone who wants to drive each step manually, the original four-step flow is still supported:
+
 ```bash
 # Initialize the global config
 npx tlbx init
@@ -44,11 +83,13 @@ npx tlbx serve --detach
 # Stop a background gateway
 npx tlbx stop
 
-# Print a config snippet to paste into your MCP client
+# Install the ToolBox entry into one client's config file
+npx tlbx client install claude
+
+# Or print a config snippet to paste yourself
+# TODO(F1-11): Claude Code semantics for `client print-config` will land with that task.
 npx tlbx client print-config claude
 ```
-
-Add the snippet to your MCP client's configuration and ToolBox will appear as a single MCP server exposing every namespaced tool from your upstream servers.
 
 ## Configuration
 

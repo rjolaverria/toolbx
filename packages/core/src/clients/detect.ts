@@ -17,9 +17,21 @@ function buildAdapters(env: ClientAdapterEnv): ClientAdapter[] {
  * Probes each known client adapter and returns the ones whose configuration
  * files exist. Pure-function shape so the future Electron app can poll it on
  * a timer without managing side effects.
+ *
+ * Tolerant of per-adapter detection errors: if one adapter throws (e.g. a
+ * symlink loop, EACCES, or any other non-ENOENT stat error), the other
+ * adapters' results still come through. Without this, a single broken
+ * client config would abort `tlbx setup` even when the user only asked us
+ * to wire a different client.
  */
 export async function detectClients(env: ClientAdapterEnv = {}): Promise<DetectedClient[]> {
   const adapters = buildAdapters(env);
-  const results = await Promise.all(adapters.map((adapter) => adapter.detect()));
-  return results.filter((result): result is DetectedClient => result !== null);
+  const settled = await Promise.allSettled(adapters.map((adapter) => adapter.detect()));
+  const detected: DetectedClient[] = [];
+  for (const result of settled) {
+    if (result.status === 'fulfilled' && result.value !== null) {
+      detected.push(result.value);
+    }
+  }
+  return detected;
 }

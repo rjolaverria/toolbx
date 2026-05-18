@@ -84,7 +84,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-07** — [`tlbx serve --detach` and `tlbx stop`](tasks/F1-07-serve-detach-and-stop.md) — closed by d8853bf
 - [x] **F1-08** — [Client adapter framework and Claude Code adapter](tasks/F1-08-client-adapter-framework.md) — closed by this PR
 - [x] **F1-09** — [Codex + OpenCode adapters and `tlbx client install` command](tasks/F1-09-client-install-command.md) — closed by this PR
-- [ ] **F1-10** — [`tlbx setup` orchestrator and README rewrite](tasks/F1-10-setup-command.md)
+- [x] **F1-10** — [`tlbx setup` orchestrator and README rewrite](tasks/F1-10-setup-command.md) — closed by this PR
 - [ ] **F1-11** — [Drop Claude Desktop from `client print-config`; align `claude` keyword](tasks/F1-11-client-print-config-claude-code.md)
 
 ## Phase 2 — Electron Desktop UI
