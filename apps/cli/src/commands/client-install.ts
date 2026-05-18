@@ -20,7 +20,6 @@ export interface ClientInstallOptions {
   readonly yes: boolean;
   readonly dryRun: boolean;
   readonly force: boolean;
-  readonly config?: string;
 }
 
 export interface ClientInstallDeps {
@@ -154,13 +153,11 @@ export function registerClientInstall(parent: Command): void {
     .option('-y, --yes', 'skip the confirmation prompt', false)
     .option('--dry-run', 'print the diff and exit without writing', false)
     .option('--force', 'overwrite a conflicting toolbox entry (still creates a backup)', false)
-    .option('-c, --config <path>', 'override the resolved ToolBox config path (parity flag)')
     .action(async (client, opts) => {
       const options: ClientInstallOptions = {
         yes: opts.yes === true,
         dryRun: opts.dryRun === true,
         force: opts.force === true,
-        ...(opts.config !== undefined ? { config: opts.config } : {}),
       };
       const code = await runClientInstall(client, options, defaultClientInstallDeps());
       if (code !== 0) {
