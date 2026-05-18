@@ -12,7 +12,13 @@ import {
 } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { defaultSetupDeps, runSetup, type SetupDeps, type SetupOptions } from '../setup.js';
+import {
+  defaultSetupDeps,
+  parseShellCommand,
+  runSetup,
+  type SetupDeps,
+  type SetupOptions,
+} from '../setup.js';
 
 const tempDirs: string[] = [];
 
@@ -601,6 +607,70 @@ describe('runSetup', () => {
     expect(h.stderr.value).toMatch(/__/);
     const loaded = await loadConfig(configPath);
     expect(loaded.servers['good-name']).toBeDefined();
+  });
+
+  it('preserves whitespace inside quoted arguments when adding a stdio server', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const prompter = queuedPrompter({
+      text: ['files', 'npx -y @modelcontextprotocol/server-filesystem "/Users/me/My Project"', ''],
+      confirm: [true],
+    });
+    const h = makeHarness({ configPath, detected: [], prompter });
+
+    const code = await runSetup({ ...baseOptions, noServer: false }, h.deps);
+
+    expect(code).toBe(0);
+    const loaded = await loadConfig(configPath);
+    expect(loaded.servers.files).toEqual({
+      type: 'stdio',
+      enabled: true,
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/Users/me/My Project'],
+    });
+  });
+});
+
+describe('parseShellCommand', () => {
+  it('splits on whitespace when there are no quotes', () => {
+    expect(parseShellCommand('npx -y @atlassian/jira-mcp')).toEqual([
+      'npx',
+      '-y',
+      '@atlassian/jira-mcp',
+    ]);
+  });
+
+  it('preserves whitespace inside double quotes', () => {
+    expect(parseShellCommand('cmd "a b c" d')).toEqual(['cmd', 'a b c', 'd']);
+  });
+
+  it('preserves whitespace inside single quotes', () => {
+    expect(parseShellCommand("cmd 'a b c' d")).toEqual(['cmd', 'a b c', 'd']);
+  });
+
+  it('treats backslash as a one-character escape outside quotes', () => {
+    expect(parseShellCommand('cmd a\\ b c')).toEqual(['cmd', 'a b', 'c']);
+  });
+
+  it('honors a literal quote inside double quotes when escaped', () => {
+    expect(parseShellCommand('cmd "a\\"b"')).toEqual(['cmd', 'a"b']);
+  });
+
+  it('collapses runs of whitespace between tokens', () => {
+    expect(parseShellCommand('cmd   a\tb  ')).toEqual(['cmd', 'a', 'b']);
+  });
+
+  it('returns an empty array for an empty string', () => {
+    expect(parseShellCommand('')).toEqual([]);
+    expect(parseShellCommand('   ')).toEqual([]);
+  });
+
+  it('throws on an unterminated double quote', () => {
+    expect(() => parseShellCommand('cmd "unterminated')).toThrow(/unterminated/i);
+  });
+
+  it('throws on an unterminated single quote', () => {
+    expect(() => parseShellCommand("cmd 'unterminated")).toThrow(/unterminated/i);
   });
 });
 

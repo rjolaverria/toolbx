@@ -336,6 +336,90 @@ function indentLines(text: string, indent: string): string {
     .join('\n');
 }
 
+/**
+ * Minimal POSIX-shell-style tokenizer for the interactive `Command:` prompt.
+ *
+ * Splits on whitespace but honors single quotes (literal), double quotes
+ * (with `\\\"` and `\\\\` escapes), and backslash as a one-character escape
+ * outside quotes. Throws on unterminated quotes so the caller can ask the
+ * user to retype instead of silently merging tokens.
+ *
+ * We accept the smaller surface area instead of pulling in `shell-quote`
+ * because we only need it in this one prompt path and the rules we care
+ * about (paths with spaces, no env expansion, no globbing) fit in ~30 lines.
+ */
+export function parseShellCommand(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let collecting = false;
+  let mode: 'normal' | 'single' | 'double' = 'normal';
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (mode === 'normal') {
+      if (ch === ' ' || ch === '\t') {
+        if (collecting) {
+          tokens.push(current);
+          current = '';
+          collecting = false;
+        }
+        continue;
+      }
+      if (ch === "'") {
+        mode = 'single';
+        collecting = true;
+        continue;
+      }
+      if (ch === '"') {
+        mode = 'double';
+        collecting = true;
+        continue;
+      }
+      if (ch === '\\' && i + 1 < input.length) {
+        current += input[i + 1];
+        collecting = true;
+        i += 1;
+        continue;
+      }
+      current += ch;
+      collecting = true;
+      continue;
+    }
+    if (mode === 'single') {
+      if (ch === "'") {
+        mode = 'normal';
+        continue;
+      }
+      current += ch;
+      continue;
+    }
+    // mode === 'double'
+    if (ch === '"') {
+      mode = 'normal';
+      continue;
+    }
+    if (ch === '\\' && i + 1 < input.length) {
+      const next = input[i + 1];
+      if (next === '"' || next === '\\') {
+        current += next;
+        i += 1;
+        continue;
+      }
+    }
+    current += ch;
+  }
+
+  if (mode !== 'normal') {
+    throw new Error(
+      mode === 'single' ? 'unterminated single-quoted string' : 'unterminated double-quoted string',
+    );
+  }
+  if (collecting) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
 async function promptForServer(target: string, deps: SetupDeps): Promise<void> {
   const wantsServer = await deps.prompter.confirm('\nAdd an upstream MCP server now? [Y/n] ');
   if (!wantsServer) {
@@ -347,12 +431,25 @@ async function promptForServer(target: string, deps: SetupDeps): Promise<void> {
     return;
   }
 
-  const commandLine = (await deps.prompter.prompt('Command: ')).trim();
+  const commandLine = (
+    await deps.prompter.prompt('Command (supports POSIX-style quotes for paths with spaces): ')
+  ).trim();
   if (commandLine.length === 0) {
     deps.writeErr('Empty command; skipping server addition.\n');
     return;
   }
-  const tokens = commandLine.split(/\s+/);
+  let tokens: string[];
+  try {
+    tokens = parseShellCommand(commandLine);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    deps.writeErr(`Could not parse command: ${message}. Skipping server addition.\n`);
+    return;
+  }
+  if (tokens.length === 0) {
+    deps.writeErr('Empty command; skipping server addition.\n');
+    return;
+  }
 
   const envEntries: string[] = [];
   let first = true;
