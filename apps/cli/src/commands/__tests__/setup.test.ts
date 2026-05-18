@@ -216,10 +216,33 @@ describe('runSetup', () => {
     expect(loaded.version).toBe(1);
   });
 
+  it('returns non-zero when the existing config is structurally invalid', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    await fs.writeFile(configPath, '{ "version": 1 }\n', 'utf8');
+    const h = makeHarness({ configPath });
+
+    const code = await runSetup({ ...baseOptions, yes: true, noServer: true }, h.deps);
+
+    expect(code).not.toBe(0);
+    expect(h.stderr.value).toMatch(/config/i);
+  });
+
+  it('returns non-zero when the existing config is not valid JSON', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    await fs.writeFile(configPath, 'this is not json\n', 'utf8');
+    const h = makeHarness({ configPath });
+
+    const code = await runSetup({ ...baseOptions, yes: true, noServer: true }, h.deps);
+
+    expect(code).not.toBe(0);
+  });
+
   it('reports "config already exists" without modifying the file on a re-run', async () => {
     const dir = await makeTempDir();
     const configPath = path.join(dir, 'config.json');
-    await fs.writeFile(configPath, '{ "version": 1, "servers": {} }\n', 'utf8');
+    await saveConfig(DEFAULT_CONFIG, configPath);
     const before = await fs.readFile(configPath, 'utf8');
     const h = makeHarness({ configPath });
 
@@ -487,7 +510,7 @@ describe('runSetup', () => {
   it('returns non-zero when every client install fails', async () => {
     const dir = await makeTempDir();
     const configPath = path.join(dir, 'config.json');
-    await fs.writeFile(configPath, '{ "version": 1, "servers": {} }\n', 'utf8');
+    await saveConfig(DEFAULT_CONFIG, configPath);
     const adapters = {
       claude: fakeAdapter({
         name: 'claude',

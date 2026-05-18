@@ -182,6 +182,22 @@ describe('createConfigIfMissing', () => {
     await expect(createConfigIfMissing(target)).rejects.toThrow(/not a regular file/);
   });
 
+  it('preserves an existing file when a racing writer wins the create', async () => {
+    // Simulate the TOCTOU race by pre-creating the target with content a
+    // process other than us would have written. `createConfigIfMissing` must
+    // return `{ created: false }` and leave the file byte-identical instead
+    // of overwriting it with DEFAULT_CONFIG.
+    const dir = await makeTempDir();
+    const target = path.join(dir, 'config.json');
+    const otherWriterContent = '{"version":1,"servers":{"sentinel-from-race":{}}}\n';
+    await fs.writeFile(target, otherWriterContent, 'utf8');
+
+    const result = await createConfigIfMissing(target);
+
+    expect(result.created).toBe(false);
+    expect(await fs.readFile(target, 'utf8')).toBe(otherWriterContent);
+  });
+
   it('creates missing parent directories before writing', async () => {
     const dir = await makeTempDir();
     const target = path.join(dir, 'nested', 'config.json');

@@ -3,10 +3,13 @@ import * as readline from 'node:readline/promises';
 
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
 import {
+  ConfigLoadError,
+  ConfigValidationError,
   createClaudeAdapter,
   createCodexAdapter,
   createOpencodeAdapter,
   detectClients,
+  loadConfig,
   resolveConfigPath,
   ServerNameSchema,
   type ClientAdapter,
@@ -182,6 +185,24 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
     deps.write(`✓ Created config at ${target}\n`);
   } else {
     deps.write(`✓ Config already exists at ${target}\n`);
+  }
+
+  // Validate the resulting config before we go any further. Without this an
+  // invalid pre-existing file would still let setup print "All set" and wire
+  // clients into a gateway that would fail to load on launch. A freshly
+  // created config is always valid (it's DEFAULT_CONFIG), but the load is
+  // cheap and keeps the post-condition uniform across both paths.
+  try {
+    await loadConfig(target);
+  } catch (error) {
+    if (error instanceof ConfigLoadError || error instanceof ConfigValidationError) {
+      deps.writeErr(`${error.message}\n`);
+      deps.writeErr(
+        `Fix ${target} (or remove it so \`tlbx setup\` can rebuild a default), then re-run.\n`,
+      );
+      return 1;
+    }
+    throw error;
   }
 
   const allDetected = await deps.detectClients();

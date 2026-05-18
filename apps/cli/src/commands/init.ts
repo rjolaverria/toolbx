@@ -50,17 +50,40 @@ export interface CreateConfigIfMissingResult {
  * Idempotent: write the default config to `target` only when nothing is there.
  * Surfaces `created` so callers (e.g. `tlbx setup`) can tailor the first-run
  * message without having to probe the file system themselves.
+ *
+ * Race-safe: uses `open(O_EXCL)` to create the file, so a concurrent process
+ * that wrote `target` between the initial stat and our create cannot have
+ * its work overwritten — we observe `EEXIST`, treat the run as
+ * `created: false`, and leave the racing writer's content untouched.
  */
 export async function createConfigIfMissing(target: string): Promise<CreateConfigIfMissingResult> {
-  const existing = await statIfExists(target);
-  if (existing !== null) {
-    if (!existing.isFile()) {
-      throw new Error(`Cannot use ${target}: not a regular file.`);
+  const dir = path.dirname(target);
+  await fs.mkdir(dir, { recursive: true });
+  const payload = JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n';
+
+  try {
+    const handle = await fs.open(target, 'wx', 0o600);
+    try {
+      await handle.writeFile(payload, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
     }
-    return { created: false, path: target };
+    return { created: true, path: target };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw error;
+    }
   }
-  await saveConfig(DEFAULT_CONFIG, target);
-  return { created: true, path: target };
+
+  // Something is at `target` (either pre-existing or written by a race
+  // winner). Re-check that it is actually a regular file before reporting
+  // success — a directory or device node still needs to be surfaced.
+  const stat = await fs.stat(target);
+  if (!stat.isFile()) {
+    throw new Error(`Cannot use ${target}: not a regular file.`);
+  }
+  return { created: false, path: target };
 }
 
 export async function runInit(options: InitOptions, deps: InitDeps): Promise<number> {
