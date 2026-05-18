@@ -808,6 +808,10 @@ describe('parseShellCommand', () => {
     expect(parseShellCommand('cmd a\\ b c')).toEqual(['cmd', 'a b', 'c']);
   });
 
+  it('preserves a trailing backslash outside quotes as a literal backslash', () => {
+    expect(parseShellCommand('cmd foo\\')).toEqual(['cmd', 'foo\\']);
+  });
+
   it('honors a literal quote inside double quotes when escaped', () => {
     expect(parseShellCommand('cmd "a\\"b"')).toEqual(['cmd', 'a"b']);
   });

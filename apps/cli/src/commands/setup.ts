@@ -482,10 +482,19 @@ export function parseShellCommand(input: string): string[] {
         collecting = true;
         continue;
       }
-      if (ch === '\\' && i + 1 < input.length) {
-        current += input[i + 1];
+      if (ch === '\\') {
+        // Backslash outside quotes escapes the next char. A *trailing*
+        // backslash has nothing to escape — preserve it as a literal '\'
+        // so the user's typed command isn't silently mutated. (POSIX shells
+        // sometimes line-continue here, but `tlbx setup` consumes one line
+        // of input so there's no continuation to honor.)
+        if (i + 1 < input.length) {
+          current += input[i + 1];
+          i += 1;
+        } else {
+          current += '\\';
+        }
         collecting = true;
-        i += 1;
         continue;
       }
       current += ch;
