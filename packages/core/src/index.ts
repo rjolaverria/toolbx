@@ -11,6 +11,7 @@ export {
   NoneAuthSchema,
   ProgressiveDisclosureSchema,
   ServerConfigSchema,
+  ServerNameSchema,
   ServerSettingsSchema,
   ServersMapSchema,
   StdioServerConfigSchema,

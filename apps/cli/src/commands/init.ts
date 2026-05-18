@@ -41,6 +41,28 @@ async function statIfExists(target: string): Promise<Stats | null> {
   }
 }
 
+export interface CreateConfigIfMissingResult {
+  readonly created: boolean;
+  readonly path: string;
+}
+
+/**
+ * Idempotent: write the default config to `target` only when nothing is there.
+ * Surfaces `created` so callers (e.g. `tlbx setup`) can tailor the first-run
+ * message without having to probe the file system themselves.
+ */
+export async function createConfigIfMissing(target: string): Promise<CreateConfigIfMissingResult> {
+  const existing = await statIfExists(target);
+  if (existing !== null) {
+    if (!existing.isFile()) {
+      throw new Error(`Cannot use ${target}: not a regular file.`);
+    }
+    return { created: false, path: target };
+  }
+  await saveConfig(DEFAULT_CONFIG, target);
+  return { created: true, path: target };
+}
+
 export async function runInit(options: InitOptions, deps: InitDeps): Promise<number> {
   const target =
     options.path !== undefined && options.path.length > 0

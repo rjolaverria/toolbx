@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const ServerNameSchema = z
+export const ServerNameSchema = z
   .string()
   .min(1)
   .regex(/^[a-z0-9][a-z0-9_-]*$/i, 'server names must be alphanumeric with `-` or `_`')

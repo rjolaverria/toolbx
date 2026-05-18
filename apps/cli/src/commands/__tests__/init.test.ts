@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG, loadConfig } from '@toolbox/core';
 
-import { runInit, type InitDeps } from '../init.js';
+import { createConfigIfMissing, runInit, type InitDeps } from '../init.js';
 
 const tempDirs: string[] = [];
 
@@ -145,6 +145,50 @@ describe('runInit', () => {
     const code = await runInit({}, h.deps);
 
     expect(code).toBe(0);
+    const stat = await fs.stat(target);
+    expect(stat.isFile()).toBe(true);
+  });
+});
+
+describe('createConfigIfMissing', () => {
+  it('writes the default config when the path does not exist', async () => {
+    const dir = await makeTempDir();
+    const target = path.join(dir, 'config.json');
+
+    const result = await createConfigIfMissing(target);
+
+    expect(result).toEqual({ created: true, path: target });
+    const loaded = await loadConfig(target);
+    expect(loaded).toEqual(DEFAULT_CONFIG);
+  });
+
+  it('leaves an existing file untouched and reports created=false', async () => {
+    const dir = await makeTempDir();
+    const target = path.join(dir, 'config.json');
+    const initial = '{ "version": 1, "servers": {} }\n';
+    await fs.writeFile(target, initial, 'utf8');
+
+    const result = await createConfigIfMissing(target);
+
+    expect(result).toEqual({ created: false, path: target });
+    expect(await fs.readFile(target, 'utf8')).toBe(initial);
+  });
+
+  it('rejects a non-regular-file at the target path', async () => {
+    const dir = await makeTempDir();
+    const target = path.join(dir, 'config.json');
+    await fs.mkdir(target);
+
+    await expect(createConfigIfMissing(target)).rejects.toThrow(/not a regular file/);
+  });
+
+  it('creates missing parent directories before writing', async () => {
+    const dir = await makeTempDir();
+    const target = path.join(dir, 'nested', 'config.json');
+
+    const result = await createConfigIfMissing(target);
+
+    expect(result.created).toBe(true);
     const stat = await fs.stat(target);
     expect(stat.isFile()).toBe(true);
   });
