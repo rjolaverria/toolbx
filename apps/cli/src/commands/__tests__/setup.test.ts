@@ -527,6 +527,64 @@ describe('runSetup', () => {
     expect(h.stderr.value).toMatch(/claude broken/);
   });
 
+  it('catches install() exceptions and continues wiring the remaining clients', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const codexCalls: InstallOpts[] = [];
+    const adapters = {
+      claude: fakeAdapter({
+        name: 'claude',
+        configPath: '/fake/.claude.json',
+        // Throw an exception (e.g. unreadable file) instead of returning ok:false.
+        install: () =>
+          Promise.reject(new Error('EACCES: permission denied, open /fake/.claude.json')),
+      }),
+      codex: fakeAdapter({
+        name: 'codex',
+        configPath: '/fake/.codex/config.toml',
+        install: (opts) => {
+          codexCalls.push(opts);
+          return Promise.resolve({
+            ok: true,
+            status: 'installed',
+            configPath: '/fake/.codex/config.toml',
+            backupPath: '/fake/.codex/config.toml.bak',
+            diff: '+ [mcp_servers.toolbox]',
+          });
+        },
+      }),
+    };
+    const detected: DetectedClient[] = [
+      { name: 'claude', configPath: '/fake/.claude.json' },
+      { name: 'codex', configPath: '/fake/.codex/config.toml' },
+    ];
+    const h = makeHarness({ configPath, detected, adapters });
+
+    const code = await runSetup({ ...baseOptions, yes: true, noServer: true }, h.deps);
+
+    // claude threw, codex succeeded → at least one success → exit 0
+    expect(code).toBe(0);
+    expect(h.stderr.value).toMatch(/EACCES/);
+    expect(codexCalls).toEqual([
+      { dryRun: true, force: false },
+      { dryRun: false, force: false },
+    ]);
+  });
+
+  it('does not print "All set" when setup is exiting non-zero', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const h = makeHarness({ configPath, detected: [] });
+
+    const code = await runSetup(
+      { ...baseOptions, yes: true, noServer: true, clients: ['codex'] },
+      h.deps,
+    );
+
+    expect(code).not.toBe(0);
+    expect(h.stdout.value).not.toMatch(/All set/i);
+  });
+
   it('honors --client to scope installs to a single named client', async () => {
     const dir = await makeTempDir();
     const configPath = path.join(dir, 'config.json');

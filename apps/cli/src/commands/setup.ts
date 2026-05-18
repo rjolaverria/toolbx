@@ -258,24 +258,15 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
 
   const installResults = await applyClientInstalls(detected, options, deps, extraServeArgs);
 
-  printSummary(installResults, deps);
+  // Decide the exit verdict first so the summary print reflects it, instead
+  // of always printing "✓ All set." and then handing the caller exit 1.
+  const overallFailed =
+    serverAddFailed ||
+    missingRequested.length > 0 ||
+    (installResults.failures > 0 && installResults.successes === 0);
+  printSummary(installResults, overallFailed, deps);
 
-  // A failed interactive server-add is a direct user-requested step that did
-  // not complete, so it dominates the exit code regardless of client wiring
-  // outcomes. Client-install failures still fall through to the existing
-  // "every step failed" rule below.
-  if (serverAddFailed) {
-    return 1;
-  }
-  // Same idea for explicitly-named-but-undetected clients: the user asked us
-  // to wire them and we couldn't, so we should not exit 0.
-  if (missingRequested.length > 0) {
-    return 1;
-  }
-  if (installResults.failures > 0 && installResults.successes === 0) {
-    return 1;
-  }
-  return 0;
+  return overallFailed ? 1 : 0;
 }
 
 interface InstallSummary {
@@ -320,7 +311,19 @@ async function applyClientInstalls(
     }
     const displayName = DISPLAY_NAMES[client.name];
     deps.write(`\n${displayName}:\n`);
-    const preview = await adapter.install({ dryRun: true, force: false });
+    let preview: InstallResult;
+    try {
+      preview = await adapter.install({ dryRun: true, force: false });
+    } catch (error) {
+      // An adapter that throws (e.g. EACCES on the config file, unreadable
+      // directory, smol-toml exploding on a binary file, …) must not abort
+      // setup — the user could still have other clients we can wire.
+      deps.writeErr(
+        `  ✗ ${displayName}: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      summary.failures += 1;
+      continue;
+    }
     if (!preview.ok) {
       deps.writeErr(`  ✗ ${displayName}: ${preview.reason}\n`);
       if (preview.hint !== undefined) {
@@ -357,7 +360,16 @@ async function applyClientInstalls(
 
   for (const item of pending) {
     const displayName = DISPLAY_NAMES[item.client.name];
-    const applied = await item.adapter.install({ dryRun: false, force: false });
+    let applied: InstallResult;
+    try {
+      applied = await item.adapter.install({ dryRun: false, force: false });
+    } catch (error) {
+      deps.writeErr(
+        `  ✗ ${displayName}: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      summary.failures += 1;
+      continue;
+    }
     if (!applied.ok) {
       deps.writeErr(`  ✗ ${displayName}: ${applied.reason}\n`);
       if (applied.hint !== undefined) {
@@ -382,8 +394,10 @@ async function applyClientInstalls(
   return summary;
 }
 
-function printSummary(summary: InstallSummary, deps: SetupDeps): void {
-  if (summary.written.length > 0) {
+function printSummary(summary: InstallSummary, failed: boolean, deps: SetupDeps): void {
+  if (failed) {
+    deps.write('\nSetup finished with errors. See the messages above and re-run when ready.\n');
+  } else if (summary.written.length > 0) {
     deps.write(`\n✓ All set. Restart ${summary.written.join(', ')} to pick up the new server.\n`);
   } else {
     deps.write('\n✓ All set.\n');
