@@ -17,6 +17,7 @@ import type {
 
 const CLAUDE_CONFIG_FILENAME = '.claude.json';
 const TOOLBOX_KEY = 'toolbox';
+const BASE_TOOLBOX_ARGS: readonly string[] = ['-y', 'tlbx', 'serve', '--stdio'];
 
 interface ToolboxEntry {
   type: 'stdio';
@@ -25,14 +26,24 @@ interface ToolboxEntry {
   env: Record<string, string>;
 }
 
-const TOOLBOX_ENTRY: ToolboxEntry = {
-  type: 'stdio',
-  command: 'npx',
-  args: ['-y', 'tlbx', 'serve', '--stdio'],
-  env: {},
-};
+function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+  return {
+    type: 'stdio',
+    command: 'npx',
+    args: [...BASE_TOOLBOX_ARGS, ...extraArgs],
+    env: {},
+  };
+}
 
-export type CreateClaudeAdapterOptions = ClientAdapterEnv;
+export interface CreateClaudeAdapterOptions extends ClientAdapterEnv {
+  /**
+   * Extra args to append after `npx -y tlbx serve --stdio` in the wired
+   * `mcpServers.toolbox` entry. `tlbx setup --config <path>` uses this to
+   * propagate `['--config', '<absolute path>']` so the gateway opens the
+   * same config the user just initialized.
+   */
+  readonly extraServeArgs?: readonly string[];
+}
 
 /**
  * Hooks reserved for tests inside this module. Re-exported as
@@ -51,6 +62,7 @@ export function createClaudeAdapterInternal(
 ): ClientAdapter {
   const homedir = options.homedir ?? osHomedir;
   const configPath = resolveConfigPath(homedir);
+  const toolboxEntry = buildToolboxEntry(options.extraServeArgs ?? []);
 
   return {
     name: 'claude',
@@ -72,7 +84,13 @@ export function createClaudeAdapterInternal(
         opts,
         hooks,
         merge: ({ currentText, exists, configPath: resolvedPath }) =>
-          mergeClaudeConfig({ currentText, exists, configPath: resolvedPath, opts }),
+          mergeClaudeConfig({
+            currentText,
+            exists,
+            configPath: resolvedPath,
+            opts,
+            toolboxEntry,
+          }),
       });
     },
   };
@@ -89,10 +107,11 @@ interface MergeInput {
   readonly exists: boolean;
   readonly configPath: string;
   readonly opts: InstallOpts;
+  readonly toolboxEntry: ToolboxEntry;
 }
 
 function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts } = input;
+  const { currentText, exists, configPath, opts, toolboxEntry } = input;
   if (!exists) {
     return {
       ok: false,
@@ -139,7 +158,7 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
   const existingToolbox = existingServers?.[TOOLBOX_KEY];
 
   if (existingToolbox !== undefined) {
-    if (toolboxEntryMatches(existingToolbox)) {
+    if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
     if (!opts.force) {
@@ -153,7 +172,7 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
 
   const merged: Record<string, unknown> = { ...parsed };
   const mergedServers: Record<string, unknown> = { ...(existingServers ?? {}) };
-  mergedServers[TOOLBOX_KEY] = { ...TOOLBOX_ENTRY, args: [...TOOLBOX_ENTRY.args] };
+  mergedServers[TOOLBOX_KEY] = { ...toolboxEntry, args: [...toolboxEntry.args] };
   merged.mcpServers = mergedServers;
 
   const nextContent = JSON.stringify(merged, null, 2) + '\n';
@@ -161,15 +180,15 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
   return { ok: true, status: 'installed', nextContent, diff };
 }
 
-function toolboxEntryMatches(value: unknown): boolean {
+function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  if (candidate.type !== TOOLBOX_ENTRY.type) return false;
-  if (candidate.command !== TOOLBOX_ENTRY.command) return false;
-  if (!arraysShallowEqual(candidate.args, TOOLBOX_ENTRY.args)) return false;
-  if (!recordsShallowEqual(candidate.env, TOOLBOX_ENTRY.env)) return false;
+  if (candidate.type !== expected.type) return false;
+  if (candidate.command !== expected.command) return false;
+  if (!arraysShallowEqual(candidate.args, expected.args)) return false;
+  if (!recordsShallowEqual(candidate.env, expected.env)) return false;
   return true;
 }
 

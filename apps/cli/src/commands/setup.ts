@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
@@ -43,6 +44,16 @@ export interface SetupOptions {
   readonly config: string | undefined;
 }
 
+export interface ResolveAdapterOptions {
+  /**
+   * Extra args to append to the wired toolbox entry's `serve` invocation —
+   * threaded through so `tlbx setup --config <path>` can produce client
+   * entries that launch the gateway against the same config the user
+   * just initialized.
+   */
+  readonly extraServeArgs?: readonly string[];
+}
+
 export interface SetupDeps {
   write(msg: string): void;
   writeErr(msg: string): void;
@@ -50,7 +61,7 @@ export interface SetupDeps {
   resolveConfigPath(): string;
   cwd(): string;
   detectClients(): Promise<readonly DetectedClient[]>;
-  resolveAdapter(name: ClientName): ClientAdapter | null;
+  resolveAdapter(name: ClientName, options?: ResolveAdapterOptions): ClientAdapter | null;
 }
 
 export interface DefaultSetupDepsOptions {
@@ -82,14 +93,20 @@ export function defaultSetupDeps(opts: DefaultSetupDepsOptions = {}): SetupDeps 
     resolveConfigPath: opts.resolveConfigPath ?? ((): string => resolveConfigPath()),
     cwd: opts.cwd ?? ((): string => process.cwd()),
     detectClients: () => detectClients(env),
-    resolveAdapter: (name): ClientAdapter => {
+    resolveAdapter: (name, resolveOpts): ClientAdapter => {
+      const factoryOpts = {
+        ...env,
+        ...(resolveOpts?.extraServeArgs !== undefined
+          ? { extraServeArgs: resolveOpts.extraServeArgs }
+          : {}),
+      };
       switch (name) {
         case 'claude':
-          return createClaudeAdapter(env);
+          return createClaudeAdapter(factoryOpts);
         case 'codex':
-          return createCodexAdapter(env);
+          return createCodexAdapter(factoryOpts);
         case 'opencode':
-          return createOpencodeAdapter(env);
+          return createOpencodeAdapter(factoryOpts);
       }
     },
   };
@@ -119,10 +136,16 @@ function defaultPrompter(): Prompter {
 }
 
 export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<number> {
-  if (options.transport === 'http') {
-    deps.writeErr(
-      '--transport http is not yet supported in v1. Use stdio (default) or run `tlbx serve` manually.\n',
-    );
+  if (options.transport !== undefined && options.transport !== 'stdio') {
+    if (options.transport === 'http') {
+      deps.writeErr(
+        '--transport http is not yet supported in v1. Use stdio (default) or run `tlbx serve` manually.\n',
+      );
+    } else {
+      deps.writeErr(
+        `--transport ${options.transport} is not a supported transport in v1. Only \`stdio\` is supported.\n`,
+      );
+    }
     return 1;
   }
 
@@ -133,8 +156,18 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
 
   const target =
     options.config !== undefined && options.config.length > 0
-      ? options.config
+      ? path.resolve(deps.cwd(), options.config)
       : deps.resolveConfigPath();
+
+  // When the user pinned a custom config path, propagate it into the wired
+  // client entries so the gateway opens the same file we just initialized.
+  // Without this the clients would still launch `npx -y tlbx serve --stdio`
+  // against the default `~/.config/toolbox/config.json` and silently diverge
+  // from what `tlbx setup --config <path>` produced.
+  const extraServeArgs: readonly string[] | undefined =
+    options.config !== undefined && options.config.length > 0
+      ? (['--config', target] as const)
+      : undefined;
 
   let configCreated: boolean;
   try {
@@ -154,10 +187,24 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
   const allDetected = await deps.detectClients();
   const detected = filterDetected(allDetected, requestedClients);
 
+  // Identify any `--client X` whose adapter wasn't detected. We still continue
+  // through the rest of setup, but track these so the run can exit non-zero —
+  // a script that explicitly asked us to wire `codex` should be able to tell
+  // by exit code that codex didn't get wired.
+  const missingRequested: ClientName[] = [];
+  if (requestedClients.length > 0) {
+    const detectedSet = new Set(detected.map((c) => c.name));
+    for (const requested of requestedClients) {
+      if (!detectedSet.has(requested)) {
+        missingRequested.push(requested);
+      }
+    }
+  }
+
   if (detected.length === 0) {
-    if (requestedClients !== null && requestedClients.length > 0) {
-      deps.write(
-        `No requested MCP clients are detected (${requestedClients.join(', ')}). Launch the client once to create its config, then run \`tlbx client install <client>\`.\n`,
+    if (requestedClients.length > 0) {
+      deps.writeErr(
+        `Requested MCP clients are not detected (${requestedClients.join(', ')}). Launch the client once to create its config, then run \`tlbx client install <client>\`.\n`,
       );
     } else {
       deps.write(
@@ -168,6 +215,11 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
     deps.write('Detected MCP clients:\n');
     for (const client of detected) {
       deps.write(`  • ${DISPLAY_NAMES[client.name]}  (${client.configPath})\n`);
+    }
+    if (missingRequested.length > 0) {
+      deps.writeErr(
+        `Requested MCP clients are not detected (${missingRequested.join(', ')}). Launch the client once to create its config, then run \`tlbx client install <client>\`.\n`,
+      );
     }
   }
 
@@ -183,7 +235,7 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
     }
   }
 
-  const installResults = await applyClientInstalls(detected, options, deps);
+  const installResults = await applyClientInstalls(detected, options, deps, extraServeArgs);
 
   printSummary(installResults, deps);
 
@@ -192,6 +244,11 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
   // outcomes. Client-install failures still fall through to the existing
   // "every step failed" rule below.
   if (serverAddFailed) {
+    return 1;
+  }
+  // Same idea for explicitly-named-but-undetected clients: the user asked us
+  // to wire them and we couldn't, so we should not exit 0.
+  if (missingRequested.length > 0) {
     return 1;
   }
   if (installResults.failures > 0 && installResults.successes === 0) {
@@ -213,6 +270,7 @@ async function applyClientInstalls(
   detected: readonly DetectedClient[],
   options: SetupOptions,
   deps: SetupDeps,
+  extraServeArgs: readonly string[] | undefined,
 ): Promise<InstallSummary> {
   const summary: InstallSummary = {
     successes: 0,
@@ -232,7 +290,10 @@ async function applyClientInstalls(
   const pending: Pending[] = [];
 
   for (const client of detected) {
-    const adapter = deps.resolveAdapter(client.name);
+    const adapter = deps.resolveAdapter(
+      client.name,
+      extraServeArgs !== undefined ? { extraServeArgs } : undefined,
+    );
     if (!adapter) {
       continue;
     }

@@ -161,6 +161,47 @@ describe('runSetup', () => {
     await expect(fs.stat(configPath)).rejects.toThrow();
   });
 
+  it('rejects any --transport value other than `stdio` and writes nothing', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const h = makeHarness({ configPath });
+
+    const code = await runSetup({ ...baseOptions, transport: 'sse' }, h.deps);
+
+    expect(code).not.toBe(0);
+    expect(h.stderr.value).toMatch(/transport/i);
+    expect(h.stderr.value).toMatch(/sse/);
+    await expect(fs.stat(configPath)).rejects.toThrow();
+  });
+
+  it('accepts --transport stdio as a no-op alias for the default', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const h = makeHarness({ configPath });
+
+    const code = await runSetup(
+      { ...baseOptions, yes: true, noServer: true, transport: 'stdio' },
+      h.deps,
+    );
+
+    expect(code).toBe(0);
+  });
+
+  it('returns non-zero when --client names a client that is not detected', async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, 'config.json');
+    const h = makeHarness({ configPath, detected: [] });
+
+    const code = await runSetup(
+      { ...baseOptions, yes: true, noServer: true, clients: ['codex'] },
+      h.deps,
+    );
+
+    expect(code).not.toBe(0);
+    expect(h.stderr.value).toMatch(/codex/);
+    expect(h.stderr.value).toMatch(/not detected/i);
+  });
+
   it('creates the config on first run and reports the path', async () => {
     const dir = await makeTempDir();
     const configPath = path.join(dir, 'config.json');
@@ -761,6 +802,36 @@ describe('runSetup integration (real adapters with a temp HOME)', () => {
     const codexEntriesAfter = await fs.readdir(codexDir);
     const codexBackupsAfter = codexEntriesAfter.filter((f) => f.startsWith('config.toml.bak'));
     expect(codexBackupsAfter.length).toBe(1);
+  });
+
+  it('propagates --config into the wired client entries so the gateway opens the same file', async () => {
+    const home = await makeTempDir('toolbox-cli-setup-home-');
+    const configPath = path.join(home, 'custom-toolbox.json');
+    const claudePath = path.join(home, '.claude.json');
+    await fs.writeFile(claudePath, '{}\n', 'utf8');
+
+    const deps = defaultSetupDeps({
+      env: { homedir: () => home, platform: 'darwin', env: {} },
+      stdout: () => undefined,
+      stderr: () => undefined,
+      prompter: queuedPrompter({ text: [], confirm: [] }),
+      resolveConfigPath: () => configPath,
+    });
+
+    const code = await runSetup(
+      { ...baseOptions, yes: true, noServer: true, config: configPath },
+      deps,
+    );
+    expect(code).toBe(0);
+
+    const claudeContent = await fs.readFile(claudePath, 'utf8');
+    const parsed = JSON.parse(claudeContent) as {
+      mcpServers?: { toolbox?: { args?: string[] } };
+    };
+    const args = parsed.mcpServers?.toolbox?.args;
+    expect(args).toBeDefined();
+    expect(args).toContain('--config');
+    expect(args).toContain(configPath);
   });
 
   it('returns 0 with the no-clients summary when nothing is detected', async () => {

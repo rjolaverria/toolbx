@@ -21,6 +21,7 @@ const OPENCODE_CONFIG_REL = path.join('.config', 'opencode', 'opencode.json');
 const OPENCODE_CONFIG_ENV = 'OPENCODE_CONFIG';
 const MCP_KEY = 'mcp';
 const TOOLBOX_KEY = 'toolbox';
+const BASE_TOOLBOX_COMMAND: readonly string[] = ['npx', '-y', 'tlbx', 'serve', '--stdio'];
 
 interface ToolboxEntry {
   type: 'local';
@@ -28,13 +29,23 @@ interface ToolboxEntry {
   enabled: boolean;
 }
 
-const TOOLBOX_ENTRY: ToolboxEntry = {
-  type: 'local',
-  command: ['npx', '-y', 'tlbx', 'serve', '--stdio'],
-  enabled: true,
-};
+function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+  return {
+    type: 'local',
+    command: [...BASE_TOOLBOX_COMMAND, ...extraArgs],
+    enabled: true,
+  };
+}
 
-export type CreateOpencodeAdapterOptions = ClientAdapterEnv;
+export interface CreateOpencodeAdapterOptions extends ClientAdapterEnv {
+  /**
+   * Extra args to append after `npx -y tlbx serve --stdio` in the wired
+   * `mcp.toolbox.command` array. `tlbx setup --config <path>` uses this to
+   * propagate `['--config', '<absolute path>']` so the gateway opens the
+   * same config the user just initialized.
+   */
+  readonly extraServeArgs?: readonly string[];
+}
 export type InternalInstallHooks = InternalInstallFlowHooks;
 
 export function createOpencodeAdapter(options: CreateOpencodeAdapterOptions = {}): ClientAdapter {
@@ -48,6 +59,7 @@ export function createOpencodeAdapterInternal(
   const homedir = options.homedir ?? osHomedir;
   const env = options.env ?? process.env;
   const configPath = resolveConfigPath(homedir, env);
+  const toolboxEntry = buildToolboxEntry(options.extraServeArgs ?? []);
 
   return {
     name: 'opencode',
@@ -69,7 +81,13 @@ export function createOpencodeAdapterInternal(
         opts,
         hooks,
         merge: ({ currentText, exists, configPath: resolvedPath }) =>
-          mergeOpencodeConfig({ currentText, exists, configPath: resolvedPath, opts }),
+          mergeOpencodeConfig({
+            currentText,
+            exists,
+            configPath: resolvedPath,
+            opts,
+            toolboxEntry,
+          }),
       });
     },
   };
@@ -90,10 +108,11 @@ interface MergeInput {
   readonly exists: boolean;
   readonly configPath: string;
   readonly opts: InstallOpts;
+  readonly toolboxEntry: ToolboxEntry;
 }
 
 function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts } = input;
+  const { currentText, exists, configPath, opts, toolboxEntry } = input;
   if (!exists) {
     const dir = path.dirname(configPath);
     return {
@@ -143,7 +162,7 @@ function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
   const existingToolbox = existingMcp?.[TOOLBOX_KEY];
 
   if (existingToolbox !== undefined) {
-    if (toolboxEntryMatches(existingToolbox)) {
+    if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
     if (!opts.force) {
@@ -160,9 +179,9 @@ function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
   // applies in place; the result is byte-for-byte equivalent to the original
   // file except for the targeted `mcp.toolbox` slot.
   const nextEntry = {
-    type: TOOLBOX_ENTRY.type,
-    command: [...TOOLBOX_ENTRY.command],
-    enabled: TOOLBOX_ENTRY.enabled,
+    type: toolboxEntry.type,
+    command: [...toolboxEntry.command],
+    enabled: toolboxEntry.enabled,
   };
   const edits = modify(currentText, [MCP_KEY, TOOLBOX_KEY], nextEntry, {
     formattingOptions: { tabSize: 2, insertSpaces: true, eol: detectEol(currentText) },
@@ -176,15 +195,15 @@ function detectEol(text: string): string {
   return text.includes('\r\n') ? '\r\n' : '\n';
 }
 
-function toolboxEntryMatches(value: unknown): boolean {
+function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
-  if (candidate.type !== TOOLBOX_ENTRY.type) return false;
-  if (candidate.enabled !== TOOLBOX_ENTRY.enabled) return false;
+  if (candidate.type !== expected.type) return false;
+  if (candidate.enabled !== expected.enabled) return false;
   if (!Array.isArray(candidate.command)) return false;
-  if (candidate.command.length !== TOOLBOX_ENTRY.command.length) return false;
-  for (let i = 0; i < TOOLBOX_ENTRY.command.length; i++) {
-    if (candidate.command[i] !== TOOLBOX_ENTRY.command[i]) return false;
+  if (candidate.command.length !== expected.command.length) return false;
+  for (let i = 0; i < expected.command.length; i++) {
+    if (candidate.command[i] !== expected.command[i]) return false;
   }
   return true;
 }

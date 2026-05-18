@@ -20,18 +20,29 @@ import type {
 const CODEX_CONFIG_REL = path.join('.codex', 'config.toml');
 const MCP_SERVERS_KEY = 'mcp_servers';
 const TOOLBOX_KEY = 'toolbox';
+const BASE_TOOLBOX_ARGS: readonly string[] = ['-y', 'tlbx', 'serve', '--stdio'];
 
 interface ToolboxEntry {
   command: string;
   args: string[];
 }
 
-const TOOLBOX_ENTRY: ToolboxEntry = {
-  command: 'npx',
-  args: ['-y', 'tlbx', 'serve', '--stdio'],
-};
+function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+  return {
+    command: 'npx',
+    args: [...BASE_TOOLBOX_ARGS, ...extraArgs],
+  };
+}
 
-export type CreateCodexAdapterOptions = ClientAdapterEnv;
+export interface CreateCodexAdapterOptions extends ClientAdapterEnv {
+  /**
+   * Extra args to append after `npx -y tlbx serve --stdio` in the wired
+   * `[mcp_servers.toolbox]` table. `tlbx setup --config <path>` uses this to
+   * propagate `['--config', '<absolute path>']` so the gateway opens the
+   * same config the user just initialized.
+   */
+  readonly extraServeArgs?: readonly string[];
+}
 export type InternalInstallHooks = InternalInstallFlowHooks;
 
 export function createCodexAdapter(options: CreateCodexAdapterOptions = {}): ClientAdapter {
@@ -44,6 +55,7 @@ export function createCodexAdapterInternal(
 ): ClientAdapter {
   const homedir = options.homedir ?? osHomedir;
   const configPath = path.join(homedir(), CODEX_CONFIG_REL);
+  const toolboxEntry = buildToolboxEntry(options.extraServeArgs ?? []);
 
   return {
     name: 'codex',
@@ -65,7 +77,13 @@ export function createCodexAdapterInternal(
         opts,
         hooks,
         merge: ({ currentText, exists, configPath: resolvedPath }) =>
-          mergeCodexConfig({ currentText, exists, configPath: resolvedPath, opts }),
+          mergeCodexConfig({
+            currentText,
+            exists,
+            configPath: resolvedPath,
+            opts,
+            toolboxEntry,
+          }),
       });
     },
   };
@@ -78,10 +96,11 @@ interface MergeInput {
   readonly exists: boolean;
   readonly configPath: string;
   readonly opts: InstallOpts;
+  readonly toolboxEntry: ToolboxEntry;
 }
 
 function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts } = input;
+  const { currentText, exists, configPath, opts, toolboxEntry } = input;
   if (!exists) {
     const dir = path.dirname(configPath);
     return {
@@ -119,7 +138,7 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
   const existingToolbox = existingServers?.[TOOLBOX_KEY];
 
   if (existingToolbox !== undefined) {
-    if (toolboxEntryMatches(existingToolbox)) {
+    if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
     if (!opts.force) {
@@ -132,7 +151,7 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
   }
 
   const mergedServers: Record<string, unknown> = { ...(existingServers ?? {}) };
-  mergedServers[TOOLBOX_KEY] = { ...TOOLBOX_ENTRY, args: [...TOOLBOX_ENTRY.args] };
+  mergedServers[TOOLBOX_KEY] = { ...toolboxEntry, args: [...toolboxEntry.args] };
   const merged: Record<string, unknown> = { ...parsed, [MCP_SERVERS_KEY]: mergedServers };
 
   const nextContent = stringifyToml(merged) + '\n';
@@ -140,14 +159,14 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
   return { ok: true, status: 'installed', nextContent, diff };
 }
 
-function toolboxEntryMatches(value: unknown): boolean {
+function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
-  if (candidate.command !== TOOLBOX_ENTRY.command) return false;
+  if (candidate.command !== expected.command) return false;
   if (!Array.isArray(candidate.args)) return false;
-  if (candidate.args.length !== TOOLBOX_ENTRY.args.length) return false;
-  for (let i = 0; i < TOOLBOX_ENTRY.args.length; i++) {
-    if (candidate.args[i] !== TOOLBOX_ENTRY.args[i]) return false;
+  if (candidate.args.length !== expected.args.length) return false;
+  for (let i = 0; i < expected.args.length; i++) {
+    if (candidate.args[i] !== expected.args[i]) return false;
   }
   return true;
 }
