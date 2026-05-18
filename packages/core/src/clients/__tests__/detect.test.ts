@@ -23,6 +23,28 @@ async function makeFakeHome(): Promise<string> {
   return dir;
 }
 
+async function writeClaudeConfig(home: string): Promise<string> {
+  const configPath = path.join(home, '.claude.json');
+  await fs.writeFile(configPath, '{}');
+  return configPath;
+}
+
+async function writeCodexConfig(home: string): Promise<string> {
+  const dir = path.join(home, '.codex');
+  await fs.mkdir(dir, { recursive: true });
+  const configPath = path.join(dir, 'config.toml');
+  await fs.writeFile(configPath, '');
+  return configPath;
+}
+
+async function writeOpencodeConfig(home: string): Promise<string> {
+  const dir = path.join(home, '.config', 'opencode');
+  await fs.mkdir(dir, { recursive: true });
+  const configPath = path.join(dir, 'opencode.json');
+  await fs.writeFile(configPath, '{}');
+  return configPath;
+}
+
 describe('detectClients', () => {
   it('returns an empty array when no client config files exist', async () => {
     const home = await makeFakeHome();
@@ -32,10 +54,39 @@ describe('detectClients', () => {
 
   it('detects Claude Code when ~/.claude.json exists', async () => {
     const home = await makeFakeHome();
-    const configPath = path.join(home, '.claude.json');
-    await fs.writeFile(configPath, '{}');
+    const configPath = await writeClaudeConfig(home);
 
     const detected = await detectClients({ homedir: () => home, platform: 'darwin', env: {} });
     expect(detected).toEqual([{ name: 'claude', configPath }]);
+  });
+
+  it('detects Codex when ~/.codex/config.toml exists', async () => {
+    const home = await makeFakeHome();
+    const configPath = await writeCodexConfig(home);
+
+    const detected = await detectClients({ homedir: () => home, platform: 'darwin', env: {} });
+    expect(detected).toEqual([{ name: 'codex', configPath }]);
+  });
+
+  it('detects OpenCode when ~/.config/opencode/opencode.json exists', async () => {
+    const home = await makeFakeHome();
+    const configPath = await writeOpencodeConfig(home);
+
+    const detected = await detectClients({ homedir: () => home, platform: 'darwin', env: {} });
+    expect(detected).toEqual([{ name: 'opencode', configPath }]);
+  });
+
+  it('detects all three clients when all configs exist', async () => {
+    const home = await makeFakeHome();
+    const claudePath = await writeClaudeConfig(home);
+    const codexPath = await writeCodexConfig(home);
+    const opencodePath = await writeOpencodeConfig(home);
+
+    const detected = await detectClients({ homedir: () => home, platform: 'darwin', env: {} });
+    expect(detected).toEqual([
+      { name: 'claude', configPath: claudePath },
+      { name: 'codex', configPath: codexPath },
+      { name: 'opencode', configPath: opencodePath },
+    ]);
   });
 });
