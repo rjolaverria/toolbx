@@ -161,6 +161,34 @@ describe('createHttpUpstreamClient — connect', () => {
     }
   });
 
+  it('rejects with UpstreamAuthRequiredError when auth.type is "oauth" (F1-21 not yet implemented)', async () => {
+    const client = track(
+      createHttpUpstreamClient(
+        httpConfig({
+          url: 'http://127.0.0.1:1/mcp',
+          auth: { type: 'oauth' },
+        }),
+        {
+          logger: createNoopLogger(),
+          processEnv: {},
+          serverName: 'fake',
+        },
+      ),
+    );
+
+    let caught: unknown;
+    try {
+      await client.connect();
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(UpstreamAuthRequiredError);
+    if (caught instanceof UpstreamAuthRequiredError) {
+      expect(caught.message).toContain('F1-21');
+      expect(caught.serverName).toBe('fake');
+    }
+  });
+
   it('sends the bearer token from the configured env var as Authorization header', async () => {
     const server = await startTrackedServer({ requireBearerToken: 's3cret' });
 

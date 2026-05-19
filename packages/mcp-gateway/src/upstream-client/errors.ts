@@ -48,15 +48,34 @@ export class UpstreamNotConnectedError extends Error {
 export class UpstreamAuthRequiredError extends Error {
   override readonly name = 'UpstreamAuthRequiredError';
 
+  public readonly tokenEnv: string | undefined;
+
   constructor(
-    public readonly tokenEnv: string,
+    message: string,
     public readonly serverName: string | undefined,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; tokenEnv?: string },
   ) {
+    super(message, options);
+    this.tokenEnv = options?.tokenEnv;
+  }
+
+  static forMissingBearerToken(
+    tokenEnv: string,
+    serverName: string | undefined,
+  ): UpstreamAuthRequiredError {
     const where = serverName ? ` for server "${serverName}"` : '';
-    super(
+    return new UpstreamAuthRequiredError(
       `Authentication required${where}: bearer token environment variable "${tokenEnv}" is not set.`,
-      options,
+      serverName,
+      { tokenEnv },
+    );
+  }
+
+  static forOAuthNotImplemented(serverName: string | undefined): UpstreamAuthRequiredError {
+    const where = serverName ? ` for server "${serverName}"` : '';
+    return new UpstreamAuthRequiredError(
+      `Authentication required${where}: auth.type "oauth" is configured but not yet implemented (F1-21).`,
+      serverName,
     );
   }
 }
