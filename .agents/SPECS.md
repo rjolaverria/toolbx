@@ -396,13 +396,16 @@ npx tlbx client print-config opencode
 
 `tlbx client install <client>` writes the ToolBox MCP server entry directly into the named client's config file (atomic write with a timestamped backup). It is the preferred wiring mechanism; `client print-config` remains as a manual-paste fallback.
 
-Future auth commands:
+Upstream auth (OAuth) commands:
 
 ```bash
 npx tlbx auth login <server>
 npx tlbx auth logout <server>
 npx tlbx auth status
+npx tlbx auth refresh <server>
 ```
+
+These manage OAuth credentials for upstream HTTP MCP servers (see §4.6.2). `add-http` invokes the same login flow automatically when a probe detects an OAuth challenge, so `auth login` is primarily used for re-authentication after expiry or for switching identities.
 
 ### 4.2.1 Scope of `tlbx tools enable / disable`
 
@@ -500,6 +503,9 @@ npx tlbx client print-config claude --json
     "format": "server__tool",
     "collisionStrategy": "error"
   },
+  "auth": {
+    "storage": { "type": "keychain" }
+  },
   "servers": {
     "jira": {
       "type": "http",
@@ -519,6 +525,13 @@ npx tlbx client print-config claude --json
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
       },
+      "timeoutMs": 60000
+    },
+    "github-copilot": {
+      "type": "http",
+      "enabled": true,
+      "url": "https://api.githubcopilot.com/mcp/",
+      "auth": { "type": "oauth" },
       "timeoutMs": 60000
     }
   }
@@ -632,9 +645,10 @@ sampling
 elicitation
 roots passthrough
 resource subscriptions
-OAuth dynamic client registration
 remote multi-user auth
 ```
+
+(OAuth 2.1 with dynamic client registration is no longer deferred — see §4.6.2.)
 
 ### 4.6.1 Auth recovery flow
 
@@ -673,27 +687,114 @@ Phase 2's UI bridges to that.
   `@toolbox/core` to drive the same dispose-and-restart sequence; it does not introduce a
   separate credential store.
 
-**Future auth commands.** §4.2 lists `npx tlbx auth login/logout/status` as future. When those
-commands ship (alongside OAuth or a keychain backend) they will become the supported recovery
-path for any non-env-var auth type, and the env-var flow above will remain valid for plain
-bearer.
+**OAuth auth recovery.** OAuth-based upstream servers follow §4.6.2's flow instead: the user
+runs `npx tlbx auth login <server>` and the gateway picks up the new token on the next
+upstream call without needing a restart. The env-var bearer path described in this subsection
+remains the supported recovery path for `auth.type === 'bearer'` servers.
 
 **Alternatives considered.**
 
 - _Persist tokens in the ToolBox config:_ rejected. The config is plain JSON in
   `~/.config/toolbox/`, not protected, and synced through dotfile repos by many users. Putting
   secrets there is a footgun.
-- _Persist tokens in an OS keychain by default:_ deferred. Keychain support is desirable but
-  belongs in its own task with its own threat model — Phase 1 ships only the env-var path.
 - _Auto-poll the env var and recover without restart:_ rejected. Polling `process.env` is
   cheap but the env of a long-running process is fixed at spawn; the value the user sets in
   their shell would not propagate. We would have to watch a sentinel file or shell-out to the
   user's shell rc, which is a larger scope than this section's decision.
 
-**Reasoning.** Phase 1's job is to make the auth model predictable and Phase 2's UI a thin
-shell over the CLI behavior. The env-var path keeps secrets out of ToolBox's storage entirely,
-which is the conservative default; richer flows (OAuth, keychain) layer in later without
-breaking the rule that ToolBox owns no plaintext credentials by default.
+**Reasoning.** Bearer-with-env-var is the conservative default — ToolBox stores nothing on
+behalf of the user, so config files can be checked into dotfile repos without leaking secrets.
+OAuth (§4.6.2) layers in alongside it without changing this property: tokens for OAuth servers
+live in the OS keychain, not in ToolBox's config file.
+
+### 4.6.2 Upstream OAuth 2.1 auth
+
+ToolBox supports OAuth 2.1 with PKCE and Dynamic Client Registration as a first-class upstream
+auth type, alongside the bearer-with-env-var path in §4.6.1.
+
+**Decisions.**
+
+- **Trigger.** `npx tlbx server add-http <name> --url <url>` (no `--auth` flag) probes the URL
+  with an unauthenticated request. If the response carries an MCP OAuth challenge
+  (`WWW-Authenticate: Bearer resource_metadata=...` per MCP 2025-06-18), ToolBox automatically
+  opens a browser and runs the authorization-code flow with PKCE. The server entry is written
+  to `config.json` **only if** the flow completes successfully — there is no half-authenticated
+  state. Explicit `--auth oauth | bearer | none` short-circuits the probe.
+
+- **Library.** ToolBox uses `@modelcontextprotocol/sdk`'s `client/auth` module for metadata
+  discovery (RFC 8414), Dynamic Client Registration (RFC 7591), PKCE (RFC 7636), code
+  exchange, and token refresh. ToolBox owns only the storage backend, the local loopback
+  callback server, and the CLI orchestration. See §4.6.2 alternatives for why we don't
+  roll our own.
+
+- **Token storage.** OAuth tokens (access and refresh) and the DCR-issued `clientInformation`
+  live in the **OS keychain** — never in `config.json`, never in any plain file. Service name
+  `dev.toolbox.cli`, account `oauth:<server-name>`. Access happens through a small `TokenStore`
+  interface so a file-backed or encrypted-file backend can be added later without changing
+  callers; the interface is the only contract the rest of the codebase sees.
+
+  Keychain access uses `@napi-rs/keyring`, loaded by dynamic `import()` inside the keychain
+  backend only — never at module top level — so future non-keychain backends pay no native
+  module cost. If no working secret service is available (e.g. headless Linux without
+  libsecret), ToolBox fails loudly with a diagnostic from `tlbx doctor`; there is no silent
+  fallback. Keychain is the only Phase 1 backend.
+
+- **Identity scoping.** One OAuth identity per server name in Phase 1. The keychain account
+  format reserves space for `oauth:<server-name>:<identity>` so a future multi-account feature
+  is additive.
+
+- **Re-auth.** When refresh fails mid-session (refresh token expired or revoked), the upstream
+  session transitions to `auth_expired`. Any in-flight or subsequent tool call against that
+  server returns a structured error message instructing the user to run `tlbx auth login
+<server>` in a terminal. The gateway then picks up the new tokens automatically on its next
+  upstream call — no restart, no IPC. The CLI's `auth login` command does not signal any
+  running gateway; recovery is driven by the next call attempt re-reading the keychain.
+
+- **Browser flow ownership.** A browser is only opened from foreground CLI commands the user
+  invokes themselves — `tlbx auth login <server>` and `tlbx server add-http <name> --url <url>`
+  when the probe detects an OAuth challenge. The stdio-spawned gateway and any background or
+  long-running ToolBox process never opens a browser on its own. This keeps the security model
+  clear (no spawned MCP server child can social-engineer a browser tab) and avoids the awkward
+  UX of an unexpected browser window appearing during an agent conversation.
+
+- **Refresh policy.** Lazy: when the gateway gets a 401 from an upstream, it calls the SDK's
+  refresh helper once and retries the original call once. On refresh success the user sees no
+  failure; on refresh failure the session transitions to `auth_expired` per the recovery flow
+  above. There is no proactive background refresh — token expiry is handled on the call path
+  it affects.
+
+- **Atomicity.** No partially-authenticated state is ever observable. `tlbx server add-http`
+  writes the server entry only after the OAuth flow completes; `tlbx auth login` writes tokens
+  only after the full exchange completes; Ctrl-C at any point leaves both the keychain and
+  `config.json` unchanged. `tlbx doctor` cross-checks `TokenStore.list()` against
+  `config.servers` and offers `--fix` to prune orphan keychain entries (safe — recoverable via
+  re-login).
+
+**Alternatives considered.**
+
+- _Roll our own OAuth client:_ rejected. The SDK already implements RFC 8414 / 7591 / 6749 /
+  7636 correctly and is maintained by the spec authors; reimplementing them is security-
+  sensitive surface area for no architectural gain.
+- _Hybrid (SDK for refresh, custom orchestrator for login):_ rejected. Two parallel
+  implementations of the same OAuth flow to keep in sync, justified only by UX customizations
+  (callback HTML, error wording) that are not yet differentiating. Revisit if specific UX
+  limitations surface during implementation.
+- _Plain-file token storage with 0600 perms:_ deferred. The `TokenStore` interface
+  accommodates it as a future backend; Phase 1 ships keychain-only because the existing
+  bearer-with-env-var path (§4.6.1) already covers users who don't want a system keychain.
+- _Spawned gateway opens the browser on `auth_expired`:_ rejected. Adds an unexpected
+  browser-tab event during an agent conversation, and creates a foothold where any compromised
+  upstream server can trigger a browser open during a tool call.
+- _MCP elicitation-based re-auth prompt:_ deferred. The elicitation feature exists in the
+  protocol but client support is uneven. Revisit when Claude Code, Codex, and OpenCode all
+  support it.
+
+**Reasoning.** OAuth lives in the same product space as bearer-env-var (§4.6.1): ToolBox keeps
+zero plaintext credentials in any user-visible file. The keychain is the most conservative
+storage choice that doesn't require the user to manage their own env vars. Atomicity and the
+"only the CLI opens browsers" rule are both about predictability — the user should never have
+to reason about what state ToolBox is in after a partial failure, and should never be
+surprised by a browser tab they didn't trigger.
 
 ## 4.7 Phase 1 Repo Structure
 

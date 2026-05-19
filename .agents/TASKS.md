@@ -86,6 +86,18 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-09** — [Codex + OpenCode adapters and `tlbx client install` command](tasks/F1-09-client-install-command.md) — closed by this PR
 - [x] **F1-10** — [`tlbx setup` orchestrator and README rewrite](tasks/F1-10-setup-command.md) — closed by this PR
 - [x] **F1-11** — [Drop Claude Desktop from `client print-config`; align `claude` keyword](tasks/F1-11-client-print-config-claude-code.md) — closed by this PR
+- [ ] **F1-12** — [OAuth config schema (`auth.storage` + `auth.type === 'oauth'`)](tasks/F1-12-oauth-config-schema.md)
+- [ ] **F1-13** — [`TokenStore` interface, factory, `InMemoryTokenStore`](tasks/F1-13-token-store-interface.md)
+- [ ] **F1-14** — [`KeychainTokenStore` (dynamic-import `@napi-rs/keyring`)](tasks/F1-14-keychain-token-store.md)
+- [ ] **F1-15** — [OAuth discovery probe (`probeUpstreamAuth` + `AuthHint`)](tasks/F1-15-oauth-discovery.md)
+- [ ] **F1-16** — [OAuth callback server (loopback HTTP, single-shot, timeout)](tasks/F1-16-oauth-callback-server.md)
+- [ ] **F1-17** — [`OAuthClientProvider` implementation (SDK adapter)](tasks/F1-17-oauth-client-provider.md)
+- [ ] **F1-18** — [`runOAuthLogin` orchestrator](tasks/F1-18-run-oauth-login.md)
+- [ ] **F1-19** — [`tlbx auth login | logout | status | refresh` commands](tasks/F1-19-auth-cli-commands.md)
+- [ ] **F1-20** — [`server add-http` probe-and-trigger integration](tasks/F1-20-add-http-oauth-integration.md)
+- [ ] **F1-21** — [Gateway OAuth wiring + lazy refresh + `auth_expired` surface](tasks/F1-21-gateway-oauth-wiring.md)
+- [ ] **F1-22** — [`tlbx doctor` OAuth drift check + `--fix`](tasks/F1-22-doctor-oauth-drift.md)
+- [ ] **F1-23** — [End-to-end OAuth integration tests + CI security gates](tasks/F1-23-oauth-integration-tests.md)
 
 ## Phase 2 — Electron Desktop UI
 
