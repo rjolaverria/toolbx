@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createNoopLogger } from '../../logging/logger.js';
+import { KeychainTokenStore } from '../keychain-token-store.js';
 import type { StoredOAuthRecord } from '../token-store.js';
 
-const keyringMock = vi.hoisted(() => {
+const keyringMock = (() => {
   const passwords = new Map<string, string>();
   const setCalls: Array<{ service: string; account: string; password: string }> = [];
+  const deleteCalls: Array<{ service: string; account: string }> = [];
   let setPasswordError: Error | null = null;
+  let deletePasswordError: Error | null = null;
 
   class MockEntry {
     constructor(
@@ -27,6 +30,10 @@ const keyringMock = vi.hoisted(() => {
     }
 
     deletePassword(): boolean {
+      deleteCalls.push({ service: this.service, account: this.account });
+      if (deletePasswordError !== null) {
+        throw deletePasswordError;
+      }
       return passwords.delete(`${this.service}:${this.account}`);
     }
   }
@@ -43,21 +50,22 @@ const keyringMock = vi.hoisted(() => {
     findCredentials,
     passwords,
     setCalls,
+    deleteCalls,
     reset() {
       passwords.clear();
       setCalls.length = 0;
+      deleteCalls.length = 0;
       setPasswordError = null;
+      deletePasswordError = null;
     },
     setSetPasswordError(error: Error | null) {
       setPasswordError = error;
     },
+    setDeletePasswordError(error: Error | null) {
+      deletePasswordError = error;
+    },
   };
-});
-
-vi.mock('@napi-rs/keyring', () => ({
-  Entry: keyringMock.Entry,
-  findCredentials: keyringMock.findCredentials,
-}));
+})();
 
 function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthRecord {
   return {
@@ -71,56 +79,77 @@ function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthReco
   };
 }
 
-async function createStore() {
-  const { KeychainTokenStore } = await import('../keychain-token-store.js');
-  return new KeychainTokenStore({ logger: createNoopLogger() });
+function createStore(
+  loadKeyring = () =>
+    Promise.resolve({
+      Entry: keyringMock.Entry,
+      findCredentials: keyringMock.findCredentials,
+    }),
+) {
+  return new KeychainTokenStore({ logger: createNoopLogger(), loadKeyring });
 }
 
 describe('KeychainTokenStore', () => {
   beforeEach(() => {
-    vi.resetModules();
-    vi.doMock('@napi-rs/keyring', () => ({
-      Entry: keyringMock.Entry,
-      findCredentials: keyringMock.findCredentials,
-    }));
     keyringMock.reset();
   });
 
   it('throws when deleting from an unavailable keychain', async () => {
-    vi.resetModules();
-    vi.doMock('@napi-rs/keyring', () => {
-      throw new Error('libsecret not found');
-    });
-    const store = await createStore();
+    const store = createStore(() => Promise.reject(new Error('libsecret not found')));
 
     await expect(store.delete('github')).rejects.toThrow(
-      'Keychain unavailable: libsecret not found',
+      /Keychain unavailable: .*libsecret not found/,
+    );
+  });
+
+  it('throws when writing to an unavailable keychain', async () => {
+    const store = createStore(() => Promise.reject(new Error('libsecret not found')));
+
+    await expect(store.write('github', makeRecord())).rejects.toThrow(
+      /Keychain unavailable: .*libsecret not found/,
     );
   });
 
   it('throws when listing from an unavailable keychain', async () => {
-    vi.resetModules();
-    vi.doMock('@napi-rs/keyring', () => {
-      throw new Error('libsecret not found');
-    });
-    const store = await createStore();
+    const store = createStore(() => Promise.reject(new Error('libsecret not found')));
 
-    await expect(store.list()).rejects.toThrow('Keychain unavailable: libsecret not found');
+    await expect(store.list()).rejects.toThrow(/Keychain unavailable: .*libsecret not found/);
   });
 
   it('reports unavailable-on-import in probe and fail-loud read operations', async () => {
-    vi.resetModules();
-    vi.doMock('@napi-rs/keyring', () => {
-      throw new Error('libsecret not found');
-    });
-    const store = await createStore();
+    const store = createStore(() => Promise.reject(new Error('libsecret not found')));
 
-    expect(await store.probe()).toEqual({ kind: 'unavailable', reason: 'libsecret not found' });
-    await expect(store.read('github')).rejects.toThrow('Keychain unavailable: libsecret not found');
+    const health = await store.probe();
+    expect(health.kind).toBe('unavailable');
+    if (health.kind === 'unavailable') {
+      expect(health.reason).toContain('libsecret not found');
+    }
+    await expect(store.read('github')).rejects.toThrow(
+      /Keychain unavailable: .*libsecret not found/,
+    );
+  });
+
+  it('reports nested import error causes in unavailable diagnostics', async () => {
+    const store = createStore(() => {
+      const leaf = new Error('libsecret not found');
+      const middle = new Error("Cannot find module '@napi-rs/keyring-linux-arm64-gnu'");
+      const top = new Error('Failed to load native binding');
+      Object.defineProperty(middle, 'cause', { value: leaf });
+      Object.defineProperty(top, 'cause', { value: middle });
+      return Promise.reject(top);
+    });
+
+    const health = await store.probe();
+    expect(health.kind).toBe('unavailable');
+    if (health.kind === 'unavailable') {
+      expect(health.reason).toContain('Failed to load native binding');
+      expect(health.reason).toContain("Cannot find module '@napi-rs/keyring-linux-arm64-gnu'");
+      expect(health.reason).toContain('libsecret not found');
+    }
   });
 
   it('round-trips write then read for the same server', async () => {
-    const store = await createStore();
+    const store = createStore();
     const record = makeRecord();
 
     await store.write('github', record);
@@ -129,7 +158,7 @@ describe('KeychainTokenStore', () => {
   });
 
   it('uses the ToolBox service name and oauth-prefixed account name', async () => {
-    const store = await createStore();
+    const store = createStore();
 
     await store.write('github', makeRecord());
 
@@ -140,19 +169,40 @@ describe('KeychainTokenStore', () => {
   });
 
   it('returns null when reading an unknown server', async () => {
-    const store = await createStore();
+    const store = createStore();
 
     expect(await store.read('unknown')).toBeNull();
   });
 
+  it('throws a contextual error when a stored record is not valid JSON', async () => {
+    const store = createStore();
+    keyringMock.passwords.set('dev.toolbox.cli:oauth:github', '{not-json');
+
+    await expect(store.read('github')).rejects.toThrow(
+      'Keychain entry for github is corrupt: invalid JSON',
+    );
+  });
+
+  it('throws a contextual error when a stored record does not match the schema', async () => {
+    const store = createStore();
+    keyringMock.passwords.set(
+      'dev.toolbox.cli:oauth:github',
+      JSON.stringify({ schemaVersion: 1, clientInformation: { client_id: 'client-abc' } }),
+    );
+
+    await expect(store.read('github')).rejects.toThrow(
+      'Keychain entry for github is corrupt: stored record does not match schema',
+    );
+  });
+
   it('does not throw when deleting a missing server from an available keychain', async () => {
-    const store = await createStore();
+    const store = createStore();
 
     await expect(store.delete('missing')).resolves.toBeUndefined();
   });
 
   it('lists oauth accounts only and strips their prefix', async () => {
-    const store = await createStore();
+    const store = createStore();
     await store.write('github', makeRecord());
     await store.write('jira', makeRecord());
     keyringMock.passwords.set('dev.toolbox.cli:not-oauth', 'ignored');
@@ -162,15 +212,26 @@ describe('KeychainTokenStore', () => {
   });
 
   it('probe returns ready for a working keychain', async () => {
-    const store = await createStore();
+    const store = createStore();
 
     expect(await store.probe()).toEqual({ kind: 'ready' });
+    expect(keyringMock.setCalls[0]?.account).toMatch(/^probe:_probe_/);
   });
 
   it('probe returns unavailable with the reason when the keychain write fails', async () => {
     keyringMock.setSetPasswordError(new Error('permission denied'));
-    const store = await createStore();
+    const store = createStore();
 
     expect(await store.probe()).toEqual({ kind: 'unavailable', reason: 'permission denied' });
+  });
+
+  it('probe retries cleanup and reports unavailable when deleting the sentinel fails', async () => {
+    keyringMock.setDeletePasswordError(new Error('delete denied'));
+    const store = createStore();
+
+    expect(await store.probe()).toEqual({ kind: 'unavailable', reason: 'delete denied' });
+    expect(keyringMock.setCalls[0]?.account).toMatch(/^probe:_probe_/);
+    expect(keyringMock.deleteCalls).toHaveLength(2);
+    expect(await store.list()).toEqual([]);
   });
 });
