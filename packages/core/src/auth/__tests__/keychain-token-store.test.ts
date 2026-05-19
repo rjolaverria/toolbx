@@ -157,6 +157,20 @@ describe('KeychainTokenStore', () => {
     expect(await store.read('github')).toEqual(record);
   });
 
+  it('preserves full dynamic client registration metadata when reading', async () => {
+    const store = createStore();
+    const record = makeRecord({
+      clientInformation: {
+        client_id: 'client-abc',
+        redirect_uris: ['https://toolbox.example/oauth/callback'],
+        token_endpoint_auth_method: 'client_secret_post',
+      },
+    });
+    keyringMock.passwords.set('dev.toolbox.cli:oauth:github', JSON.stringify(record));
+
+    expect(await store.read('github')).toEqual(record);
+  });
+
   it('uses the ToolBox service name and oauth-prefixed account name', async () => {
     const store = createStore();
 

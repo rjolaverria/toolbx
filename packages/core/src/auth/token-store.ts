@@ -1,14 +1,20 @@
 import {
+  OAuthClientInformationFullSchema,
   OAuthClientInformationSchema,
   OAuthTokensSchema,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { z } from 'zod';
 
+const OAuthClientInformationMixedSchema = z.union([
+  OAuthClientInformationFullSchema,
+  OAuthClientInformationSchema,
+]);
+
 export const StoredOAuthRecordSchema = z
   .object({
     /** Bump when the on-disk shape changes. Currently 1. */
     schemaVersion: z.literal(1),
-    clientInformation: OAuthClientInformationSchema,
+    clientInformation: OAuthClientInformationMixedSchema,
     tokens: OAuthTokensSchema,
     /** Authorization server URL or issuer identifier from discovery. */
     authorizationServer: z.string().min(1),
