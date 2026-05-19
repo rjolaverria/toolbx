@@ -750,11 +750,12 @@ auth type, alongside the bearer-with-env-var path in §4.6.1.
   upstream call — no restart, no IPC. The CLI's `auth login` command does not signal any
   running gateway; recovery is driven by the next call attempt re-reading the keychain.
 
-- **Browser flow ownership.** A browser is only opened by the `tlbx auth login` CLI command,
-  invoked deliberately by the user. The stdio-spawned gateway never opens a browser on its
-  own — this keeps the security model clear (no spawned MCP server child can social-engineer
-  a browser tab) and avoids the awkward UX of an unexpected browser window appearing during an
-  agent conversation.
+- **Browser flow ownership.** A browser is only opened from foreground CLI commands the user
+  invokes themselves — `tlbx auth login <server>` and `tlbx server add-http <name> --url <url>`
+  when the probe detects an OAuth challenge. The stdio-spawned gateway and any background or
+  long-running ToolBox process never opens a browser on its own. This keeps the security model
+  clear (no spawned MCP server child can social-engineer a browser tab) and avoids the awkward
+  UX of an unexpected browser window appearing during an agent conversation.
 
 - **Refresh policy.** Lazy: when the gateway gets a 401 from an upstream, it calls the SDK's
   refresh helper once and retries the original call once. On refresh success the user sees no
