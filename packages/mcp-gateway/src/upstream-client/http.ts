@@ -108,9 +108,15 @@ export function createHttpUpstreamClient(
     if (config.auth?.type === 'bearer') {
       const token = processEnv[config.auth.tokenEnv];
       if (token === undefined || token.length === 0) {
-        throw new UpstreamAuthRequiredError(config.auth.tokenEnv, serverName);
+        throw UpstreamAuthRequiredError.forMissingBearerToken(config.auth.tokenEnv, serverName);
       }
       headers['Authorization'] = `Bearer ${token}`;
+    } else if (config.auth?.type === 'oauth') {
+      // OAuth header injection is wired up in F1-21 (gateway side); fail
+      // loudly with an auth_required-classified error so the session enters
+      // the terminal auth_required state instead of looping through
+      // scheduleRetry.
+      throw UpstreamAuthRequiredError.forOAuthNotImplemented(serverName);
     }
     return headers;
   }

@@ -28,6 +28,9 @@ export const DEFAULT_CONFIG: ToolBoxConfig = Object.freeze({
     format: 'server__tool',
     collisionStrategy: 'error',
   }),
+  auth: Object.freeze({
+    storage: Object.freeze({ type: 'keychain' }),
+  }),
   servers: Object.freeze({}),
   tools: Object.freeze({}),
 });

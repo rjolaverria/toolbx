@@ -120,6 +120,7 @@ function makeConfig(servers: Record<string, ServerConfig>): ToolBoxConfig {
       maxSearchResults: 20,
     },
     namespacing: { separator: '__', format: 'server__tool', collisionStrategy: 'error' },
+    auth: { storage: { type: 'keychain' } },
     servers,
     tools: {},
   };

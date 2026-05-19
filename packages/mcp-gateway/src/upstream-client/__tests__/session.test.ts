@@ -298,7 +298,9 @@ describe('createUpstreamSession — auth_required', () => {
     });
 
     const startPromise = session.start();
-    controls[0]!.resolveConnect(new UpstreamAuthRequiredError('TOKEN', undefined));
+    controls[0]!.resolveConnect(
+      UpstreamAuthRequiredError.forMissingBearerToken('TOKEN', undefined),
+    );
     await startPromise;
 
     expect(session.status.kind).toBe('auth_required');
@@ -313,6 +315,26 @@ describe('createUpstreamSession — auth_required', () => {
     controls[1]!.resolveConnect();
     await restartPromise;
     expect(session.status.kind).toBe('connected');
+    await session.dispose();
+  });
+});
+
+describe('createUpstreamSession — auth_required (oauth placeholder)', () => {
+  it('stops reconnecting when connect() rejects with the oauth-not-implemented error', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(UpstreamAuthRequiredError.forOAuthNotImplemented(undefined));
+    await startPromise;
+
+    expect(session.status.kind).toBe('auth_required');
+    // Advance past any reasonable backoff window — no retry should fire.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(controls).toHaveLength(1);
     await session.dispose();
   });
 });

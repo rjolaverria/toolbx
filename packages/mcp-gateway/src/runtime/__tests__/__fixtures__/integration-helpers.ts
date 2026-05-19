@@ -89,6 +89,7 @@ export function makeIntegrationConfig(options: MakeConfigOptions = {}): ToolBoxC
       ...options.progressiveDisclosure,
     },
     namespacing: { separator: '__', format: 'server__tool', collisionStrategy: 'error' },
+    auth: { storage: { type: 'keychain' } },
     servers: options.servers ?? {
       echo: {
         type: 'stdio',

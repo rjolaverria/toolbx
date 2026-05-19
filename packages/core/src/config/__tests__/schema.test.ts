@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -10,6 +14,8 @@ import {
   type StdioServerConfig,
   type ToolBoxConfig,
 } from '../schema.js';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const SPECS_EXAMPLE = {
   $schema: 'https://toolbox.dev/schema/config.schema.json',
@@ -35,6 +41,9 @@ const SPECS_EXAMPLE = {
     format: 'server__tool',
     collisionStrategy: 'error',
   },
+  auth: {
+    storage: { type: 'keychain' },
+  },
   servers: {
     jira: {
       type: 'http',
@@ -54,6 +63,13 @@ const SPECS_EXAMPLE = {
       env: {
         GITHUB_PERSONAL_ACCESS_TOKEN: '${env:GITHUB_PERSONAL_ACCESS_TOKEN}',
       },
+      timeoutMs: 60000,
+    },
+    'github-copilot': {
+      type: 'http',
+      enabled: true,
+      url: 'https://api.githubcopilot.com/mcp/',
+      auth: { type: 'oauth' },
       timeoutMs: 60000,
     },
   },
@@ -200,6 +216,31 @@ describe('ServerConfig discriminated union', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('parses an http server with `auth: { type: "oauth" }`', () => {
+    const result = HttpServerConfigSchema.safeParse({
+      type: 'http',
+      enabled: true,
+      url: 'https://api.githubcopilot.com/mcp/',
+      auth: { type: 'oauth' },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.auth).toEqual({ type: 'oauth' });
+    }
+  });
+
+  it('rejects oauth auth carrying extra fields', () => {
+    const result = HttpServerConfigSchema.safeParse({
+      type: 'http',
+      enabled: true,
+      url: 'https://api.githubcopilot.com/mcp/',
+      // OAuth carries no client-info fields in config; those live in the
+      // TokenStore. Extra keys must be rejected by `.strict()`.
+      auth: { type: 'oauth', clientId: 'leaked-into-config' },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('Server name validation', () => {
@@ -301,4 +342,120 @@ describe('HttpServerSettings host validation', () => {
       }
     },
   );
+});
+
+describe('Top-level auth + token storage', () => {
+  it('resolves `auth.storage` to `{ type: "keychain" }` when the whole auth block is omitted', () => {
+    const { auth: _omitted, ...withoutAuth } = SPECS_EXAMPLE;
+    void _omitted;
+    const result = ToolBoxConfigSchema.safeParse(withoutAuth);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.auth.storage).toEqual({ type: 'keychain' });
+    }
+  });
+
+  it('resolves `auth.storage` to `{ type: "keychain" }` when only the storage field is omitted', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      auth: {},
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.auth.storage).toEqual({ type: 'keychain' });
+    }
+  });
+
+  it('accepts an explicit `auth.storage.type: "keychain"`', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      auth: { storage: { type: 'keychain' } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.auth.storage.type).toBe('keychain');
+    }
+  });
+
+  it('rejects an unknown `auth.storage.type` with a clear error path', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      auth: { storage: { type: 'unknown' } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Ensure the error points at the right path so users editing the
+      // config by hand get a useful "auth.storage.type" hint.
+      const paths = result.error.issues.map((issue) => issue.path.join('.'));
+      expect(paths.some((p) => p.startsWith('auth.storage'))).toBe(true);
+    }
+  });
+
+  it('rejects unknown keys inside the top-level `auth` block', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      auth: { storage: { type: 'keychain' }, ghost: 'no' },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('Auth round-trip', () => {
+  it('parses through a config that uses every `auth.type` variant', () => {
+    const allVariants = {
+      ...SPECS_EXAMPLE,
+      servers: {
+        ...SPECS_EXAMPLE.servers,
+        'no-auth': {
+          type: 'http' as const,
+          enabled: true,
+          url: 'https://no-auth.example.com/mcp',
+          auth: { type: 'none' as const },
+        },
+      },
+    };
+    const first = ToolBoxConfigSchema.safeParse(allVariants);
+    expect(first.success).toBe(true);
+    if (!first.success) {
+      return;
+    }
+    // Serialize through JSON to drop any default-injected fields back to
+    // their input shape, then re-parse and confirm the typed result is
+    // structurally equal. This catches accidental schema drift where a
+    // .transform() or .default() turns the value into something that no
+    // longer round-trips.
+    const serialized = JSON.parse(JSON.stringify(first.data)) as unknown;
+    const second = ToolBoxConfigSchema.safeParse(serialized);
+    expect(second.success).toBe(true);
+    if (second.success) {
+      expect(second.data).toEqual(first.data);
+    }
+  });
+});
+
+describe('SPECS §4.4 example parses through ToolBoxConfigSchema', () => {
+  it('extracts the first JSON block under "## 4.4 Example Config File" and parses it cleanly', () => {
+    // Read the canonical spec at test time so the schema and the documented
+    // example stay in lockstep — drift in either direction fails the build.
+    const specsPath = resolve(__dirname, '../../../../../.agents/SPECS.md');
+    const specs = readFileSync(specsPath, 'utf8');
+    const headingIndex = specs.indexOf('## 4.4 Example Config File');
+    expect(headingIndex).toBeGreaterThanOrEqual(0);
+    const afterHeading = specs.slice(headingIndex);
+    const fenceMatch = /```json\n([\s\S]*?)\n```/.exec(afterHeading);
+    expect(fenceMatch).not.toBeNull();
+    const example: unknown = JSON.parse(fenceMatch?.[1] ?? '');
+    const result = ToolBoxConfigSchema.safeParse(example);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Belt-and-suspenders: the OAuth server defined in the spec example
+      // must round-trip through the new union variant.
+      const copilot = result.data.servers['github-copilot'];
+      expect(copilot?.type).toBe('http');
+      if (copilot?.type === 'http') {
+        expect(copilot.auth).toEqual({ type: 'oauth' });
+      }
+      expect(result.data.auth.storage).toEqual({ type: 'keychain' });
+    }
+  });
 });

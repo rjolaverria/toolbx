@@ -29,6 +29,9 @@ const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
     format: 'server__tool',
     collisionStrategy: 'error',
   },
+  auth: {
+    storage: { type: 'keychain' },
+  },
   tools: {},
 };
 

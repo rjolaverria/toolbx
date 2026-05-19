@@ -30,13 +30,20 @@ export function defaultInspectDeps(): InspectDeps {
 }
 
 interface AuthSummary {
-  type: 'none' | 'bearer';
+  type: 'none' | 'bearer' | 'oauth';
   tokenEnv?: string;
 }
 
 function authSummary(entry: ServerConfig): AuthSummary {
-  if (entry.type === 'http' && entry.auth?.type === 'bearer') {
-    return { type: 'bearer', tokenEnv: entry.auth.tokenEnv };
+  if (entry.type === 'http' && entry.auth !== undefined) {
+    switch (entry.auth.type) {
+      case 'bearer':
+        return { type: 'bearer', tokenEnv: entry.auth.tokenEnv };
+      case 'oauth':
+        return { type: 'oauth' };
+      case 'none':
+        return { type: 'none' };
+    }
   }
   return { type: 'none' };
 }
@@ -124,11 +131,17 @@ function formatHuman(name: string, entry: ServerConfig, result: ProbeResult): st
   lines.push(`transport: ${entry.type}`);
   lines.push(`enabled: ${entry.enabled ? 'yes' : 'no'}`);
   const auth = authSummary(entry);
-  lines.push(
-    auth.type === 'bearer'
-      ? `auth: bearer (token env: ${auth.tokenEnv ?? '(unset)'})`
-      : 'auth: none',
-  );
+  switch (auth.type) {
+    case 'bearer':
+      lines.push(`auth: bearer (token env: ${auth.tokenEnv ?? '(unset)'})`);
+      break;
+    case 'oauth':
+      lines.push('auth: oauth');
+      break;
+    case 'none':
+      lines.push('auth: none');
+      break;
+  }
   if (entry.timeoutMs !== undefined) {
     lines.push(`timeoutMs: ${entry.timeoutMs}`);
   }
