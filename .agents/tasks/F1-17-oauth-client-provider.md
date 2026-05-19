@@ -69,23 +69,21 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
       return crypto.randomUUID();
     }
 
+    // Atomicity: client info from a fresh DCR is held in-memory only.
+    // We never write a partial record to the TokenStore — saveTokens is the
+    // single commit point that writes clientInformation + tokens together,
+    // so a Ctrl-C between DCR and the code exchange leaves the keychain
+    // unchanged.
+    private pendingClientInformation: OAuthClientInformationFull | undefined;
+
     async clientInformation(): Promise<OAuthClientInformation | undefined> {
+      if (this.pendingClientInformation) return this.pendingClientInformation;
       const record = await this.load();
       return record?.clientInformation;
     }
 
     async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
-      const existing = await this.load();
-      const next: StoredOAuthRecord = {
-        schemaVersion: 1,
-        clientInformation: info,
-        tokens: existing?.tokens ?? ({} as OAuthTokens), // tokens written separately
-        authorizationServer: existing?.authorizationServer ?? '',
-        scopes: existing?.scopes ?? this.opts.scopes ?? [],
-        obtainedAt: existing?.obtainedAt ?? new Date().toISOString(),
-      };
-      await this.opts.tokenStore.write(this.opts.serverName, next);
-      this.cached = next;
+      this.pendingClientInformation = info;
     }
 
     async tokens(): Promise<OAuthTokens | undefined> {
@@ -95,19 +93,24 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
 
     async saveTokens(tokens: OAuthTokens): Promise<void> {
       const existing = await this.load();
-      if (!existing) {
+      const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
+      if (!clientInformation) {
         throw new Error(
           `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
             'the SDK should call saveClientInformation first.',
         );
       }
       const next: StoredOAuthRecord = {
-        ...existing,
+        schemaVersion: 1,
+        clientInformation,
         tokens,
+        authorizationServer: existing?.authorizationServer ?? '',
+        scopes: existing?.scopes ?? this.opts.scopes ?? [],
         obtainedAt: new Date().toISOString(),
       };
       await this.opts.tokenStore.write(this.opts.serverName, next);
       this.cached = next;
+      this.pendingClientInformation = undefined;
     }
 
     async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
@@ -157,9 +160,11 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
 - **`packages/core/src/auth/__tests__/oauth-provider.test.ts`** — unit tests:
   - **`clientMetadata`** contains the correct `client_name`, `redirect_uris`, `grant_types`, `token_endpoint_auth_method: 'none'`, and scope when configured.
   - **`redirectUrl` is immutable** — assigning to it must be a TypeScript error (compile-time check; test as a TS-expect-error or just rely on `readonly` modifier).
-  - **`clientInformation()` returns undefined for unknown server**, then returns the saved info after `saveClientInformation()`.
-  - **`saveClientInformation` preserves existing tokens** — if a record already exists with tokens, calling `saveClientInformation` doesn't clobber them.
-  - **`saveTokens` requires prior `saveClientInformation`** — calling first throws the expected error.
+  - **`clientInformation()` returns undefined for unknown server**, then returns the staged info after `saveClientInformation()` even before `saveTokens` has been called (in-memory only).
+  - **`saveClientInformation` alone does not touch the TokenStore** — assert `tokenStore.read(name)` still returns `null` after `saveClientInformation` but before `saveTokens`. This is the atomicity guarantee from §4.6.2.
+  - **`saveTokens` writes a complete record** with both the staged `clientInformation` and the new tokens, and clears the in-memory staged copy.
+  - **`saveTokens` requires prior `saveClientInformation` (or an existing stored record)** — calling on a brand-new provider with no DCR and no prior record throws the expected error.
+  - **Re-auth path (record already exists):** pre-seed the TokenStore with a record. `saveTokens` should write a new record reusing the existing `clientInformation` (and `authorizationServer` / `scopes`) — no `saveClientInformation` call needed.
   - **`saveTokens` updates `obtainedAt`** to current time.
   - **`state()`** returns a UUID-shaped string; two calls return distinct values.
   - **`saveCodeVerifier` + `codeVerifier`** round-trips; `codeVerifier` before save throws.

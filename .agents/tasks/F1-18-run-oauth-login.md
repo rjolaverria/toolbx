@@ -91,15 +91,17 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
         }
       }
 
-      log.info({ url: authorizationUrl.toString() }, 'opening browser for authorization');
-      await openBrowser(authorizationUrl);
-
-      // Second half: wait for the redirect, then complete the exchange.
+      // Second half: arm the callback server BEFORE opening the browser,
+      // because a fast redirect could otherwise arrive while expectedStateRef
+      // is still unset and be rejected as a state mismatch.
       const state = authorizationUrl.searchParams.get('state');
       if (!state) {
         return { kind: 'failed', reason: 'authorization URL missing state parameter' };
       }
       const codePromise = callback.waitForCode(state);
+
+      log.info({ url: authorizationUrl.toString() }, 'opening browser for authorization');
+      await openBrowser(authorizationUrl);
       const abortPromise = input.abortSignal
         ? abortToPromise(input.abortSignal)
         : new Promise<never>(() => undefined);

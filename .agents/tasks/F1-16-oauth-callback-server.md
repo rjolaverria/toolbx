@@ -122,6 +122,12 @@ The authorization-code flow requires a loopback HTTP server to catch the redirec
       if (closed) return;
       closed = true;
       clearTimeout(timer);
+      // Reject any outstanding waiter so callers awaiting `waitForCode` don't
+      // hang when the server is closed before a redirect arrives (matches the
+      // acceptance criterion in the test list below).
+      if (!received) {
+        rejectCode?.(new Error('Callback server closed before redirect'));
+      }
       await new Promise<void>((resolve) => {
         server!.close(() => resolve());
       });
