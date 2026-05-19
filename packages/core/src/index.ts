@@ -176,3 +176,12 @@ export {
   type InstallOpts,
   type InstallResult,
 } from './clients/index.js';
+
+export {
+  createTokenStore,
+  InMemoryTokenStore,
+  type CreateTokenStoreDeps,
+  type StoredOAuthRecord,
+  type TokenStore,
+  type TokenStoreHealth,
+} from './auth/index.js';
