@@ -111,6 +111,11 @@ export function createHttpUpstreamClient(
         throw new UpstreamAuthRequiredError(config.auth.tokenEnv, serverName);
       }
       headers['Authorization'] = `Bearer ${token}`;
+    } else if (config.auth?.type === 'oauth') {
+      // OAuth header injection is wired up in F1-21 (gateway side); fail
+      // loudly here instead of silently connecting without an Authorization
+      // header, which would surface as a confusing 401 from the upstream.
+      throw new Error('auth.type "oauth" not yet implemented (F1-21)');
     }
     return headers;
   }

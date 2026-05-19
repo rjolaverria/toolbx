@@ -27,7 +27,22 @@ export const BearerAuthSchema = z
   })
   .strict();
 
-export const AuthSchema = z.discriminatedUnion('type', [NoneAuthSchema, BearerAuthSchema]);
+// OAuth-typed servers carry no fields in `config.json`: the DCR-issued
+// clientInformation, granted scopes, etc. live in the TokenStore (F1-13), not
+// in the user-editable config. The presence of `auth: { type: 'oauth' }` is
+// the signal that the gateway should drive the OAuth 2.1 dance for this
+// server.
+export const OAuthAuthSchema = z
+  .object({
+    type: z.literal('oauth'),
+  })
+  .strict();
+
+export const AuthSchema = z.discriminatedUnion('type', [
+  NoneAuthSchema,
+  BearerAuthSchema,
+  OAuthAuthSchema,
+]);
 
 export const StdioServerConfigSchema = z
   .object({
@@ -137,6 +152,26 @@ export const NamespacingSchema = z
   })
   .strict();
 
+// Token-store backend selector for OAuth credentials and other per-server
+// secrets that ToolBox manages itself. Phase 1 ships a single backend
+// (`keychain`) backed by the OS keyring; future backends (e.g. `file`,
+// `memory` for tests) will join this union.
+export const TokenStorageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('keychain') }).strict(),
+]);
+
+// The top-level `auth` block scopes ToolBox-wide auth settings, currently
+// just the token-store backend. Defaulted in two layers so consumers always
+// see `config.auth.storage.type` resolved without conditional reads:
+//   - `storage` defaults to `{ type: 'keychain' }` when omitted
+//   - the whole `auth` block defaults to `{ storage: { type: 'keychain' } }`
+//     when omitted
+export const TopLevelAuthSchema = z
+  .object({
+    storage: TokenStorageSchema.default({ type: 'keychain' }),
+  })
+  .strict();
+
 export const ToolBoxConfigSchema = z
   .object({
     $schema: z.string().min(1).optional(),
@@ -144,6 +179,7 @@ export const ToolBoxConfigSchema = z
     server: ServerSettingsSchema,
     progressiveDisclosure: ProgressiveDisclosureSchema,
     namespacing: NamespacingSchema,
+    auth: TopLevelAuthSchema.default({ storage: { type: 'keychain' } }),
     servers: ServersMapSchema,
     tools: ToolOverridesMapSchema.default({}),
   })
@@ -159,3 +195,5 @@ export type AuthConfig = z.infer<typeof AuthSchema>;
 export type ServerSettings = z.infer<typeof ServerSettingsSchema>;
 export type ProgressiveDisclosureConfig = z.infer<typeof ProgressiveDisclosureSchema>;
 export type NamespacingConfig = z.infer<typeof NamespacingSchema>;
+export type TokenStorage = z.infer<typeof TokenStorageSchema>;
+export type TopLevelAuth = z.infer<typeof TopLevelAuthSchema>;

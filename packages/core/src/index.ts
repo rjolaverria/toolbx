@@ -9,6 +9,7 @@ export {
   LoopbackHostSchema,
   NamespacingSchema,
   NoneAuthSchema,
+  OAuthAuthSchema,
   ProgressiveDisclosureSchema,
   ServerConfigSchema,
   ServerNameSchema,
@@ -16,9 +17,11 @@ export {
   ServersMapSchema,
   StdioServerConfigSchema,
   StdioServerSettingsSchema,
+  TokenStorageSchema,
   ToolBoxConfigSchema,
   ToolOverrideSchema,
   ToolOverridesMapSchema,
+  TopLevelAuthSchema,
   type AuthConfig,
   type HttpServerConfig,
   type NamespacingConfig,
@@ -26,9 +29,11 @@ export {
   type ServerConfig,
   type ServerSettings,
   type StdioServerConfig,
+  type TokenStorage,
   type ToolBoxConfig,
   type ToolBoxConfigInput,
   type ToolOverride,
+  type TopLevelAuth,
 } from './config/schema.js';
 
 export {
