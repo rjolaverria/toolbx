@@ -77,6 +77,28 @@ The authorization-code flow requires a loopback HTTP server to catch the redirec
       const state = url.searchParams.get('state');
       const error = url.searchParams.get('error');
 
+      // Validate `state` BEFORE branching on success vs error. Without this,
+      // any unauthenticated loopback request with `?error=...` could cancel
+      // an in-flight authorization attempt — defense in depth even though
+      // the listener is loopback-bound.
+      if (!state) {
+        res.statusCode = 400;
+        res.end('Missing state');
+        return;
+      }
+      if (expectedStateRef === null || state !== expectedStateRef) {
+        res.statusCode = 400;
+        res.end('State parameter mismatch');
+        // Do not reject the codePromise on stray mismatched requests — the
+        // real callback may still arrive. Only reject when expectedStateRef
+        // is set and a request explicitly claims that state but differs.
+        if (expectedStateRef !== null) {
+          rejectCode?.(new Error('State parameter mismatch'));
+        }
+        return;
+      }
+
+      // State is verified to belong to the active attempt — now branch.
       if (error) {
         received = true;
         res.statusCode = 400;
@@ -85,15 +107,9 @@ The authorization-code flow requires a loopback HTTP server to catch the redirec
         rejectCode?.(new Error(`Authorization failed: ${error}`));
         return;
       }
-      if (!code || !state) {
+      if (!code) {
         res.statusCode = 400;
-        res.end('Missing code or state');
-        return;
-      }
-      if (expectedStateRef === null || state !== expectedStateRef) {
-        res.statusCode = 400;
-        res.end('State parameter mismatch');
-        rejectCode?.(new Error('State parameter mismatch'));
+        res.end('Missing code');
         return;
       }
       received = true;
@@ -169,14 +185,17 @@ The authorization-code flow requires a loopback HTTP server to catch the redirec
 - **`packages/core/src/auth/__tests__/oauth-callback-server.test.ts`** — tests against a real running server on an ephemeral port:
   - **Happy path:** start server, `waitForCode('abc')`, `fetch(redirectUri + '?code=x&state=abc')`, assert promise resolves to `{ code: 'x', state: 'abc' }` and response is 200 with HTML body containing "Authenticated".
   - **State mismatch:** `waitForCode('abc')`, `fetch(redirectUri + '?code=x&state=wrong')`, assert promise rejects with `'State parameter mismatch'` and HTTP response is 400.
-  - **OAuth `error` parameter:** `fetch(redirectUri + '?error=access_denied')`, assert promise rejects with `'Authorization failed: access_denied'` and HTTP response is 400 with the error HTML.
-  - **Missing code/state:** `fetch(redirectUri + '?code=x')`, assert 400, promise still pending. (Then close server; assert promise rejects on close — see below.)
+  - **OAuth `error` parameter (with matching state):** `waitForCode('abc')`, `fetch(redirectUri + '?error=access_denied&state=abc')`, assert promise rejects with `'Authorization failed: access_denied'` and HTTP response is 400 with the error HTML.
+  - **OAuth `error` parameter without state (defense in depth):** `waitForCode('abc')`, `fetch(redirectUri + '?error=access_denied')` (no state), assert 400 "Missing state", **codePromise still pending** (state validation gates the error path, so unauthenticated requests can't cancel the flow).
+  - **OAuth `error` parameter with wrong state:** `waitForCode('abc')`, `fetch(redirectUri + '?error=access_denied&state=wrong')`, assert 400 "State parameter mismatch" and codePromise rejects with `'State parameter mismatch'` — not the `access_denied` error. (The mismatch is a signal that someone is claiming the wrong state and we should bail the active attempt.)
+  - **Missing state on success request:** `fetch(redirectUri + '?code=x')`, assert 400 "Missing state", promise still pending.
+  - **Missing code (state-only):** `waitForCode('abc')`, `fetch(redirectUri + '?state=abc')`, assert 400 "Missing code", promise still pending.
   - **Wrong path:** `fetch(redirectUri.origin + '/other')`, assert 404; promise still pending.
   - **Duplicate redirect:** valid redirect resolves the promise; a second `fetch` to `redirectUri + '?code=y&state=abc'` returns 409.
   - **Timeout:** start with `timeoutMs: 50`, do nothing, assert promise rejects with `'Callback timed out after 50ms'` within 100ms.
   - **`close()` is idempotent:** call twice; both resolve; assert server is no longer listening (a subsequent `fetch` to `redirectUri` rejects with connection error).
   - **Loopback-only binding:** assert `server.address().address === '127.0.0.1'` after `listen`. This locks the invariant in CI — any change that broadens the bind will fail this test.
-  - **Promise rejects on close-before-redirect:** start server, `waitForCode('abc')`, immediately `close()`. The codePromise should... wait, actually with the current implementation `close()` doesn't reject the promise. Decide: either (a) add explicit rejection on `close()` for unresolved promises, or (b) document that callers must `Promise.race` with their own cancellation signal. **Pick (a)**: in the `close()` body, call `rejectCode?.(new Error('Callback server closed before redirect'))` if `!received`. Update the implementation and add this test.
+  - **Promise rejects on close-before-redirect:** start server, `waitForCode('abc')`, immediately `close()`. Assert codePromise rejects with `'Callback server closed before redirect'` (matches the `if (!received) rejectCode?.(...)` in `close()`).
 
 ## Acceptance criteria
 
