@@ -118,18 +118,18 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
       throw new SuppressedRedirectError(authorizationUrl);
     }
 
+    private savedCodeVerifier: string | undefined;
+
     async saveCodeVerifier(verifier: string): Promise<void> {
-      this.codeVerifier = verifier;
+      this.savedCodeVerifier = verifier;
     }
 
     async codeVerifier(): Promise<string> {
-      if (this.codeVerifier === undefined) {
+      if (this.savedCodeVerifier === undefined) {
         throw new Error('codeVerifier requested before saveCodeVerifier');
       }
-      return this.codeVerifier;
+      return this.savedCodeVerifier;
     }
-
-    private codeVerifier: string | undefined;
 
     private async load(): Promise<StoredOAuthRecord | null> {
       if (this.cached !== undefined) return this.cached;
