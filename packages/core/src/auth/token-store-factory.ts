@@ -1,6 +1,7 @@
 import type { TokenStorage } from '../config/schema.js';
 import type { Logger } from '../logging/logger.js';
 
+import { KeychainTokenStore } from './keychain-token-store.js';
 import type { TokenStore } from './token-store.js';
 
 export interface CreateTokenStoreDeps {
@@ -13,17 +14,9 @@ export interface CreateTokenStoreDeps {
  * powers it.
  */
 export function createTokenStore(storage: TokenStorage, deps: CreateTokenStoreDeps): TokenStore {
-  // `deps` is part of the factory's public surface — F1-14 will start using
-  // `deps.logger` to log backend startup. Touch it here so the compiler/linter
-  // sees the parameter as referenced today.
-  void deps;
   switch (storage.type) {
     case 'keychain':
-      // F1-14 will replace this throw with a real instantiation.
-      throw new Error(
-        'KeychainTokenStore not yet implemented (F1-14). ' +
-          'Use InMemoryTokenStore in tests until then.',
-      );
+      return new KeychainTokenStore({ logger: deps.logger });
   }
   // Compile-time exhaustiveness. `TokenStorage` currently has a single
   // variant, so the canonical `const _exhaustive: never = storage` pattern
