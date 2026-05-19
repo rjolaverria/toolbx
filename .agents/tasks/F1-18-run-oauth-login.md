@@ -119,6 +119,14 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
         return { kind: 'failed', reason: 'authorization URL missing state parameter' };
       }
       const codePromise = callback.waitForCode(state);
+      // Attach a no-op rejection handler immediately. If cancellation wins
+      // before we ever await `codePromise` (e.g. abort during openBrowser),
+      // the `finally` block calls `callback.close()` which rejects this
+      // promise — without this handler that's an unhandled rejection.
+      // Legitimate rejections are still surfaced via the `await` in the
+      // success path below; this only silences the dangling-promise case.
+      void codePromise.catch(() => undefined);
+
       const abortPromise: Promise<'aborted'> = input.abortSignal
         ? abortToPromise(input.abortSignal)
         : new Promise(() => undefined);

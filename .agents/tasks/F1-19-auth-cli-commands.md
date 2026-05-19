@@ -2,7 +2,7 @@
 
 **Milestone**: Phase 1 follow-up (OAuth upstream auth, CLI surface)
 **SPECS references**: §4.2 (CLI commands), §4.6.2 (re-auth flow, exit codes)
-**Depends on**: F1-18
+**Depends on**: F1-14, F1-18 (F1-14 is required because the CLI instantiates the configured `TokenStore` via the factory — the default `keychain` backend would throw without F1-14's implementation)
 
 ## Goal
 

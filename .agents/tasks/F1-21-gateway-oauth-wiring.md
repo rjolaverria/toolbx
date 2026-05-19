@@ -2,7 +2,7 @@
 
 **Milestone**: Phase 1 follow-up (OAuth upstream auth, gateway runtime)
 **SPECS references**: §4.6.2 (re-auth flow, refresh policy, browser-flow ownership)
-**Depends on**: F1-17
+**Depends on**: F1-14, F1-17 (F1-14 is required because the gateway reads tokens from the configured `TokenStore` via the factory; the default `keychain` backend would throw without F1-14's implementation)
 
 ## Goal
 

@@ -104,7 +104,11 @@ SPECS §4.6.2 commits to keychain as the Phase-1-only storage backend, with a fa
     async delete(serverName: string): Promise<void> {
       const kr = await this.keyring();
       if ('kind' in kr) {
-        return; // delete-on-unavailable is a no-op
+        // Fail loud, matching read/write. A silent no-op here would let
+        // `tlbx auth logout` and `tlbx doctor --fix` report success when
+        // the credential was never actually deleted — that's worse than
+        // a clear error message naming the keychain failure mode.
+        throw new Error(`Keychain unavailable: ${kr.reason}`);
       }
       const entry = new kr.Entry(SERVICE_NAME, accountFor(serverName));
       entry.deletePassword();
@@ -162,7 +166,8 @@ SPECS §4.6.2 commits to keychain as the Phase-1-only storage backend, with a fa
   - Round-trip: `write('github', record)` then `read('github')` returns the same record.
   - Account naming: assert `setPassword` was called against `service='dev.toolbox.cli'`, `account='oauth:github'`.
   - `read` of an unknown server returns `null`.
-  - `delete` of a non-existent server is a no-op (no throw).
+  - `delete` of a non-existent server is a no-op when the keychain is available (no throw — the underlying `deletePassword()` returns false but we don't surface it).
+  - `delete` when the keychain is **unavailable** throws `Keychain unavailable: <reason>` (matching `read` and `write`). Verified via the same `vi.doMock` setup that exercises the unavailable-on-import path.
   - `list` returns only accounts with the `oauth:` prefix and strips it.
   - `probe` returns `ready` for a working mock; returns `unavailable` with the reason string when `setPassword` throws.
   - `unavailable` path: separate test where `vi.mock` throws on import (`vi.doMock('@napi-rs/keyring', () => { throw new Error('libsecret not found'); })`). Assert `probe()` returns `{ kind: 'unavailable', reason: 'libsecret not found' }` and `read()` throws `Keychain unavailable: libsecret not found`.

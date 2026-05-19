@@ -2,7 +2,7 @@
 
 **Milestone**: Phase 1 follow-up (OAuth upstream auth, add-http auto-flow)
 **SPECS references**: §4.6.2 (auto-trigger at add-http time, atomicity)
-**Depends on**: F1-15, F1-18
+**Depends on**: F1-14, F1-15, F1-18 (F1-14 is required because `runOAuthLogin` needs a working `TokenStore`; the default `keychain` backend would throw without F1-14's implementation)
 
 ## Goal
 

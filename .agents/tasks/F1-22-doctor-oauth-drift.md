@@ -2,7 +2,7 @@
 
 **Milestone**: Phase 1 follow-up (OAuth upstream auth, diagnostics)
 **SPECS references**: §4.6.2 (atomicity + `tlbx doctor --fix` for orphan tokens)
-**Depends on**: F1-13
+**Depends on**: F1-13, F1-14 (F1-14 is required because the drift check instantiates the configured `TokenStore` via the factory; the default `keychain` backend would throw without F1-14's implementation)
 
 ## Goal
 
