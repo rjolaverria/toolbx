@@ -35,7 +35,10 @@ SPECS §4.2 promotes these from "future" to first-class commands. Both end-users
   //      with the reason. (`Token storage unavailable: <reason>. Run \`tlbx doctor\` for details.`)
   //   4. Install SIGINT handler that aborts an AbortController.
   //   5. Print `Opening browser to authenticate <server>…`
-  //   6. Call `runOAuthLogin({ serverName, serverUrl, tokenStore, logger, abortSignal })`.
+  //   6. Call `runOAuthLogin({ serverName, serverUrl, tokenStore, logger, abortSignal, forceReauth: true })`.
+  //      `forceReauth: true` is the key difference from `add-http` — it makes
+  //      the SDK do the full browser handshake even when a valid token is
+  //      already stored, so the user can switch identities (§4.6.2).
   //   7. Branch on result:
   //      - success → print `✓ <server> authenticated. ToolBox will use the new token automatically.`,
   //                  exit 0.

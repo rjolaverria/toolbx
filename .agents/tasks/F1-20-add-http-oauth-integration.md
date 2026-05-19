@@ -30,16 +30,24 @@ The brainstorm decided the canonical add-http UX is "one command, one outcome." 
       'none'    -> write entry with auth: { type: 'none' }
                    print `✓ <name> registered (no auth required).`
       'oauth'   -> print `OAuth required for <name>. Opening browser to authenticate…`
+                   // Snapshot any existing token BEFORE login so a config-write
+                   // failure can restore it. A pre-existing token here means an
+                   // orphan from a previous failed attempt — uncommon but real,
+                   // and §4.6.2 atomicity says state should be unchanged on
+                   // failure.
+                   const priorToken = await tokenStore.read(serverName);
                    call runOAuthLogin({ serverName, serverUrl, resourceMetadataUrl, … })
                    on success:
                      try to write entry with auth: { type: 'oauth' }
                      IF the config write FAILS for any reason (disk full, perms, etc.):
-                       roll back by calling tokenStore.delete(serverName), then re-throw.
-                       This preserves the §4.6.2 atomicity guarantee that neither half
-                       of the (config entry, stored token) pair exists if the other
-                       failed — otherwise a config-write failure would leave an orphan
-                       token in the keychain and the next add-http for the same name
-                       would conflict.
+                       roll back the token state:
+                         - if priorToken !== null:   tokenStore.write(serverName, priorToken)
+                         - if priorToken === null:   tokenStore.delete(serverName)
+                       then re-throw.
+                       This preserves the §4.6.2 atomicity guarantee that the
+                       (config entry, stored token) state is exactly what it was
+                       before the command ran. An unconditional delete here would
+                       nuke pre-existing user credentials on a config-write failure.
                      print `✓ <name> registered (OAuth). N tools available.`
                    on cancelled: do not write entry; exit 2 with `Authentication cancelled. <name> was not registered.`
                    on failed: do not write entry; exit 4 with `Authentication failed: <reason>. <name> was not registered.`
@@ -57,7 +65,8 @@ The brainstorm decided the canonical add-http UX is "one command, one outcome." 
 - **`apps/cli/src/commands/__tests__/server-add.test.ts`** (modify, existing file) — add tests for each new branch:
   - **Probe returns `none`** → existing-style behavior; entry written; no `runOAuthLogin` call.
   - **Probe returns `oauth`, success** → `runOAuthLogin` invoked with the resource-metadata URL; entry written with `auth: { type: 'oauth' }`; tokenStore has the record. Print includes "OAuth required" and "registered (OAuth)".
-  - **Probe returns `oauth`, success, but config write fails** → stub the config-save layer to throw. Assert: `tokenStore.delete(name)` was called (token rolled back), `tokenStore.read(name)` returns `null`, the command exits non-zero, the underlying error message is surfaced to stderr. This is the atomicity-on-late-failure path.
+  - **Probe returns `oauth`, success, but config write fails (no prior token)** → tokenStore has no entry for `name` before the command. Stub the config-save layer to throw. Assert: `tokenStore.read(name)` returns `null` (the freshly-written token was deleted), the command exits non-zero, the underlying error message is surfaced to stderr.
+  - **Probe returns `oauth`, success, but config write fails (prior token present)** → pre-seed `tokenStore.write(name, priorRecord)` before the command (simulating an orphan from a previous failed attempt). Stub config-save to throw. Assert: `tokenStore.read(name)` returns the **prior** record (restored, not the new one from the just-completed login), the command exits non-zero. This is the rollback-preserves-existing-credentials path.
   - **Probe returns `oauth`, cancelled** → no config write; tokenStore unchanged; exit code 2.
   - **Probe returns `oauth`, failed** → no config write; tokenStore unchanged; exit code 4.
   - **Probe returns `bearer`** → no config write; printed message includes the suggested `--auth bearer --token-env` invocation; exit code 1.

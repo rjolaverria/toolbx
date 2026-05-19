@@ -116,7 +116,12 @@ SPECS §4.6.2 commits to keychain as the Phase-1-only storage backend, with a fa
 
     async list(): Promise<string[]> {
       const kr = await this.keyring();
-      if ('kind' in kr) return [];
+      if ('kind' in kr) {
+        // Fail loud, matching read/write/delete. Returning [] would mask a
+        // storage failure as "no stored tokens", which breaks `tlbx doctor`
+        // drift detection and `tlbx auth status` enumeration.
+        throw new Error(`Keychain unavailable: ${kr.reason}`);
+      }
       // findCredentials is platform-dependent; some backends omit it.
       const fn = new kr.Entry(SERVICE_NAME, accountFor('_probe_')).findCredentials;
       if (typeof fn !== 'function') {
@@ -168,7 +173,8 @@ SPECS §4.6.2 commits to keychain as the Phase-1-only storage backend, with a fa
   - `read` of an unknown server returns `null`.
   - `delete` of a non-existent server is a no-op when the keychain is available (no throw — the underlying `deletePassword()` returns false but we don't surface it).
   - `delete` when the keychain is **unavailable** throws `Keychain unavailable: <reason>` (matching `read` and `write`). Verified via the same `vi.doMock` setup that exercises the unavailable-on-import path.
-  - `list` returns only accounts with the `oauth:` prefix and strips it.
+  - `list` returns only accounts with the `oauth:` prefix and strips it (when the keychain is available).
+  - `list` when the keychain is **unavailable** throws `Keychain unavailable: <reason>` (matching `read`/`write`/`delete`).
   - `probe` returns `ready` for a working mock; returns `unavailable` with the reason string when `setPassword` throws.
   - `unavailable` path: separate test where `vi.mock` throws on import (`vi.doMock('@napi-rs/keyring', () => { throw new Error('libsecret not found'); })`). Assert `probe()` returns `{ kind: 'unavailable', reason: 'libsecret not found' }` and `read()` throws `Keychain unavailable: libsecret not found`.
 

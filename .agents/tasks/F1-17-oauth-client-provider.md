@@ -89,10 +89,21 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
     // unchanged.
     private pendingClientInformation: OAuthClientInformationFull | undefined;
     private resolvedAuthorizationServer: string | undefined;
+    private suppressTokensRead = false;
 
     /** Called by F1-18 after the SDK resolves discovery; persisted in saveTokens. */
     setAuthorizationServer(url: string): void {
       this.resolvedAuthorizationServer = url;
+    }
+
+    /**
+     * Called by F1-18 for identity-switch (`tlbx auth login`): makes
+     * `tokens()` return `undefined` regardless of stored state so the SDK
+     * proceeds through DCR + authorize. Stored tokens remain on disk until
+     * `saveTokens` writes the new pair (atomicity preserved).
+     */
+    suppressStoredTokensForReauth(): void {
+      this.suppressTokensRead = true;
     }
 
     async clientInformation(): Promise<OAuthClientInformation | undefined> {
@@ -106,6 +117,7 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
     }
 
     async tokens(): Promise<OAuthTokens | undefined> {
+      if (this.suppressTokensRead) return undefined;
       const record = await this.load();
       return record?.tokens;
     }
@@ -200,6 +212,7 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
   - **`saveTokens` requires an authorization server** — `saveClientInformation` followed by `saveTokens` _without_ calling `setAuthorizationServer` (and without `opts.authorizationServer` or an existing stored record) throws the "Cannot save tokens … without an authorization server URL" error. Calling `setAuthorizationServer(url)` first lets `saveTokens` succeed and persists the URL.
   - **Re-auth path (record already exists):** pre-seed the TokenStore with a record. `saveTokens` should write a new record reusing the existing `clientInformation` (and `authorizationServer` / `scopes`) — no `saveClientInformation` call needed.
   - **External writes are picked up (no cache):** construct a provider against an `InMemoryTokenStore`. Call `tokens()` and assert `undefined`. Then `tokenStore.write(name, ...)` **externally** (simulating `tlbx auth login` from a separate process). Call `tokens()` again — it must return the new record. The provider must NOT cache the first read. This locks the gateway-runtime recovery contract from §4.6.2.
+  - **`suppressStoredTokensForReauth` hides existing tokens:** pre-seed the TokenStore with a valid record. `tokens()` returns it. Call `suppressStoredTokensForReauth()`. Subsequent `tokens()` calls return `undefined`, while `tokenStore.read(name)` still has the original record (suppression is in-memory only, atomicity preserved). After `saveTokens(newTokens)`, the new tokens are returned from `tokens()`, and the suppression flag no longer matters.
   - **`saveTokens` updates `obtainedAt`** to current time.
   - **`state()`** returns a UUID-shaped string; two calls return distinct values.
   - **`saveCodeVerifier` + `codeVerifier`** round-trips; `codeVerifier` before save throws.

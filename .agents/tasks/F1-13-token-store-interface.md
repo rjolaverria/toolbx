@@ -90,9 +90,14 @@ SPECS §4.6.2 commits to a pluggable storage abstraction: the interface is the c
             'Use InMemoryTokenStore in tests until then.',
         );
       default: {
-        // Exhaustiveness check — TypeScript will flag missing cases.
-        const _exhaustive: never = storage.type;
-        throw new Error(`Unknown token storage type: ${String(_exhaustive)}`);
+        // Exhaustiveness check — TypeScript will flag missing cases. Assert
+        // against `storage` itself, not `storage.type`: after the switch
+        // narrows, `storage` is `never`, so accessing `.type` here would
+        // also fail to compile. JSON-stringify the value separately for the
+        // runtime error message (which is reached only if the runtime input
+        // bypasses the Zod schema — defensive).
+        const exhaustive: never = storage;
+        throw new Error(`Unknown token storage type: ${JSON.stringify(exhaustive)}`);
       }
     }
   }

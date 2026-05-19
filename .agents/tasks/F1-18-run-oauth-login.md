@@ -42,6 +42,14 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
     callbackTimeoutMs?: number;
     /** Listen for cancellation (Ctrl-C / parent abort). */
     abortSignal?: AbortSignal;
+    /**
+     * Force the full browser handshake even if a usable token is already in
+     * the TokenStore. Set to true by `tlbx auth login <server>` so the user
+     * can switch identities (§4.2 / §4.6.2 explicitly support this). Default
+     * false — `tlbx server add-http` keeps the early-success shortcut, since
+     * by definition there is no pre-existing token for a brand-new server.
+     */
+    forceReauth?: boolean;
   }
 
   export type RunOAuthLoginResult =
@@ -88,6 +96,14 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
         authorizationServer: serverInfo.authorizationServerUrl,
       });
 
+      if (input.forceReauth) {
+        // Identity-switch path: tell the provider to act as if no tokens are
+        // stored so the SDK proceeds through DCR + authorize instead of
+        // short-circuiting on a still-valid token. Stored tokens stay on
+        // disk until `saveTokens` writes the new ones (atomicity preserved).
+        provider.suppressStoredTokensForReauth();
+      }
+
       // First half: discovery + (optional) DCR + build authorization URL.
       // The SDK calls provider.redirectToAuthorization, which we make throw
       // SuppressedRedirectError so we can intercept the URL and open the
@@ -101,7 +117,11 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
             : {}),
         });
         // If `auth()` returned without throwing, the SDK believed we already
-        // had a usable token. Treat that as success.
+        // had a usable token. With forceReauth=false that's a legitimate
+        // shortcut (no new server, no new identity to authenticate).
+        // With forceReauth=true the suppressStoredTokensForReauth() call
+        // above guarantees this branch is unreachable; the SDK always
+        // proceeds to redirect.
         return { kind: 'success' };
       } catch (err) {
         if (err instanceof SuppressedRedirectError) {

@@ -21,7 +21,7 @@ SPECS §4.6.2 commits to atomic add-http and atomic login, but bugs and Ctrl-C t
   Behavior:
   1. **Token store health:**
      - Call `tokenStore.probe()`.
-     - If `unavailable`: print a red row with the reason and a remediation hint (per platform: "macOS Keychain access denied — try running `tlbx auth login <server>` and approving the prompt", "Linux: install gnome-keyring or kwallet and start the secret service", etc.). Suppress the drift check below since `list()` would return [].
+     - If `unavailable`: print a red row with the reason and a remediation hint (per platform: "macOS Keychain access denied — try running `tlbx auth login <server>` and approving the prompt", "Linux: install gnome-keyring or kwallet and start the secret service", etc.). Suppress the drift check below — `list()` would throw `Keychain unavailable: ...` per F1-14's fail-loud policy, and there's no useful drift report we could render without it.
      - If `ready`: continue.
 
   2. **Drift detection:**
