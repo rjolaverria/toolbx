@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { createConnection } from 'node:net';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -63,6 +64,81 @@ async function connectClient(url: URL): Promise<Client> {
   // strictly-optional Transport interface under exactOptionalPropertyTypes.
   await client.connect(new StreamableHTTPClientTransport(url) as Transport);
   return client;
+}
+
+async function postOversizeBodyUntilServerCloses(url: URL): Promise<string> {
+  // Use a raw socket so the test stops writing once the server has enough
+  // bytes to reject the request; fetch may keep writing and surface EPIPE.
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const socket = createConnection({ host: url.hostname, port: Number(url.port) });
+    let settled = false;
+    let socketError: Error | undefined;
+
+    const timeout = setTimeout(() => {
+      settle(() => {
+        socket.destroy();
+        reject(new Error('timed out waiting for oversized request response'));
+      });
+    }, 2_000);
+    timeout.unref?.();
+
+    const settle = (fn: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      fn();
+    };
+
+    socket.on('connect', () => {
+      const declaredLength = 5 * 1024 * 1024;
+      const bytesNeededToTripLimit = 4 * 1024 * 1024 + 1;
+      const headers = [
+        `POST ${url.pathname} HTTP/1.1`,
+        `Host: ${url.host}`,
+        'Content-Type: application/json',
+        'Accept: application/json, text/event-stream',
+        `Content-Length: ${declaredLength}`,
+        '',
+        '',
+      ].join('\r\n');
+
+      socket.write(headers);
+      const chunk = Buffer.alloc(64 * 1024, 'x');
+      let remaining = bytesNeededToTripLimit;
+      const writeBody = (): void => {
+        while (remaining > 0) {
+          const size = Math.min(remaining, chunk.length);
+          const bodyChunk = size === chunk.length ? chunk : chunk.subarray(0, size);
+          remaining -= size;
+          if (!socket.write(bodyChunk)) {
+            socket.once('drain', writeBody);
+            return;
+          }
+        }
+      };
+
+      writeBody();
+    });
+
+    socket.on('data', (chunk) => {
+      chunks.push(Buffer.from(chunk));
+    });
+    socket.on('error', (error) => {
+      socketError = error;
+    });
+    socket.on('close', () => {
+      settle(() => {
+        if (chunks.length === 0 && socketError) {
+          reject(socketError);
+          return;
+        }
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+    });
+  });
 }
 
 describe('createDownstreamHttpServer — protocol surface', () => {
@@ -382,21 +458,12 @@ describe('createDownstreamHttpServer — lifecycle', () => {
     const server = makeServer();
     await server.start();
 
-    // 5 MiB > 4 MiB MAX_REQUEST_BODY_BYTES.
-    const oversize = 'x'.repeat(5 * 1024 * 1024);
-    const res = await fetch(server.url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json, text/event-stream',
-      },
-      body: oversize,
-    });
+    const rawResponse = await postOversizeBodyUntilServerCloses(server.url);
+    const [head, body = ''] = rawResponse.split('\r\n\r\n');
 
-    expect(res.status).toBe(413);
-    expect(res.headers.get('connection')).toMatch(/close/i);
-    const body = (await res.json().catch(() => ({ error: '' }))) as { error: string };
-    expect(body.error).toMatch(/too large/);
+    expect(head).toMatch(/^HTTP\/1.1 413 /);
+    expect(head).toMatch(/connection: close/i);
+    expect(JSON.parse(body)).toEqual({ error: 'request body too large' });
   });
 
   it('closes the listener when stop() races with an in-flight start()', async () => {
