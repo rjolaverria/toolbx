@@ -149,7 +149,13 @@ The authorization-code flow requires a loopback HTTP server to catch the redirec
       });
     };
 
-    codePromise.finally(() => void close());
+    // The caller (F1-18 / runOAuthLogin) is responsible for calling close()
+    // in its own try/finally — we do NOT auto-close from a codePromise
+    // continuation. Earlier sketches used `codePromise.finally(() => void
+    // close())`, but that creates an unhandled rejection when codePromise
+    // rejects (the .finally chain re-throws into a dangling promise), and it
+    // also closes the server out from under callers who may still want to
+    // serve a 409 to a duplicate redirect.
 
     return {
       redirectUri,
@@ -191,7 +197,7 @@ The authorization-code flow requires a loopback HTTP server to catch the redirec
   - **Missing state on success request:** `fetch(redirectUri + '?code=x')`, assert 400 "Missing state", promise still pending.
   - **Missing code (state-only):** `waitForCode('abc')`, `fetch(redirectUri + '?state=abc')`, assert 400 "Missing code", promise still pending.
   - **Wrong path:** `fetch(redirectUri.origin + '/other')`, assert 404; promise still pending.
-  - **Duplicate redirect:** valid redirect resolves the promise; a second `fetch` to `redirectUri + '?code=y&state=abc'` returns 409.
+  - **Duplicate redirect:** valid redirect resolves the promise; without calling `close()`, fire a second `fetch` to `redirectUri + '?code=y&state=abc'` and assert it returns 409. Then explicitly `close()`. (The server only stops listening when the caller closes it — this test depends on that property, so don't reintroduce the auto-close-on-codePromise behavior.)
   - **Timeout:** start with `timeoutMs: 50`, do nothing, assert promise rejects with `'Callback timed out after 50ms'` within 100ms.
   - **`close()` is idempotent:** call twice; both resolve; assert server is no longer listening (a subsequent `fetch` to `redirectUri` rejects with connection error).
   - **Loopback-only binding:** assert `server.address().address === '127.0.0.1'` after `listen`. This locks the invariant in CI — any change that broadens the bind will fail this test.

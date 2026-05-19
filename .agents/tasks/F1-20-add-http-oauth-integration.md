@@ -31,8 +31,16 @@ The brainstorm decided the canonical add-http UX is "one command, one outcome." 
                    print `✓ <name> registered (no auth required).`
       'oauth'   -> print `OAuth required for <name>. Opening browser to authenticate…`
                    call runOAuthLogin({ serverName, serverUrl, resourceMetadataUrl, … })
-                   on success: write entry with auth: { type: 'oauth' }
-                               print `✓ <name> registered (OAuth). N tools available.`
+                   on success:
+                     try to write entry with auth: { type: 'oauth' }
+                     IF the config write FAILS for any reason (disk full, perms, etc.):
+                       roll back by calling tokenStore.delete(serverName), then re-throw.
+                       This preserves the §4.6.2 atomicity guarantee that neither half
+                       of the (config entry, stored token) pair exists if the other
+                       failed — otherwise a config-write failure would leave an orphan
+                       token in the keychain and the next add-http for the same name
+                       would conflict.
+                     print `✓ <name> registered (OAuth). N tools available.`
                    on cancelled: do not write entry; exit 2 with `Authentication cancelled. <name> was not registered.`
                    on failed: do not write entry; exit 4 with `Authentication failed: <reason>. <name> was not registered.`
       'bearer'  -> print explicit message and exit 1:
@@ -49,6 +57,7 @@ The brainstorm decided the canonical add-http UX is "one command, one outcome." 
 - **`apps/cli/src/commands/__tests__/server-add.test.ts`** (modify, existing file) — add tests for each new branch:
   - **Probe returns `none`** → existing-style behavior; entry written; no `runOAuthLogin` call.
   - **Probe returns `oauth`, success** → `runOAuthLogin` invoked with the resource-metadata URL; entry written with `auth: { type: 'oauth' }`; tokenStore has the record. Print includes "OAuth required" and "registered (OAuth)".
+  - **Probe returns `oauth`, success, but config write fails** → stub the config-save layer to throw. Assert: `tokenStore.delete(name)` was called (token rolled back), `tokenStore.read(name)` returns `null`, the command exits non-zero, the underlying error message is surfaced to stderr. This is the atomicity-on-late-failure path.
   - **Probe returns `oauth`, cancelled** → no config write; tokenStore unchanged; exit code 2.
   - **Probe returns `oauth`, failed** → no config write; tokenStore unchanged; exit code 4.
   - **Probe returns `bearer`** → no config write; printed message includes the suggested `--auth bearer --token-env` invocation; exit code 1.

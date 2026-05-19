@@ -36,6 +36,14 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
     logger: Logger;
     /** Static client metadata for DCR. */
     clientName?: string;
+    /**
+     * Issuer / authorization-server URL discovered during the OAuth handshake.
+     * Persisted into StoredOAuthRecord.authorizationServer so the gateway can
+     * use it later for refresh. F1-18's runOAuthLogin calls
+     * `provider.setAuthorizationServer(...)` after the SDK resolves discovery,
+     * before the SDK calls saveTokens.
+     */
+    authorizationServer?: string;
   }
 
   /**
@@ -75,6 +83,12 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
     // so a Ctrl-C between DCR and the code exchange leaves the keychain
     // unchanged.
     private pendingClientInformation: OAuthClientInformationFull | undefined;
+    private resolvedAuthorizationServer: string | undefined;
+
+    /** Called by F1-18 after the SDK resolves discovery; persisted in saveTokens. */
+    setAuthorizationServer(url: string): void {
+      this.resolvedAuthorizationServer = url;
+    }
 
     async clientInformation(): Promise<OAuthClientInformation | undefined> {
       if (this.pendingClientInformation) return this.pendingClientInformation;
@@ -100,11 +114,25 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
             'the SDK should call saveClientInformation first.',
         );
       }
+      const authorizationServer =
+        this.resolvedAuthorizationServer ??
+        this.opts.authorizationServer ??
+        existing?.authorizationServer;
+      if (!authorizationServer) {
+        // We refuse to persist with an empty authorizationServer — refresh
+        // would have no endpoint to call against. F1-18 must either set it
+        // via setAuthorizationServer or pass it in opts before the SDK calls
+        // saveTokens.
+        throw new Error(
+          `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
+            'Call provider.setAuthorizationServer(...) before the token exchange completes.',
+        );
+      }
       const next: StoredOAuthRecord = {
         schemaVersion: 1,
         clientInformation,
         tokens,
-        authorizationServer: existing?.authorizationServer ?? '',
+        authorizationServer,
         scopes: existing?.scopes ?? this.opts.scopes ?? [],
         obtainedAt: new Date().toISOString(),
       };
@@ -164,6 +192,7 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
   - **`saveClientInformation` alone does not touch the TokenStore** — assert `tokenStore.read(name)` still returns `null` after `saveClientInformation` but before `saveTokens`. This is the atomicity guarantee from §4.6.2.
   - **`saveTokens` writes a complete record** with both the staged `clientInformation` and the new tokens, and clears the in-memory staged copy.
   - **`saveTokens` requires prior `saveClientInformation` (or an existing stored record)** — calling on a brand-new provider with no DCR and no prior record throws the expected error.
+  - **`saveTokens` requires an authorization server** — `saveClientInformation` followed by `saveTokens` _without_ calling `setAuthorizationServer` (and without `opts.authorizationServer` or an existing stored record) throws the "Cannot save tokens … without an authorization server URL" error. Calling `setAuthorizationServer(url)` first lets `saveTokens` succeed and persists the URL.
   - **Re-auth path (record already exists):** pre-seed the TokenStore with a record. `saveTokens` should write a new record reusing the existing `clientInformation` (and `authorizationServer` / `scopes`) — no `saveClientInformation` call needed.
   - **`saveTokens` updates `obtainedAt`** to current time.
   - **`state()`** returns a UUID-shaped string; two calls return distinct values.

@@ -91,6 +91,14 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
         }
       }
 
+      // Tell the provider which authorization server we ended up resolving,
+      // so saveTokens can persist it into StoredOAuthRecord.authorizationServer.
+      // The SDK has already done discovery by this point; we read the resolved
+      // URL from the authorization URL's origin as a robust fallback (the SDK
+      // may also expose this via a public discovery accessor — verify and
+      // prefer that path when wiring this in F1-17/F1-18 implementation).
+      provider.setAuthorizationServer(authorizationUrl.origin);
+
       // Second half: arm the callback server BEFORE opening the browser,
       // because a fast redirect could otherwise arrive while expectedStateRef
       // is still unset and be rejected as a state mismatch.
@@ -99,12 +107,23 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
         return { kind: 'failed', reason: 'authorization URL missing state parameter' };
       }
       const codePromise = callback.waitForCode(state);
-
-      log.info({ url: authorizationUrl.toString() }, 'opening browser for authorization');
-      await openBrowser(authorizationUrl);
-      const abortPromise = input.abortSignal
+      const abortPromise: Promise<'aborted'> = input.abortSignal
         ? abortToPromise(input.abortSignal)
-        : new Promise<never>(() => undefined);
+        : new Promise(() => undefined);
+
+      // Race the browser-open AGAINST the abort signal too — a slow or hung
+      // `open` (e.g. when no default browser is registered) must not block
+      // cancellation. If aborted during browser-open, bail before the
+      // redirect arrives.
+      log.info({ url: authorizationUrl.toString() }, 'opening browser for authorization');
+      const browserOrAbort = await Promise.race([
+        openBrowser(authorizationUrl).then(() => 'opened' as const),
+        abortPromise,
+      ]);
+      if (browserOrAbort === 'aborted') {
+        return { kind: 'cancelled', reason: 'aborted by caller' };
+      }
+
       const codeOrAbort = await Promise.race([codePromise, abortPromise]);
       if (codeOrAbort === 'aborted') {
         return { kind: 'cancelled', reason: 'aborted by caller' };
