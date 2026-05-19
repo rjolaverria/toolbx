@@ -17,7 +17,7 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
 - **`packages/core/src/auth/oauth-login.ts`** — new file. Public surface:
 
   ```ts
-  import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+  import { auth, discoverOAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
   import type { Logger } from '../logging/logger.js';
   import { startCallbackServer, type CallbackServer } from './oauth-callback-server.js';
   import { SuppressedRedirectError, ToolBoxOAuthProvider } from './oauth-provider.js';
@@ -60,12 +60,32 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
         ...(input.callbackTimeoutMs !== undefined ? { timeoutMs: input.callbackTimeoutMs } : {}),
       });
 
+      // Resolve the authorization-server URL up-front via the SDK's discovery
+      // helper. We use the discovered value (NOT authorizationUrl.origin) as
+      // the authoritative authorization_server identifier for the persisted
+      // StoredOAuthRecord. authorizationUrl.origin would drop issuer-path
+      // information (e.g. `https://issuer.example/auth/`) for OAuth servers
+      // whose metadata is not rooted at the bare origin, and later refreshes
+      // would target the wrong endpoint.
+      const serverInfo = await discoverOAuthServerInfo(input.serverUrl.toString(), {
+        ...(input.resourceMetadataUrl
+          ? { resourceMetadataUrl: input.resourceMetadataUrl.toString() }
+          : {}),
+      });
+      if (!serverInfo || !serverInfo.authorizationServerUrl) {
+        return {
+          kind: 'failed',
+          reason: 'OAuth server discovery did not return an authorization_server URL',
+        };
+      }
+
       const provider = new ToolBoxOAuthProvider({
         serverName: input.serverName,
         redirectUrl: callback.redirectUri,
         ...(input.scopes ? { scopes: input.scopes } : {}),
         tokenStore: input.tokenStore,
         logger: input.logger,
+        authorizationServer: serverInfo.authorizationServerUrl,
       });
 
       // First half: discovery + (optional) DCR + build authorization URL.
@@ -90,14 +110,6 @@ SPECS §4.6.2 commits to atomicity: tokens are written only after the full flow 
           throw err;
         }
       }
-
-      // Tell the provider which authorization server we ended up resolving,
-      // so saveTokens can persist it into StoredOAuthRecord.authorizationServer.
-      // The SDK has already done discovery by this point; we read the resolved
-      // URL from the authorization URL's origin as a robust fallback (the SDK
-      // may also expose this via a public discovery accessor — verify and
-      // prefer that path when wiring this in F1-17/F1-18 implementation).
-      provider.setAuthorizationServer(authorizationUrl.origin);
 
       // Second half: arm the callback server BEFORE opening the browser,
       // because a fast redirect could otherwise arrive while expectedStateRef

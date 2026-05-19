@@ -53,7 +53,12 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
    * or across CLI invocations — each login binds a fresh callback server.
    */
   export class ToolBoxOAuthProvider implements OAuthClientProvider {
-    private cached: StoredOAuthRecord | null | undefined;
+    // No persistent cache of TokenStore reads. The gateway-runtime instance of
+    // this provider lives for the lifetime of the upstream session, and the
+    // user can run `tlbx auth login <server>` from a separate terminal to
+    // refresh tokens at any time (§4.6.2 recovery flow). Caching would mask
+    // those external updates and prevent the auth_expired → connected
+    // transition. Keychain reads are local and cheap.
 
     constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -137,7 +142,6 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
         obtainedAt: new Date().toISOString(),
       };
       await this.opts.tokenStore.write(this.opts.serverName, next);
-      this.cached = next;
       this.pendingClientInformation = undefined;
     }
 
@@ -163,9 +167,10 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
     }
 
     private async load(): Promise<StoredOAuthRecord | null> {
-      if (this.cached !== undefined) return this.cached;
-      this.cached = await this.opts.tokenStore.read(this.opts.serverName);
-      return this.cached;
+      // Read-through: every call hits the TokenStore so external token
+      // refreshes (via `tlbx auth login`) are picked up automatically. See
+      // class-level comment above for the rationale.
+      return this.opts.tokenStore.read(this.opts.serverName);
     }
   }
 
@@ -194,6 +199,7 @@ The SDK's `auth()` driver and the HTTP transport both consume an `OAuthClientPro
   - **`saveTokens` requires prior `saveClientInformation` (or an existing stored record)** — calling on a brand-new provider with no DCR and no prior record throws the expected error.
   - **`saveTokens` requires an authorization server** — `saveClientInformation` followed by `saveTokens` _without_ calling `setAuthorizationServer` (and without `opts.authorizationServer` or an existing stored record) throws the "Cannot save tokens … without an authorization server URL" error. Calling `setAuthorizationServer(url)` first lets `saveTokens` succeed and persists the URL.
   - **Re-auth path (record already exists):** pre-seed the TokenStore with a record. `saveTokens` should write a new record reusing the existing `clientInformation` (and `authorizationServer` / `scopes`) — no `saveClientInformation` call needed.
+  - **External writes are picked up (no cache):** construct a provider against an `InMemoryTokenStore`. Call `tokens()` and assert `undefined`. Then `tokenStore.write(name, ...)` **externally** (simulating `tlbx auth login` from a separate process). Call `tokens()` again — it must return the new record. The provider must NOT cache the first read. This locks the gateway-runtime recovery contract from §4.6.2.
   - **`saveTokens` updates `obtainedAt`** to current time.
   - **`state()`** returns a UUID-shaped string; two calls return distinct values.
   - **`saveCodeVerifier` + `codeVerifier`** round-trips; `codeVerifier` before save throws.

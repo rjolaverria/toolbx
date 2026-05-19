@@ -20,9 +20,10 @@ Up to this task, OAuth is only exercised by the CLI. This task is what makes OAu
      - Pass the provider to the SDK's `StreamableHTTPClientTransport` constructor as the `authProvider` option (or whatever the SDK's name is — verify against `@modelcontextprotocol/sdk@1.29.0` source).
      - Pass the configured `TokenStore` (read from `config.auth.storage` via the factory) to the provider.
 
-  2. When the transport raises the SDK's `UnauthorizedError` during `connect()`, the upstream-client should:
-     - Attempt one refresh via `refreshAuthorization` (the SDK function from F1-17's referenced API). If the refresh succeeds, retry the connect.
-     - If the refresh fails (or no refresh token exists), throw `UpstreamAuthRequiredError` so the existing session state machine transitions to `auth_required`.
+  2. When the transport raises the SDK's `UnauthorizedError` during `connect()`, distinguish two cases:
+     - **No stored token at all** (`tokenStore.read(name)` returns `null`): throw `UpstreamAuthRequiredError` → status becomes `auth_required`. This is the "user has never authenticated this server" state, recoverable by `tlbx auth login <name>`.
+     - **Stored token exists but refresh fails** (token expired AND no usable refresh_token, or the refresh request itself errored): throw `UpstreamAuthExpiredError` → status becomes `auth_expired`. This is the "your previous auth has run out" state, recoverable by the same command but with a different user-facing message and a different recovery surface (tool-call returns the structured error per §4.6.2).
+     - **Stored token exists and refresh succeeds**: retry the connect with the fresh token; status becomes `connected`. No error surfaces.
 
   3. The provider's `redirectToAuthorization` path **must not be reached** during gateway runtime. If `SuppressedRedirectError` ever bubbles up to `http.ts`, that's a bug — log it, throw `UpstreamAuthRequiredError`, and document this in a comment.
 
@@ -73,7 +74,8 @@ Up to this task, OAuth is only exercised by the CLI. This task is what makes OAu
   - **Refresh on 401 succeeds:** pre-seed an expired access token + valid refresh token. Mock upstream returns 401 once, then 200. Gateway issues a refresh request and retries the call. Tool-call resolves successfully; tokenStore has new tokens; status registry shows `connected`.
   - **Refresh fails (revoked refresh token):** pre-seed expired access + revoked refresh. Mock upstream 401, fake auth server returns `invalid_grant` on refresh. Gateway transitions to `auth_expired`. Tool-call resolves with `isError: true` and the documented recovery message containing `tlbx auth login`.
   - **Recovery from auth_expired:** after the above, update the tokenStore in-place with fresh tokens (simulating the user running `tlbx auth login`). Next tool-call should succeed; status transitions back to `connected`.
-  - **No-refresh-token case:** pre-seed access token only (no refresh). 401 from upstream. Gateway transitions directly to `auth_expired` without attempting refresh (since there's no refresh token to use).
+  - **No-refresh-token case:** pre-seed access token only (no refresh). 401 from upstream. Gateway transitions directly to `auth_expired` without attempting refresh (since there's no refresh token to use). This is the "previously authenticated, token aged out" case.
+  - **No stored token at all (connect-time):** start gateway with `config.servers[name].auth = { type: 'oauth' }` but `tokenStore.read(name) === null`. Connect attempt fires `UnauthorizedError`; gateway transitions to `auth_required` (not `auth_expired`). Distinguish from the previous case in the assertion: `status.kind === 'auth_required'`.
 
 - **`packages/core/src/server-status/state-machine.ts`** (already supports `auth_expired` per the existing types) — review and ensure the transitions added in this task are valid per the state-machine rules. Add a test if the transitions weren't previously covered.
 
