@@ -121,7 +121,12 @@ function extractBearerChallenge(header: string): string | undefined {
       challenges[challenges.length - 1] += `, ${trimmed}`;
     }
   }
-  return challenges.find((challenge) => /^bearer\b/i.test(challenge));
+  // Compare the scheme token exactly so a distinct scheme like `Bearer-Token`
+  // (where `-` is a regex word boundary) is not mistaken for `Bearer`.
+  return challenges.find((challenge) => {
+    const scheme = challenge.split(/\s+/, 1)[0] ?? '';
+    return scheme.toLowerCase() === 'bearer';
+  });
 }
 
 function splitOnUnquotedCommas(header: string): string[] {

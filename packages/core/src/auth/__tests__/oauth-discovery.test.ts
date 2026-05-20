@@ -107,6 +107,18 @@ describe('probeUpstreamAuth', () => {
     });
   });
 
+  it('does not treat a Bearer-Token scheme as a Bearer challenge', async () => {
+    const res = new Response('nope', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Bearer-Token realm="x"' },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'unknown',
+      status: 401,
+      body: 'nope',
+    });
+  });
+
   it('does not treat a similarly named param as resource_metadata', async () => {
     const res = new Response('', {
       status: 401,
