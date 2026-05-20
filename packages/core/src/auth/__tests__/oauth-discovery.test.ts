@@ -72,6 +72,30 @@ describe('probeUpstreamAuth', () => {
     expect(hint).toEqual({ kind: 'oauth', resourceMetadataUrl: new URL(metadataUrl) });
   });
 
+  it('does not attribute a preceding challenge resource_metadata to Bearer', async () => {
+    const res = new Response('', {
+      status: 401,
+      headers: {
+        'WWW-Authenticate': 'Basic resource_metadata="https://wrong.example/", Bearer realm="api"',
+      },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'bearer',
+      realm: 'api',
+    });
+  });
+
+  it('reads the realm from the Bearer challenge, not a preceding Basic challenge', async () => {
+    const res = new Response('', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="basic", Bearer realm="api"' },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'bearer',
+      realm: 'api',
+    });
+  });
+
   it('cancels the body stream on a streaming 200 response', async () => {
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({

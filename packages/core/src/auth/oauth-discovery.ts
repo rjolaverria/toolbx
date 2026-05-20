@@ -1,4 +1,3 @@
-import { extractWWWAuthenticateParams } from '@modelcontextprotocol/sdk/client/auth.js';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 
 import type { Logger } from '../logging/logger.js';
@@ -66,18 +65,17 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
 
     if (res.status === 401) {
       const header = res.headers.get('www-authenticate');
+      // Isolate the Bearer challenge so we never attribute params from a
+      // preceding Basic/Digest challenge to it (RFC 7235 multi-challenge).
+      const bearerChallenge = header === null ? undefined : extractBearerChallenge(header);
 
-      if (hasBearerChallenge(header)) {
-        // The SDK helper is whitespace-sensitive and order-sensitive (it splits
-        // on the first token), so fall back to tolerant local parses that scan
-        // the whole challenge list before giving up.
-        const resourceMetadataUrl =
-          extractWWWAuthenticateParams(res).resourceMetadataUrl ?? parseResourceMetadataUrl(header);
+      if (bearerChallenge !== undefined) {
         await discardBody(res);
+        const resourceMetadataUrl = parseResourceMetadataUrl(bearerChallenge);
         if (resourceMetadataUrl) {
           return { kind: 'oauth', resourceMetadataUrl };
         }
-        const realm = parseRealm(header);
+        const realm = parseRealm(bearerChallenge);
         return realm === undefined ? { kind: 'bearer' } : { kind: 'bearer', realm };
       }
 
@@ -101,13 +99,48 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
   }
 }
 
-function hasBearerChallenge(header: string | null): boolean {
-  if (!header) {
-    return false;
+/**
+ * Return the Bearer challenge (scheme + its params) from a possibly
+ * multi-challenge `WWW-Authenticate` header, or undefined if none is present.
+ * A `WWW-Authenticate` header may list multiple challenges separated by commas
+ * (RFC 7235); params must be read from the Bearer challenge only.
+ */
+function extractBearerChallenge(header: string): string | undefined {
+  const challenges: string[] = [];
+  for (const segment of splitOnUnquotedCommas(header)) {
+    const trimmed = segment.trim();
+    if (trimmed === '') {
+      continue;
+    }
+    const firstToken = trimmed.split(/\s+/, 1)[0] ?? '';
+    // A challenge starts with a bare auth-scheme token; a continuation segment
+    // is an `auth-param` whose first token contains `=`.
+    if (!firstToken.includes('=') || challenges.length === 0) {
+      challenges.push(trimmed);
+    } else {
+      challenges[challenges.length - 1] += `, ${trimmed}`;
+    }
   }
-  // A `WWW-Authenticate` header may list multiple challenges separated by
-  // commas (RFC 7235); accept Bearer wherever it appears as a scheme.
-  return /(?:^|,)\s*bearer\b/i.test(header);
+  return challenges.find((challenge) => /^bearer\b/i.test(challenge));
+}
+
+function splitOnUnquotedCommas(header: string): string[] {
+  const segments: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const ch of header) {
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      current += ch;
+    } else if (ch === ',' && !inQuotes) {
+      segments.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  segments.push(current);
+  return segments;
 }
 
 async function terminateProbeSession(
