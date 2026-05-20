@@ -67,6 +67,18 @@ const keyringMock = (() => {
   };
 })();
 
+type TestKeyringModule = {
+  Entry: typeof keyringMock.Entry;
+  findCredentials?: typeof keyringMock.findCredentials;
+};
+
+function rejectLoadKeyring(reason: unknown): Promise<TestKeyringModule> {
+  return new Promise((_resolve, reject) => {
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- defensive coverage for native loaders that reject non-Error values
+    reject(reason);
+  });
+}
+
 function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthRecord {
   return {
     schemaVersion: 1,
@@ -80,7 +92,7 @@ function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthReco
 }
 
 function createStore(
-  loadKeyring = () =>
+  loadKeyring: () => Promise<TestKeyringModule> = () =>
     Promise.resolve({
       Entry: keyringMock.Entry,
       findCredentials: keyringMock.findCredentials,
@@ -146,6 +158,38 @@ describe('KeychainTokenStore', () => {
       expect(health.reason).toContain("Cannot find module '@napi-rs/keyring-linux-arm64-gnu'");
       expect(health.reason).toContain('libsecret not found');
     }
+  });
+
+  it('reports non-error import failures in unavailable diagnostics', async () => {
+    const store = createStore(() => rejectLoadKeyring('keychain disabled'));
+
+    expect(await store.probe()).toEqual({ kind: 'unavailable', reason: 'keychain disabled' });
+  });
+
+  it('reports primitive import error causes in unavailable diagnostics', async () => {
+    const store = createStore(() => {
+      const top = new Error('Failed to load native binding');
+      Object.defineProperty(top, 'cause', { value: 13 });
+      return Promise.reject(top);
+    });
+
+    expect(await store.probe()).toEqual({
+      kind: 'unavailable',
+      reason: 'Failed to load native binding: 13',
+    });
+  });
+
+  it('reports object import error causes in unavailable diagnostics', async () => {
+    const store = createStore(() => {
+      const top = new Error('Failed to load native binding');
+      Object.defineProperty(top, 'cause', { value: { code: 'missing-native-binding' } });
+      return Promise.reject(top);
+    });
+
+    expect(await store.probe()).toEqual({
+      kind: 'unavailable',
+      reason: 'Failed to load native binding: non-Error cause',
+    });
   });
 
   it('round-trips write then read for the same server', async () => {
@@ -223,6 +267,12 @@ describe('KeychainTokenStore', () => {
     keyringMock.passwords.set('other.service:oauth:linear', 'ignored');
 
     expect(new Set(await store.list())).toEqual(new Set(['github', 'jira']));
+  });
+
+  it('returns an empty list when keychain enumeration is unsupported', async () => {
+    const store = createStore(() => Promise.resolve({ Entry: keyringMock.Entry }));
+
+    expect(await store.list()).toEqual([]);
   });
 
   it('probe returns ready for a working keychain', async () => {
