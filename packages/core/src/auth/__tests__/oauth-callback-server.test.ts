@@ -160,10 +160,29 @@ describe('startCallbackServer', () => {
     expect(second.status).toBe(409);
   });
 
+  it('refuses a valid redirect that arrives after a state mismatch failed the flow', async () => {
+    const server = await start();
+    const rejection = expect(server.waitForCode('abc')).rejects.toThrow('State parameter mismatch');
+    const mismatch = await fetch(callbackUrl(server, 'code=x&state=wrong'));
+    expect(mismatch.status).toBe(400);
+    await rejection;
+
+    const late = await fetch(callbackUrl(server, 'code=x&state=abc'));
+    expect(late.status).toBe(409);
+  });
+
   it('rejects with a timeout error after the configured timeout', async () => {
     const server = await start(50);
     const codePromise = server.waitForCode('abc');
     await expect(codePromise).rejects.toThrow('Callback timed out after 50ms');
+  });
+
+  it('refuses a valid redirect that arrives after the flow timed out', async () => {
+    const server = await start(50);
+    await expect(server.waitForCode('abc')).rejects.toThrow('Callback timed out after 50ms');
+
+    const late = await fetch(callbackUrl(server, 'code=x&state=abc'));
+    expect(late.status).toBe(409);
   });
 
   it('close() is idempotent and stops listening', async () => {

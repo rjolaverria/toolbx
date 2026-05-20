@@ -52,8 +52,6 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
     notifyWaiter?.();
   }
 
-  let received = false;
-
   let expectedStateRef: string | null = null;
 
   const server: Server = createServer((req, res) => {
@@ -68,8 +66,13 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
       res.end('Not found');
       return;
     }
-    if (received) {
-      // Second redirect after we already accepted one — refuse.
+    if (settlement) {
+      // The flow already reached a terminal state — a consumed success, a
+      // matched-error rejection, a state mismatch, or a timeout. Refuse any
+      // further redirect: a late `?code&state` arriving after a failure must
+      // not be answered with a success page for a code that will never be
+      // exchanged. Stray pre-arming requests that returned 4xx without
+      // settling are NOT terminal, so the real redirect can still arrive.
       res.statusCode = 409;
       res.end('Callback already consumed');
       return;
@@ -112,7 +115,6 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
 
     // State is verified to belong to the active attempt — now branch.
     if (error) {
-      received = true;
       res.statusCode = 400;
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.end(renderErrorPage(error));
@@ -124,7 +126,6 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
       res.end('Missing code');
       return;
     }
-    received = true;
     res.statusCode = 200;
     res.setHeader('content-type', 'text/html; charset=utf-8');
     res.end(renderSuccessPage());
@@ -153,10 +154,9 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
     closed = true;
     clearTimeout(timer);
     // Settle any outstanding waiter so callers awaiting `waitForCode` don't
-    // hang when the server is closed before a redirect arrives.
-    if (!received) {
-      settle({ ok: false, error: new Error('Callback server closed before redirect') });
-    }
+    // hang when the server is closed before the flow reached a terminal state.
+    // `settle` is first-writer-wins, so a prior success/failure is preserved.
+    settle({ ok: false, error: new Error('Callback server closed before redirect') });
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
