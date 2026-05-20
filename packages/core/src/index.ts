@@ -180,7 +180,10 @@ export {
 export {
   createTokenStore,
   InMemoryTokenStore,
+  probeUpstreamAuth,
+  type AuthHint,
   type CreateTokenStoreDeps,
+  type ProbeUpstreamAuthDeps,
   type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
