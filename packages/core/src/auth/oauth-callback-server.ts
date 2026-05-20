@@ -42,14 +42,19 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
   // means a settlement with no awaiting caller (e.g. `close()` before anyone
   // calls `waitForCode`) never produces a floating, unhandled rejection.
   let settlement: Settlement | null = null;
-  let notifyWaiter: (() => void) | null = null;
+  const waiters: Array<() => void> = [];
 
   function settle(next: Settlement): void {
     if (settlement) {
       return;
     }
     settlement = next;
-    notifyWaiter?.();
+    // Release every outstanding waiter, not just the most recent one, so
+    // multiple (e.g. layered orchestration / retry) callers of waitForCode
+    // all observe the settlement instead of hanging.
+    while (waiters.length > 0) {
+      waiters.pop()?.();
+    }
   }
 
   let expectedStateRef: string | null = null;
@@ -169,7 +174,7 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
       expectedStateRef = expectedState;
       if (!settlement) {
         await new Promise<void>((resolve) => {
-          notifyWaiter = resolve;
+          waiters.push(resolve);
         });
       }
       const result = settlement!;

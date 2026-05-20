@@ -171,6 +171,17 @@ describe('startCallbackServer', () => {
     expect(late.status).toBe(409);
   });
 
+  it('releases every outstanding waitForCode caller on settlement', async () => {
+    const server = await start();
+    const first = server.waitForCode('abc');
+    const second = server.waitForCode('abc');
+    const res = await fetch(callbackUrl(server, 'code=x&state=abc'));
+
+    expect(res.status).toBe(200);
+    await expect(first).resolves.toEqual({ code: 'x', state: 'abc' });
+    await expect(second).resolves.toEqual({ code: 'x', state: 'abc' });
+  });
+
   it('rejects with a timeout error after the configured timeout', async () => {
     const server = await start(50);
     const codePromise = server.waitForCode('abc');
