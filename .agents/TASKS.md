@@ -90,7 +90,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-13** — [`TokenStore` interface, factory, `InMemoryTokenStore`](tasks/F1-13-token-store-interface.md) — closed by this PR
 - [x] **F1-14** — [`KeychainTokenStore` (dynamic-import `@napi-rs/keyring`)](tasks/F1-14-keychain-token-store.md) — closed by ab74305
 - [x] **F1-15** — [OAuth discovery probe (`probeUpstreamAuth` + `AuthHint`)](tasks/F1-15-oauth-discovery.md) — closed by this PR
-- [ ] **F1-16** — [OAuth callback server (loopback HTTP, single-shot, timeout)](tasks/F1-16-oauth-callback-server.md)
+- [x] **F1-16** — [OAuth callback server (loopback HTTP, single-shot, timeout)](tasks/F1-16-oauth-callback-server.md) — closed by this PR
 - [ ] **F1-17** — [`OAuthClientProvider` implementation (SDK adapter)](tasks/F1-17-oauth-client-provider.md)
 - [ ] **F1-18** — [`runOAuthLogin` orchestrator](tasks/F1-18-run-oauth-login.md)
 - [ ] **F1-19** — [`tlbx auth login | logout | status | refresh` commands](tasks/F1-19-auth-cli-commands.md)

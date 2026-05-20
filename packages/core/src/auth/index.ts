@@ -8,3 +8,9 @@ export {
 export { createTokenStore, type CreateTokenStoreDeps } from './token-store-factory.js';
 
 export { probeUpstreamAuth, type AuthHint, type ProbeUpstreamAuthDeps } from './oauth-discovery.js';
+
+export {
+  startCallbackServer,
+  type CallbackServer,
+  type StartCallbackServerOpts,
+} from './oauth-callback-server.js';
