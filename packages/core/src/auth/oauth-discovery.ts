@@ -53,11 +53,13 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
     });
 
     if (res.ok) {
+      await discardBody(res);
       return { kind: 'none' };
     }
 
     if (res.status === 401) {
       const { resourceMetadataUrl } = extractWWWAuthenticateParams(res);
+      await discardBody(res);
       if (resourceMetadataUrl) {
         return { kind: 'oauth', resourceMetadataUrl };
       }
@@ -83,6 +85,14 @@ function parseRealm(header: string | null): string | undefined {
   }
   const match = /realm\s*=\s*"([^"]*)"/i.exec(header);
   return match?.[1];
+}
+
+async function discardBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // Best-effort cleanup; ignore failures cancelling the stream.
+  }
 }
 
 async function readBodyExcerpt(res: Response): Promise<string | undefined> {

@@ -29,6 +29,27 @@ describe('probeUpstreamAuth', () => {
     });
   });
 
+  it('cancels the body stream on a streaming 200 response', async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull() {
+        // Never enqueues/closes — simulates an open event-stream that would
+        // keep the socket alive unless the probe cancels it.
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const res = new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'none',
+    });
+    expect(cancelled).toBe(true);
+  });
+
   it('classifies a 401 with resource_metadata as oauth', async () => {
     const metadataUrl = 'https://x.example/.well-known/oauth-protected-resource';
     const res = new Response('', {
