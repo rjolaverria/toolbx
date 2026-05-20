@@ -1,8 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { TokenStorage } from '../../config/schema.js';
 import { createNoopLogger } from '../../logging/logger.js';
 import { createTokenStore } from '../token-store-factory.js';
+
+class MockEntry {
+  getPassword(): string | null {
+    return null;
+  }
+
+  setPassword(): void {}
+
+  deletePassword(): boolean {
+    return true;
+  }
+}
+
+vi.mock('@napi-rs/keyring', () => ({ Entry: MockEntry }));
 
 // The exhaustiveness check inside `createTokenStore` is enforced at compile
 // time. While `TokenStorage` has only one variant, the factory pins
@@ -11,10 +25,9 @@ import { createTokenStore } from '../token-store-factory.js';
 // switch to handle it. There is no runtime test for this — typecheck is.
 
 describe('createTokenStore', () => {
-  it('throws the "not yet implemented" error for the keychain backend (F1-14)', () => {
+  it('creates a probeable keychain token store for the keychain backend', async () => {
     const storage: TokenStorage = { type: 'keychain' };
-    expect(() => createTokenStore(storage, { logger: createNoopLogger() })).toThrow(
-      /KeychainTokenStore not yet implemented \(F1-14\)/,
-    );
+    const store = createTokenStore(storage, { logger: createNoopLogger() });
+    expect(await store.probe()).toEqual({ kind: 'ready' });
   });
 });

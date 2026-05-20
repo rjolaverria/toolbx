@@ -88,7 +88,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-11** — [Drop Claude Desktop from `client print-config`; align `claude` keyword](tasks/F1-11-client-print-config-claude-code.md) — closed by this PR
 - [x] **F1-12** — [OAuth config schema (`auth.storage` + `auth.type === 'oauth'`)](tasks/F1-12-oauth-config-schema.md) — closed by this PR
 - [x] **F1-13** — [`TokenStore` interface, factory, `InMemoryTokenStore`](tasks/F1-13-token-store-interface.md) — closed by this PR
-- [ ] **F1-14** — [`KeychainTokenStore` (dynamic-import `@napi-rs/keyring`)](tasks/F1-14-keychain-token-store.md)
+- [x] **F1-14** — [`KeychainTokenStore` (dynamic-import `@napi-rs/keyring`)](tasks/F1-14-keychain-token-store.md) — closed by ab74305
 - [ ] **F1-15** — [OAuth discovery probe (`probeUpstreamAuth` + `AuthHint`)](tasks/F1-15-oauth-discovery.md)
 - [ ] **F1-16** — [OAuth callback server (loopback HTTP, single-shot, timeout)](tasks/F1-16-oauth-callback-server.md)
 - [ ] **F1-17** — [`OAuthClientProvider` implementation (SDK adapter)](tasks/F1-17-oauth-client-provider.md)
