@@ -54,17 +54,23 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
     });
 
     if (res.ok) {
+      // A successful initialize may have opened an MCP HTTP session; tear it
+      // down so the probe does not leak server-side session resources.
+      const sessionId = res.headers.get('mcp-session-id');
       await discardBody(res);
+      if (sessionId) {
+        await terminateProbeSession(url, sessionId, fetchFn, controller.signal, deps.logger);
+      }
       return { kind: 'none' };
     }
 
     if (res.status === 401) {
       const header = res.headers.get('www-authenticate');
-      const scheme = header?.trim().split(/\s+/, 1)[0]?.toLowerCase();
 
-      if (scheme === 'bearer') {
-        // The SDK helper is whitespace-sensitive (it rejects extra spaces after
-        // `Bearer`), so fall back to a tolerant local parse before giving up.
+      if (hasBearerChallenge(header)) {
+        // The SDK helper is whitespace-sensitive and order-sensitive (it splits
+        // on the first token), so fall back to tolerant local parses that scan
+        // the whole challenge list before giving up.
         const resourceMetadataUrl =
           extractWWWAuthenticateParams(res).resourceMetadataUrl ?? parseResourceMetadataUrl(header);
         await discardBody(res);
@@ -92,6 +98,34 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
     return { kind: 'unknown', status: 0 };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+function hasBearerChallenge(header: string | null): boolean {
+  if (!header) {
+    return false;
+  }
+  // A `WWW-Authenticate` header may list multiple challenges separated by
+  // commas (RFC 7235); accept Bearer wherever it appears as a scheme.
+  return /(?:^|,)\s*bearer\b/i.test(header);
+}
+
+async function terminateProbeSession(
+  url: URL,
+  sessionId: string,
+  fetchFn: typeof fetch,
+  signal: AbortSignal,
+  logger: Logger,
+): Promise<void> {
+  try {
+    const res = await fetchFn(url, {
+      method: 'DELETE',
+      headers: { 'mcp-session-id': sessionId },
+      signal,
+    });
+    await discardBody(res);
+  } catch (err) {
+    logger.debug({ err, url: url.toString() }, 'oauth-discovery probe session cleanup failed');
   }
 }
 

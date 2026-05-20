@@ -29,6 +29,49 @@ describe('probeUpstreamAuth', () => {
     });
   });
 
+  it('terminates the MCP session opened by a successful 200 probe', async () => {
+    const calls: Array<{ method: string; headers: Record<string, string> }> = [];
+    const fetchFn = vi.fn(
+      (_url: unknown, init?: { method?: string; headers?: Record<string, string> }) => {
+        const method = init?.method ?? 'GET';
+        calls.push({ method, headers: init?.headers ?? {} });
+        if (method === 'POST') {
+          return Promise.resolve(
+            new Response('{}', { status: 200, headers: { 'mcp-session-id': 'sess-123' } }),
+          );
+        }
+        return Promise.resolve(new Response('', { status: 200 }));
+      },
+    ) as unknown as typeof fetch;
+
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchFn))).resolves.toEqual({
+      kind: 'none',
+    });
+    const del = calls.find((c) => c.method === 'DELETE');
+    expect(del).toBeDefined();
+    expect(del?.headers['mcp-session-id']).toBe('sess-123');
+  });
+
+  it('does not attempt session cleanup on a 200 without mcp-session-id', async () => {
+    const fetchFn = vi.fn(() =>
+      Promise.resolve(new Response('{}', { status: 200 })),
+    ) as unknown as typeof fetch;
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchFn))).resolves.toEqual({
+      kind: 'none',
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects the Bearer challenge in a multi-challenge header', async () => {
+    const metadataUrl = 'https://x.example/.well-known/oauth-protected-resource';
+    const res = new Response('', {
+      status: 401,
+      headers: { 'WWW-Authenticate': `Basic realm="x", Bearer resource_metadata="${metadataUrl}"` },
+    });
+    const hint = await probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)));
+    expect(hint).toEqual({ kind: 'oauth', resourceMetadataUrl: new URL(metadataUrl) });
+  });
+
   it('cancels the body stream on a streaming 200 response', async () => {
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({
