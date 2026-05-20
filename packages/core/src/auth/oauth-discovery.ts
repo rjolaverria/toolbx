@@ -166,7 +166,8 @@ function parseRealm(header: string | null): string | undefined {
   if (!header) {
     return undefined;
   }
-  const match = /realm\s*=\s*"([^"]*)"/i.exec(header);
+  // Anchor the param name to a boundary so `myrealm="x"` does not match `realm`.
+  const match = /(?:^|[\s,])realm\s*=\s*"([^"]*)"/i.exec(header);
   return match?.[1];
 }
 
@@ -174,7 +175,9 @@ function parseResourceMetadataUrl(header: string | null): URL | undefined {
   if (!header) {
     return undefined;
   }
-  const match = /resource_metadata\s*=\s*(?:"([^"]+)"|([^\s,]+))/i.exec(header);
+  // Anchor the param name to a boundary so a similarly named param such as
+  // `not_resource_metadata="..."` does not match `resource_metadata`.
+  const match = /(?:^|[\s,])resource_metadata\s*=\s*(?:"([^"]+)"|([^\s,]+))/i.exec(header);
   const raw = match?.[1] ?? match?.[2];
   if (raw === undefined) {
     return undefined;
@@ -220,9 +223,16 @@ async function readBodyExcerpt(res: Response): Promise<string | undefined> {
   const decoder = new TextDecoder();
   let collected = '';
   try {
-    while (collected.length <= MAX_BODY_EXCERPT) {
+    while (collected.length < MAX_BODY_EXCERPT) {
       const { done, value } = await reader.read();
       if (done) {
+        break;
+      }
+      const remaining = MAX_BODY_EXCERPT - collected.length;
+      if (value.length > remaining) {
+        // Cap how much of an oversized chunk we materialize; the few extra
+        // bytes cover a multibyte sequence split at the budget boundary.
+        collected += decoder.decode(value.subarray(0, remaining + 3));
         break;
       }
       collected += decoder.decode(value, { stream: true });

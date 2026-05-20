@@ -96,6 +96,17 @@ describe('probeUpstreamAuth', () => {
     });
   });
 
+  it('does not treat a similarly named param as resource_metadata', async () => {
+    const res = new Response('', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Bearer not_resource_metadata="https://wrong.example/"' },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'bearer',
+      realm: undefined,
+    });
+  });
+
   it('cancels the body stream on a streaming 200 response', async () => {
     let cancelled = false;
     const stream = new ReadableStream<Uint8Array>({
