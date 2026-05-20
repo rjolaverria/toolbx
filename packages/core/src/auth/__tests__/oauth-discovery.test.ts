@@ -79,6 +79,18 @@ describe('probeUpstreamAuth', () => {
     });
   });
 
+  it('classifies a 401 with a non-Bearer (Basic) challenge as unknown', async () => {
+    const res = new Response('nope', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="foo"' },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'unknown',
+      status: 401,
+      body: 'nope',
+    });
+  });
+
   it('classifies a 403 as unknown with a body excerpt', async () => {
     const res = new Response('forbidden', { status: 403 });
     await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({

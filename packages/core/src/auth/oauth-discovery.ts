@@ -1,4 +1,5 @@
 import { extractWWWAuthenticateParams } from '@modelcontextprotocol/sdk/client/auth.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 
 import type { Logger } from '../logging/logger.js';
 
@@ -44,7 +45,7 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '2025-06-18',
+          protocolVersion: LATEST_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: 'toolbox-probe', version: '0' },
         },
@@ -59,11 +60,22 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
 
     if (res.status === 401) {
       const { resourceMetadataUrl } = extractWWWAuthenticateParams(res);
-      await discardBody(res);
       if (resourceMetadataUrl) {
+        await discardBody(res);
         return { kind: 'oauth', resourceMetadataUrl };
       }
-      const realm = parseRealm(res.headers.get('www-authenticate'));
+      const header = res.headers.get('www-authenticate');
+      const scheme = header?.trim().split(/\s+/, 1)[0]?.toLowerCase();
+      // A non-Bearer challenge (Basic, Digest, ...) is not something we can
+      // hand off to the bearer/oauth flows, so surface it as unknown.
+      if (header && scheme !== 'bearer') {
+        const bodyExcerpt = await readBodyExcerpt(res);
+        return bodyExcerpt === undefined
+          ? { kind: 'unknown', status: res.status }
+          : { kind: 'unknown', status: res.status, body: bodyExcerpt };
+      }
+      await discardBody(res);
+      const realm = parseRealm(header);
       return realm === undefined ? { kind: 'bearer' } : { kind: 'bearer', realm };
     }
 
