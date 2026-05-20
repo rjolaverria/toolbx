@@ -128,8 +128,17 @@ function splitOnUnquotedCommas(header: string): string[] {
   const segments: string[] = [];
   let current = '';
   let inQuotes = false;
+  let escaped = false;
   for (const ch of header) {
-    if (ch === '"') {
+    if (escaped) {
+      // Previous char was a backslash inside a quoted-string; emit verbatim so
+      // an escaped quote (`\"`) does not flip the quote state (RFC 7230).
+      current += ch;
+      escaped = false;
+    } else if (ch === '\\' && inQuotes) {
+      current += ch;
+      escaped = true;
+    } else if (ch === '"') {
       inQuotes = !inQuotes;
       current += ch;
     } else if (ch === ',' && !inQuotes) {

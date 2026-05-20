@@ -96,6 +96,17 @@ describe('probeUpstreamAuth', () => {
     });
   });
 
+  it('finds the Bearer challenge past an escaped quote in a preceding challenge', async () => {
+    const res = new Response('', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Digest realm="a\\",b", Bearer realm="api"' },
+    });
+    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
+      kind: 'bearer',
+      realm: 'api',
+    });
+  });
+
   it('does not treat a similarly named param as resource_metadata', async () => {
     const res = new Response('', {
       status: 401,
