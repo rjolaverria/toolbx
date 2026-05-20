@@ -104,7 +104,13 @@ async function terminateProbeSession(
   try {
     const res = await fetchFn(url, {
       method: 'DELETE',
-      headers: { 'mcp-session-id': sessionId },
+      headers: {
+        'mcp-session-id': sessionId,
+        // Streamable HTTP requires the protocol version on every post-init
+        // request; without it a compliant server rejects the DELETE (400) and
+        // the session is never torn down.
+        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+      },
       signal,
     });
     await discardBody(res);
@@ -173,6 +179,7 @@ async function readBodyExcerpt(res: Response): Promise<string | undefined> {
   const reader: ReadableStreamDefaultReader<Uint8Array> = body.getReader();
   const decoder = new TextDecoder();
   let collected = '';
+  let truncated = false;
   try {
     while (collected.length < MAX_BODY_EXCERPT) {
       const { done, value } = await reader.read();
@@ -180,16 +187,18 @@ async function readBodyExcerpt(res: Response): Promise<string | undefined> {
         break;
       }
       const remaining = MAX_BODY_EXCERPT - collected.length;
-      if (value.length > remaining) {
-        // Cap how much of an oversized chunk we materialize; the few extra
-        // bytes cover a multibyte sequence split at the budget boundary.
-        collected += decoder.decode(value.subarray(0, remaining + 3));
+      if (value.length >= remaining) {
+        // Cap how much of the chunk we materialize so an oversized body cannot
+        // balloon the string. One extra read tells us whether more data exists
+        // (so we mark truncation) without decoding it.
+        collected += decoder.decode(value.subarray(0, remaining));
+        truncated = value.length > remaining || !(await reader.read()).done;
         break;
       }
       collected += decoder.decode(value, { stream: true });
     }
     collected += decoder.decode();
-    return truncate(collected);
+    return truncated ? collected + '…' : collected;
   } catch {
     return undefined;
   } finally {

@@ -50,6 +50,8 @@ describe('probeUpstreamAuth', () => {
     const del = calls.find((c) => c.method === 'DELETE');
     expect(del).toBeDefined();
     expect(del?.headers['mcp-session-id']).toBe('sess-123');
+    // Streamable HTTP requires the protocol version on post-init requests.
+    expect(del?.headers['mcp-protocol-version']).toBeDefined();
   });
 
   it('does not attempt session cleanup on a 200 without mcp-session-id', async () => {
@@ -173,6 +175,26 @@ describe('probeUpstreamAuth', () => {
       status: 404,
       body: '',
     });
+  });
+
+  it('marks truncation when a chunk exactly fills the budget and more follows', async () => {
+    const enc = new TextEncoder();
+    let pulls = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulls === 0) {
+          controller.enqueue(enc.encode('a'.repeat(512)));
+        } else if (pulls === 1) {
+          controller.enqueue(enc.encode('more'));
+        } else {
+          controller.close();
+        }
+        pulls++;
+      },
+    });
+    const res = new Response(stream, { status: 500 });
+    const hint = await probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)));
+    expect(hint).toEqual({ kind: 'unknown', status: 500, body: 'a'.repeat(512) + '…' });
   });
 
   it('truncates a body excerpt larger than 512 bytes', async () => {
