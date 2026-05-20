@@ -62,51 +62,6 @@ describe('probeUpstreamAuth', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it('selects the Bearer challenge in a multi-challenge header', async () => {
-    const metadataUrl = 'https://x.example/.well-known/oauth-protected-resource';
-    const res = new Response('', {
-      status: 401,
-      headers: { 'WWW-Authenticate': `Basic realm="x", Bearer resource_metadata="${metadataUrl}"` },
-    });
-    const hint = await probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)));
-    expect(hint).toEqual({ kind: 'oauth', resourceMetadataUrl: new URL(metadataUrl) });
-  });
-
-  it('does not attribute a preceding challenge resource_metadata to Bearer', async () => {
-    const res = new Response('', {
-      status: 401,
-      headers: {
-        'WWW-Authenticate': 'Basic resource_metadata="https://wrong.example/", Bearer realm="api"',
-      },
-    });
-    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
-      kind: 'bearer',
-      realm: 'api',
-    });
-  });
-
-  it('reads the realm from the Bearer challenge, not a preceding Basic challenge', async () => {
-    const res = new Response('', {
-      status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="basic", Bearer realm="api"' },
-    });
-    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
-      kind: 'bearer',
-      realm: 'api',
-    });
-  });
-
-  it('finds the Bearer challenge past an escaped quote in a preceding challenge', async () => {
-    const res = new Response('', {
-      status: 401,
-      headers: { 'WWW-Authenticate': 'Digest realm="a\\",b", Bearer realm="api"' },
-    });
-    await expect(probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)))).resolves.toEqual({
-      kind: 'bearer',
-      realm: 'api',
-    });
-  });
-
   it('does not treat a Bearer-Token scheme as a Bearer challenge', async () => {
     const res = new Response('nope', {
       status: 401,

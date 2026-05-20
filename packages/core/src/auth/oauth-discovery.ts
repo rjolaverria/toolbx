@@ -65,29 +65,24 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
 
     if (res.status === 401) {
       const header = res.headers.get('www-authenticate');
-      // Isolate the Bearer challenge so we never attribute params from a
-      // preceding Basic/Digest challenge to it (RFC 7235 multi-challenge).
-      const bearerChallenge = header === null ? undefined : extractBearerChallenge(header);
+      // An MCP server that requires auth answers 401 with a single Bearer
+      // challenge (RFC 9728): `Bearer resource_metadata="..."` for OAuth, or a
+      // plain bearer-token requirement otherwise. A missing header is treated
+      // as bearer; any non-Bearer scheme (Basic, Digest, ...) is surfaced as
+      // unknown since the bearer/oauth flows cannot use it.
+      const scheme = header?.trim().split(/\s+/, 1)[0]?.toLowerCase();
 
-      if (bearerChallenge !== undefined) {
-        await discardBody(res);
-        const resourceMetadataUrl = parseResourceMetadataUrl(bearerChallenge);
-        if (resourceMetadataUrl) {
-          return { kind: 'oauth', resourceMetadataUrl };
-        }
-        const realm = parseRealm(bearerChallenge);
-        return realm === undefined ? { kind: 'bearer' } : { kind: 'bearer', realm };
-      }
-
-      // A non-Bearer challenge (Basic, Digest, ...) is not something we can
-      // hand off to the bearer/oauth flows, so surface it as unknown.
-      if (header) {
+      if (header !== null && scheme !== 'bearer') {
         return await unknownWithBody(res);
       }
 
-      // No challenge header at all: treat as a plain bearer requirement.
       await discardBody(res);
-      return { kind: 'bearer' };
+      const resourceMetadataUrl = parseResourceMetadataUrl(header);
+      if (resourceMetadataUrl) {
+        return { kind: 'oauth', resourceMetadataUrl };
+      }
+      const realm = parseRealm(header);
+      return realm === undefined ? { kind: 'bearer' } : { kind: 'bearer', realm };
     }
 
     return await unknownWithBody(res);
@@ -97,64 +92,6 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
   } finally {
     clearTimeout(timer);
   }
-}
-
-/**
- * Return the Bearer challenge (scheme + its params) from a possibly
- * multi-challenge `WWW-Authenticate` header, or undefined if none is present.
- * A `WWW-Authenticate` header may list multiple challenges separated by commas
- * (RFC 7235); params must be read from the Bearer challenge only.
- */
-function extractBearerChallenge(header: string): string | undefined {
-  const challenges: string[] = [];
-  for (const segment of splitOnUnquotedCommas(header)) {
-    const trimmed = segment.trim();
-    if (trimmed === '') {
-      continue;
-    }
-    const firstToken = trimmed.split(/\s+/, 1)[0] ?? '';
-    // A challenge starts with a bare auth-scheme token; a continuation segment
-    // is an `auth-param` whose first token contains `=`.
-    if (!firstToken.includes('=') || challenges.length === 0) {
-      challenges.push(trimmed);
-    } else {
-      challenges[challenges.length - 1] += `, ${trimmed}`;
-    }
-  }
-  // Compare the scheme token exactly so a distinct scheme like `Bearer-Token`
-  // (where `-` is a regex word boundary) is not mistaken for `Bearer`.
-  return challenges.find((challenge) => {
-    const scheme = challenge.split(/\s+/, 1)[0] ?? '';
-    return scheme.toLowerCase() === 'bearer';
-  });
-}
-
-function splitOnUnquotedCommas(header: string): string[] {
-  const segments: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  let escaped = false;
-  for (const ch of header) {
-    if (escaped) {
-      // Previous char was a backslash inside a quoted-string; emit verbatim so
-      // an escaped quote (`\"`) does not flip the quote state (RFC 7230).
-      current += ch;
-      escaped = false;
-    } else if (ch === '\\' && inQuotes) {
-      current += ch;
-      escaped = true;
-    } else if (ch === '"') {
-      inQuotes = !inQuotes;
-      current += ch;
-    } else if (ch === ',' && !inQuotes) {
-      segments.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  segments.push(current);
-  return segments;
 }
 
 async function terminateProbeSession(
