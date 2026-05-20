@@ -60,6 +60,16 @@ describe('probeUpstreamAuth', () => {
     expect(hint).toEqual({ kind: 'oauth', resourceMetadataUrl: new URL(metadataUrl) });
   });
 
+  it('classifies a 401 with extra whitespace before resource_metadata as oauth', async () => {
+    const metadataUrl = 'https://x.example/.well-known/oauth-protected-resource';
+    const res = new Response('', {
+      status: 401,
+      headers: { 'WWW-Authenticate': `Bearer    resource_metadata="${metadataUrl}"` },
+    });
+    const hint = await probeUpstreamAuth(URL_UNDER_TEST, deps(fetchReturning(res)));
+    expect(hint).toEqual({ kind: 'oauth', resourceMetadataUrl: new URL(metadataUrl) });
+  });
+
   it('classifies a 401 with realm but no resource_metadata as bearer', async () => {
     const res = new Response('', {
       status: 401,
