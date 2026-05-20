@@ -6,3 +6,5 @@ export {
 } from './token-store.js';
 
 export { createTokenStore, type CreateTokenStoreDeps } from './token-store-factory.js';
+
+export { probeUpstreamAuth, type AuthHint, type ProbeUpstreamAuthDeps } from './oauth-discovery.js';
