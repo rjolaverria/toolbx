@@ -315,6 +315,27 @@ describe('ToolBoxOAuthProvider.invalidateCredentials', () => {
   });
 });
 
+describe('ToolBoxOAuthProvider discovery state', () => {
+  it('round-trips saveDiscoveryState and persists the discovered authorization server', async () => {
+    const { provider, store } = makeProvider();
+    provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/auth/' });
+    expect(provider.discoveryState()).toEqual({
+      authorizationServerUrl: 'https://issuer.example/auth/',
+    });
+
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveTokens(makeTokens());
+    expect((await store.read('jira'))?.authorizationServer).toBe('https://issuer.example/auth/');
+  });
+
+  it("invalidateCredentials('discovery') clears the cached discovery state", () => {
+    const { provider } = makeProvider();
+    provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
+    provider.invalidateCredentials('discovery');
+    expect(provider.discoveryState()).toBeUndefined();
+  });
+});
+
 describe('ToolBoxOAuthProvider.state', () => {
   it('returns distinct UUID-shaped values', async () => {
     const { provider } = makeProvider();

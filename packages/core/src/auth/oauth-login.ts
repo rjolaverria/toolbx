@@ -1,4 +1,4 @@
-import { auth, discoverOAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
 
 import type { Logger } from '../logging/logger.js';
 import { startCallbackServer, type CallbackServer } from './oauth-callback-server.js';
@@ -92,31 +92,18 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
       ...(input.callbackTimeoutMs !== undefined ? { timeoutMs: input.callbackTimeoutMs } : {}),
     });
 
-    // Resolve the authorization-server URL up-front via the SDK's discovery
-    // helper. We use the discovered value (NOT authorizationUrl.origin) as the
-    // authoritative authorization_server identifier for the persisted
-    // StoredOAuthRecord: authorizationUrl.origin would drop issuer-path
-    // information (e.g. `https://issuer.example/auth/`) for OAuth servers whose
-    // metadata is not rooted at the bare origin, and later refreshes would
-    // target the wrong endpoint.
-    const serverInfo = await discoverOAuthServerInfo(input.serverUrl.toString(), {
-      ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
-      fetchFn,
-    });
-    if (!serverInfo.authorizationServerUrl) {
-      return {
-        kind: 'failed',
-        reason: 'OAuth server discovery did not return an authorization_server URL',
-      };
-    }
-
+    // Discovery is owned entirely by the SDK's auth() calls below. The provider
+    // implements saveDiscoveryState/discoveryState, so the first auth() resolves
+    // the authorization server once, caches it, and persists it with the tokens;
+    // the code-exchange auth() reuses that cache instead of rediscovering. This
+    // keeps DCR/authorize, the exchange, and the stored issuer in agreement even
+    // if the upstream metadata would change between calls.
     const provider = new ToolBoxOAuthProvider({
       serverName: input.serverName,
       redirectUrl: callback.redirectUri,
       ...(input.scopes ? { scopes: input.scopes } : {}),
       tokenStore: input.tokenStore,
       logger: input.logger,
-      authorizationServer: serverInfo.authorizationServerUrl,
     });
 
     if (input.forceReauth) {

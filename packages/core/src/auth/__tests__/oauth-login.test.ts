@@ -92,6 +92,18 @@ describe('runOAuthLogin', () => {
     expect(server.tokenGrants).toEqual(['authorization_code']);
   });
 
+  it('discovers the authorization server once and reuses it across DCR, authorize, and exchange', async () => {
+    const server = await fakeServer();
+    const store = new InMemoryTokenStore();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store }));
+
+    expect(result).toEqual({ kind: 'success' });
+    // A single discovery is cached and reused for the authorization request and
+    // the code exchange, so all phases (and the persisted issuer) agree.
+    expect(server.discoveryCount()).toBe(1);
+  });
+
   it('cancels and writes no token when aborted before the redirect arrives', async () => {
     const server = await fakeServer();
     const store = new InMemoryTokenStore();

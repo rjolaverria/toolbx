@@ -34,6 +34,8 @@ export interface FakeOAuthServer {
   readonly tokenGrants: string[];
   /** Number of DCR (`/register`) calls — lets tests assert client reuse. */
   readonly registrationCount: () => number;
+  /** Hits to the authorization-server metadata endpoint — asserts discovery caching. */
+  readonly discoveryCount: () => number;
   /** `{ client_id, redirect_uri }` seen at each `/authorize` request. */
   readonly authorizeParams: () => Array<{ clientId: string | null; redirectUri: string | null }>;
   close(): Promise<void>;
@@ -62,6 +64,7 @@ export async function startFakeOAuthServer(
   const controls: FakeOAuthServerOptions = { ...options };
   const tokenGrants: string[] = [];
   let registrations = 0;
+  let discoveries = 0;
   const authorizeParams: Array<{ clientId: string | null; redirectUri: string | null }> = [];
   // code -> the PKCE code_challenge presented at /authorize, so /token can
   // verify the matching code_verifier (proves the SDK round-tripped PKCE).
@@ -101,6 +104,7 @@ export async function startFakeOAuthServer(
       return;
     }
     if (url.pathname === '/.well-known/oauth-authorization-server') {
+      discoveries += 1;
       json(200, metadata());
       return;
     }
@@ -192,6 +196,7 @@ export async function startFakeOAuthServer(
     url: base,
     tokenGrants,
     registrationCount: () => registrations,
+    discoveryCount: () => discoveries,
     authorizeParams: () => authorizeParams,
     close(): Promise<void> {
       return new Promise<void>((resolve) => {

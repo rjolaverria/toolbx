@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type {
+  OAuthClientProvider,
+  OAuthDiscoveryState,
+} from '@modelcontextprotocol/sdk/client/auth.js';
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -20,11 +23,11 @@ export interface ToolBoxOAuthProviderOpts {
   /** Static client metadata for DCR. */
   clientName?: string;
   /**
-   * Issuer / authorization-server URL discovered during the OAuth handshake.
-   * Persisted into StoredOAuthRecord.authorizationServer so the gateway can
-   * use it later for refresh. F1-18's runOAuthLogin calls
-   * `provider.setAuthorizationServer(...)` after the SDK resolves discovery,
-   * before the SDK calls saveTokens.
+   * Optional fallback authorization-server URL persisted into
+   * StoredOAuthRecord.authorizationServer when the SDK has not resolved one for
+   * this flow. In the normal login path the provider learns the issuer from the
+   * SDK via `saveDiscoveryState` (preferred over this opt); this is only a seed
+   * for callers that already know it.
    */
   authorizationServer?: string;
 }
@@ -65,6 +68,11 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   private suppressTokensRead = false;
   private suppressClientRead = false;
   private savedCodeVerifier: string | undefined;
+  // Discovery resolved by the SDK during the first auth() call, cached so the
+  // later code-exchange call reuses the SAME authorization server instead of
+  // rediscovering. Without this, DCR/authorize, the exchange, and the persisted
+  // issuer could diverge if the server's metadata changes between calls.
+  private discoveryStateCache: OAuthDiscoveryState | undefined;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -129,6 +137,25 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     if (scope === 'all' || scope === 'verifier') {
       this.savedCodeVerifier = undefined;
     }
+    if (scope === 'all' || scope === 'discovery') {
+      this.discoveryStateCache = undefined;
+    }
+  }
+
+  /**
+   * Returns discovery cached from an earlier `auth()` call in this flow so the
+   * SDK skips re-discovery on the code-exchange call and reuses one
+   * authorization server throughout.
+   */
+  discoveryState(): OAuthDiscoveryState | undefined {
+    return this.discoveryStateCache;
+  }
+
+  saveDiscoveryState(state: OAuthDiscoveryState): void {
+    this.discoveryStateCache = state;
+    // The authorization server the SDK actually resolved for this flow is the
+    // one we must persist with the tokens, so refreshes target the same issuer.
+    this.resolvedAuthorizationServer = state.authorizationServerUrl;
   }
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
