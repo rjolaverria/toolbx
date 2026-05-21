@@ -14,3 +14,9 @@ export {
   type CallbackServer,
   type StartCallbackServerOpts,
 } from './oauth-callback-server.js';
+
+export {
+  SuppressedRedirectError,
+  ToolBoxOAuthProvider,
+  type ToolBoxOAuthProviderOpts,
+} from './oauth-provider.js';
