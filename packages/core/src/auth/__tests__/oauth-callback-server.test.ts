@@ -188,6 +188,18 @@ describe('startCallbackServer', () => {
     await expect(codePromise).rejects.toThrow('Callback timed out after 50ms');
   });
 
+  it('starts the timeout window at waitForCode, not at bind', async () => {
+    const server = await start(60);
+    // Idle past the timeout before waiting. If the timer started at bind, the
+    // flow would already have settled as timed-out and the redirect would 409.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const codePromise = server.waitForCode('abc');
+    const res = await fetch(callbackUrl(server, 'code=xyz&state=abc'));
+    expect(res.status).toBe(200);
+    await expect(codePromise).resolves.toEqual({ code: 'xyz', state: 'abc' });
+    await server.close();
+  });
+
   it('refuses a valid redirect that arrives after the flow timed out', async () => {
     const server = await start(50);
     await expect(server.waitForCode('abc')).rejects.toThrow('Callback timed out after 50ms');

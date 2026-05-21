@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type {
+  OAuthClientProvider,
+  OAuthDiscoveryState,
+} from '@modelcontextprotocol/sdk/client/auth.js';
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -20,11 +23,11 @@ export interface ToolBoxOAuthProviderOpts {
   /** Static client metadata for DCR. */
   clientName?: string;
   /**
-   * Issuer / authorization-server URL discovered during the OAuth handshake.
-   * Persisted into StoredOAuthRecord.authorizationServer so the gateway can
-   * use it later for refresh. F1-18's runOAuthLogin calls
-   * `provider.setAuthorizationServer(...)` after the SDK resolves discovery,
-   * before the SDK calls saveTokens.
+   * Optional fallback authorization-server URL persisted into
+   * StoredOAuthRecord.authorizationServer when the SDK has not resolved one for
+   * this flow. In the normal login path the provider learns the issuer from the
+   * SDK via `saveDiscoveryState` (preferred over this opt); this is only a seed
+   * for callers that already know it.
    */
   authorizationServer?: string;
 }
@@ -63,7 +66,13 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   private pendingClientInformation: OAuthClientInformationMixed | undefined;
   private resolvedAuthorizationServer: string | undefined;
   private suppressTokensRead = false;
+  private suppressClientRead = false;
   private savedCodeVerifier: string | undefined;
+  // Discovery resolved by the SDK during the first auth() call, cached so the
+  // later code-exchange call reuses the SAME authorization server instead of
+  // rediscovering. Without this, DCR/authorize, the exchange, and the persisted
+  // issuer could diverge if the server's metadata changes between calls.
+  private discoveryStateCache: OAuthDiscoveryState | undefined;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -107,15 +116,62 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     this.suppressTokensRead = true;
   }
 
+  /**
+   * SDK recovery hook. After a recoverable token error (e.g. `invalid_grant`
+   * from a refresh against an expired/revoked token), the SDK calls this and
+   * retries `auth()`; we hide the offending credential in-memory so the retry
+   * proceeds to DCR/authorize instead of re-reading the bad value. We never
+   * delete the stored record here — `saveTokens` is the only commit point, so
+   * the previous tokens survive on disk until a new exchange succeeds
+   * (atomicity preserved, §4.6.2). `discovery` is a no-op: we do not cache
+   * discovery state, so every `auth()` re-discovers already.
+   */
+  invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+    if (scope === 'all' || scope === 'tokens') {
+      this.suppressTokensRead = true;
+    }
+    if (scope === 'all' || scope === 'client') {
+      this.suppressClientRead = true;
+      this.pendingClientInformation = undefined;
+    }
+    if (scope === 'all' || scope === 'verifier') {
+      this.savedCodeVerifier = undefined;
+    }
+    if (scope === 'all' || scope === 'discovery') {
+      this.discoveryStateCache = undefined;
+    }
+  }
+
+  /**
+   * Returns discovery cached from an earlier `auth()` call in this flow so the
+   * SDK skips re-discovery on the code-exchange call and reuses one
+   * authorization server throughout.
+   */
+  discoveryState(): OAuthDiscoveryState | undefined {
+    return this.discoveryStateCache;
+  }
+
+  saveDiscoveryState(state: OAuthDiscoveryState): void {
+    this.discoveryStateCache = state;
+    // The authorization server the SDK actually resolved for this flow is the
+    // one we must persist with the tokens, so refreshes target the same issuer.
+    this.resolvedAuthorizationServer = state.authorizationServerUrl;
+  }
+
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     if (this.pendingClientInformation) {
       return this.pendingClientInformation;
+    }
+    if (this.suppressClientRead) {
+      return undefined;
     }
     const record = await this.load();
     return record?.clientInformation;
   }
 
   saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
+    // A fresh registration supersedes any invalidation: surface the new info.
+    this.suppressClientRead = false;
     this.pendingClientInformation = info;
     return Promise.resolve();
   }
@@ -135,6 +191,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // the still-valid stored tokens must resurface instead of the provider
     // staying stuck returning undefined from tokens() for its lifetime.
     this.suppressTokensRead = false;
+    this.suppressClientRead = false;
     const existing = await this.load();
     const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
     if (!clientInformation) {
