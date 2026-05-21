@@ -20,3 +20,5 @@ export {
   ToolBoxOAuthProvider,
   type ToolBoxOAuthProviderOpts,
 } from './oauth-provider.js';
+
+export { runOAuthLogin, type RunOAuthLoginInput, type RunOAuthLoginResult } from './oauth-login.js';

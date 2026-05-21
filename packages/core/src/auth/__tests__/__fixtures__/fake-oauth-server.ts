@@ -1,0 +1,169 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { type AddressInfo } from 'node:net';
+
+/**
+ * Behaviour switches for the fake server. Tests flip these to exercise the
+ * failure branches of `runOAuthLogin` without needing a real OAuth provider.
+ */
+export interface FakeOAuthServerOptions {
+  /** `/authorize` redirects with `?error=<this>` instead of a code. */
+  authorizeError?: string;
+  /** `/authorize` echoes back a different `state` than the one it received. */
+  tamperState?: boolean;
+}
+
+export interface FakeOAuthServer {
+  /** Base URL the MCP server is reachable at; pass as `serverUrl`. */
+  readonly url: URL;
+  /** Count of token-endpoint hits, split by grant type, for assertions. */
+  readonly tokenGrants: string[];
+  close(): Promise<void>;
+}
+
+const sha256Base64Url = (value: string): string =>
+  createHash('sha256').update(value).digest('base64url');
+
+async function readBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/**
+ * A minimal but spec-faithful OAuth 2.1 authorization server backed by
+ * `node:http`. It implements just enough of RFC 8414 discovery, RFC 7591 DCR,
+ * the PKCE authorization-code flow, and the refresh-token grant for the MCP
+ * SDK's `auth()` driver to complete end to end against a loopback listener.
+ */
+export async function startFakeOAuthServer(
+  options: FakeOAuthServerOptions = {},
+): Promise<FakeOAuthServer> {
+  const controls: FakeOAuthServerOptions = { ...options };
+  const tokenGrants: string[] = [];
+  // code -> the PKCE code_challenge presented at /authorize, so /token can
+  // verify the matching code_verifier (proves the SDK round-tripped PKCE).
+  const issuedCodes = new Map<string, string>();
+
+  const server: Server = createServer((req, res) => {
+    void handle(req, res);
+  });
+
+  let base = new URL('http://127.0.0.1/');
+
+  const metadata = () => ({
+    issuer: base.origin,
+    authorization_endpoint: new URL('/authorize', base).toString(),
+    token_endpoint: new URL('/token', base).toString(),
+    registration_endpoint: new URL('/register', base).toString(),
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
+    code_challenge_methods_supported: ['S256'],
+    token_endpoint_auth_methods_supported: ['none'],
+  });
+
+  async function handle(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    const url = new URL(req.url ?? '/', base);
+    const json = (status: number, body: unknown): void => {
+      res.statusCode = status;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(body));
+    };
+
+    // RFC 9728 protected-resource metadata is intentionally unimplemented:
+    // discovery falls back to treating the MCP server origin as the
+    // authorization server (the legacy MCP behaviour).
+    if (url.pathname === '/.well-known/oauth-protected-resource') {
+      res.statusCode = 404;
+      res.end('not found');
+      return;
+    }
+    if (url.pathname === '/.well-known/oauth-authorization-server') {
+      json(200, metadata());
+      return;
+    }
+    if (url.pathname === '/register' && req.method === 'POST') {
+      const clientMetadata = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      json(201, { ...clientMetadata, client_id: 'fake-client-id' });
+      return;
+    }
+    if (url.pathname === '/authorize') {
+      const redirectUri = url.searchParams.get('redirect_uri');
+      const state = url.searchParams.get('state');
+      const codeChallenge = url.searchParams.get('code_challenge');
+      if (!redirectUri || !state || !codeChallenge) {
+        res.statusCode = 400;
+        res.end('missing authorize params');
+        return;
+      }
+      const location = new URL(redirectUri);
+      const echoedState = controls.tamperState ? `${state}-tampered` : state;
+      location.searchParams.set('state', echoedState);
+      if (controls.authorizeError) {
+        location.searchParams.set('error', controls.authorizeError);
+      } else {
+        const code = randomUUID();
+        issuedCodes.set(code, codeChallenge);
+        location.searchParams.set('code', code);
+      }
+      res.statusCode = 302;
+      res.setHeader('location', location.toString());
+      res.end();
+      return;
+    }
+    if (url.pathname === '/token' && req.method === 'POST') {
+      const params = new URLSearchParams(await readBody(req));
+      const grantType = params.get('grant_type') ?? '';
+      tokenGrants.push(grantType);
+      if (grantType === 'authorization_code') {
+        const code = params.get('code') ?? '';
+        const codeVerifier = params.get('code_verifier') ?? '';
+        const expectedChallenge = issuedCodes.get(code);
+        if (!expectedChallenge || sha256Base64Url(codeVerifier) !== expectedChallenge) {
+          json(400, { error: 'invalid_grant', error_description: 'PKCE verification failed' });
+          return;
+        }
+        issuedCodes.delete(code);
+        json(200, {
+          access_token: 'fake-access-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          refresh_token: 'fake-refresh-token',
+        });
+        return;
+      }
+      if (grantType === 'refresh_token') {
+        json(200, {
+          access_token: 'refreshed-access-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          refresh_token: 'rotated-refresh-token',
+        });
+        return;
+      }
+      json(400, { error: 'unsupported_grant_type' });
+      return;
+    }
+    res.statusCode = 404;
+    res.end('not found');
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const addr = server.address() as AddressInfo;
+  base = new URL(`http://127.0.0.1:${addr.port}/`);
+
+  return {
+    url: base,
+    tokenGrants,
+    close(): Promise<void> {
+      return new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    },
+  };
+}
