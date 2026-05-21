@@ -222,6 +222,22 @@ describe('runOAuthLogin', () => {
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
   });
 
+  it('does not hang when openBrowser stalls and no abort signal is provided', async () => {
+    const server = await fakeServer();
+    const store = new InMemoryTokenStore();
+    // A browser opener that never resolves, with no abort signal to rescue it.
+    // The callback timeout must still terminate the flow.
+    const openBrowser = vi.fn(() => new Promise<void>(() => undefined));
+
+    const result = await runOAuthLogin(
+      baseInput(server, { tokenStore: store, openBrowser, callbackTimeoutMs: 80 }),
+    );
+
+    expect(result.kind).toBe('failed');
+    expect((result as { reason: string }).reason).toMatch(/timed out/i);
+    expect(await store.read(SERVER_NAME)).toBeNull();
+  });
+
   it('fails and writes no token when the redirect state does not match', async () => {
     const server = await fakeServer({ tamperState: true });
     const store = new InMemoryTokenStore();

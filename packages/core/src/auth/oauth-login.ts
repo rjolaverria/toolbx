@@ -178,23 +178,27 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
       return { kind: 'cancelled', reason: 'aborted by caller' };
     }
 
-    // Race the browser-open AGAINST the abort signal too — a slow or hung
-    // `open` (e.g. when no default browser is registered) must not block
-    // cancellation.
+    // Launch the browser, then wait for the real terminal signals: the redirect
+    // code, an abort, or the callback timeout (codePromise rejecting). A
+    // successful launch only means the tab opened — not that auth finished — so
+    // it must NOT settle this race; a *failed* launch is terminal (we'll never
+    // reach consent). Critically, a hung `openBrowser` must not block the flow
+    // even when no abortSignal is wired, so we never await the opener directly:
+    // the callback timeout still rescues us.
     log.info({ url: authorizationUrl.toString() }, 'opening browser for authorization');
-    const browserOrAbort = await Promise.race([
-      openBrowser(authorizationUrl).then(() => 'opened' as const),
-      abortPromise,
-    ]);
-    if (browserOrAbort === 'aborted') {
-      return { kind: 'cancelled', reason: 'aborted by caller' };
-    }
+    const browserFailure: Promise<Error> = openBrowser(authorizationUrl).then(
+      () => new Promise<never>(() => undefined),
+      (err: unknown) => (err instanceof Error ? err : new Error(String(err))),
+    );
 
-    const codeOrAbort = await Promise.race([codePromise, abortPromise]);
-    if (codeOrAbort === 'aborted') {
+    const settled = await Promise.race([abortPromise, browserFailure, codePromise]);
+    if (settled === 'aborted') {
       return { kind: 'cancelled', reason: 'aborted by caller' };
     }
-    const { code } = codeOrAbort;
+    if (settled instanceof Error) {
+      return { kind: 'failed', reason: `failed to open browser: ${settled.message}` };
+    }
+    const { code } = settled;
 
     // Complete the exchange via the SDK by feeding it the code. saveTokens runs
     // inside this call — the single commit point for the StoredOAuthRecord.
