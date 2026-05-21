@@ -156,9 +156,15 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
 
     // Complete the exchange via the SDK by feeding it the code. saveTokens runs
     // inside this call — the single commit point for the StoredOAuthRecord.
+    // Thread resourceMetadataUrl through here as well: the provider does not
+    // cache SDK discovery state, so this call rediscovers from scratch. Without
+    // the metadata URL it would fall back to origin-based discovery and could
+    // target the wrong token endpoint for servers whose authorization server is
+    // only advertised through the resource metadata.
     await auth(provider, {
       serverUrl: input.serverUrl.toString(),
       authorizationCode: code,
+      ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
     });
 
     return { kind: 'success' };

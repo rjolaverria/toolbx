@@ -4,14 +4,19 @@ import { createNoopLogger } from '../../logging/logger.js';
 import { startCallbackServer } from '../oauth-callback-server.js';
 import { runOAuthLogin, type RunOAuthLoginInput } from '../oauth-login.js';
 import { InMemoryTokenStore, type StoredOAuthRecord } from '../token-store.js';
-import { startFakeOAuthServer, type FakeOAuthServer } from './__fixtures__/fake-oauth-server.js';
+import {
+  startFakeOAuthServer,
+  startFakeResourceServer,
+  type FakeOAuthServer,
+  type FakeResourceServer,
+} from './__fixtures__/fake-oauth-server.js';
 
 const SERVER_NAME = 'acme';
 
-const servers: FakeOAuthServer[] = [];
+const closers: Array<() => Promise<void>> = [];
 afterEach(async () => {
-  while (servers.length > 0) {
-    await servers.pop()?.close();
+  while (closers.length > 0) {
+    await closers.pop()?.();
   }
 });
 
@@ -19,7 +24,15 @@ async function fakeServer(
   ...args: Parameters<typeof startFakeOAuthServer>
 ): Promise<FakeOAuthServer> {
   const server = await startFakeOAuthServer(...args);
-  servers.push(server);
+  closers.push(() => server.close());
+  return server;
+}
+
+async function fakeResourceServer(
+  ...args: Parameters<typeof startFakeResourceServer>
+): Promise<FakeResourceServer> {
+  const server = await startFakeResourceServer(...args);
+  closers.push(() => server.close());
   return server;
 }
 
@@ -133,6 +146,28 @@ describe('runOAuthLogin', () => {
     expect(server.tokenGrants).toEqual(['authorization_code']);
     const record = await store.read(SERVER_NAME);
     expect(record?.tokens.access_token).toBe('fake-access-token');
+  });
+
+  it('threads resourceMetadataUrl through the code-exchange phase too', async () => {
+    // The auth server is discoverable ONLY via the explicit resourceMetadataUrl;
+    // the MCP resource server origin does not serve OAuth endpoints. If any
+    // auth() phase drops the metadata URL it rediscovers against the bare origin
+    // and the token exchange targets a dead endpoint.
+    const authServer = await fakeServer();
+    const resourceServer = await fakeResourceServer({ authorizationServers: [authServer.url] });
+    const store = new InMemoryTokenStore();
+
+    const result = await runOAuthLogin(
+      baseInput(authServer, {
+        serverUrl: resourceServer.url,
+        resourceMetadataUrl: resourceServer.resourceMetadataUrl,
+        tokenStore: store,
+      }),
+    );
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(authServer.tokenGrants).toEqual(['authorization_code']);
+    expect((await store.read(SERVER_NAME))?.tokens.access_token).toBe('fake-access-token');
   });
 
   it('fails and writes no token when the redirect state does not match', async () => {

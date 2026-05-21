@@ -167,3 +167,68 @@ export async function startFakeOAuthServer(
     },
   };
 }
+
+export interface FakeResourceServerOptions {
+  /** Authorization servers advertised by the protected-resource metadata. */
+  authorizationServers: URL[];
+}
+
+export interface FakeResourceServer {
+  /** Base URL of the MCP resource server; pass as `serverUrl`. */
+  readonly url: URL;
+  /** RFC 9728 metadata URL; pass as `resourceMetadataUrl`. */
+  readonly resourceMetadataUrl: URL;
+  close(): Promise<void>;
+}
+
+/**
+ * A bare RFC 9728 protected-resource server. It serves its metadata ONLY at an
+ * explicit, non-default path and 404s everything else — including the root
+ * `/.well-known/oauth-protected-resource` and all OAuth endpoints. Discovery
+ * therefore only finds the authorization server when the caller threads the
+ * explicit `resourceMetadataUrl` through; falling back to origin-based
+ * discovery fails. This lets a test prove every `auth()` phase honours
+ * `resourceMetadataUrl`.
+ */
+export async function startFakeResourceServer(
+  options: FakeResourceServerOptions,
+): Promise<FakeResourceServer> {
+  // A non-default, path-based metadata location so the SDK's origin fallback
+  // (root `/.well-known/oauth-protected-resource`) misses it.
+  const prmPath = '/.well-known/oauth-protected-resource/mcp';
+  let base = new URL('http://127.0.0.1/');
+
+  const server: Server = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', base);
+    if (url.pathname === prmPath) {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          resource: base.origin,
+          authorization_servers: options.authorizationServers.map((u) => u.toString()),
+        }),
+      );
+      return;
+    }
+    res.statusCode = 404;
+    res.end('not found');
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const addr = server.address() as AddressInfo;
+  base = new URL(`http://127.0.0.1:${addr.port}/`);
+
+  return {
+    url: base,
+    resourceMetadataUrl: new URL(prmPath, base),
+    close(): Promise<void> {
+      return new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    },
+  };
+}
