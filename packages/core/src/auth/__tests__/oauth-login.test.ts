@@ -167,6 +167,23 @@ describe('runOAuthLogin', () => {
     expect(record?.tokens.access_token).toBe('refreshed-access-token');
   });
 
+  it('falls back to the browser flow when refreshing a stored token returns invalid_grant', async () => {
+    const server = await fakeServer({ rejectRefresh: true });
+    const store = new InMemoryTokenStore();
+    await seedToken(store, server.url.origin);
+    const openBrowser = fetchingBrowser();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store, openBrowser }));
+
+    expect(result).toEqual({ kind: 'success' });
+    // Refresh is attempted and rejected, then the SDK retries through the
+    // authorization-code flow once invalidateCredentials hides the bad token.
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    expect(server.tokenGrants).toEqual(['refresh_token', 'authorization_code']);
+    const record = await store.read(SERVER_NAME);
+    expect(record?.tokens.access_token).toBe('fake-access-token');
+  });
+
   it('forces the browser handshake when forceReauth is set despite a stored token', async () => {
     const server = await fakeServer();
     const store = new InMemoryTokenStore();

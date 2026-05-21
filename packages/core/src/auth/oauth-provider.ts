@@ -63,6 +63,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   private pendingClientInformation: OAuthClientInformationMixed | undefined;
   private resolvedAuthorizationServer: string | undefined;
   private suppressTokensRead = false;
+  private suppressClientRead = false;
   private savedCodeVerifier: string | undefined;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
@@ -107,15 +108,43 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     this.suppressTokensRead = true;
   }
 
+  /**
+   * SDK recovery hook. After a recoverable token error (e.g. `invalid_grant`
+   * from a refresh against an expired/revoked token), the SDK calls this and
+   * retries `auth()`; we hide the offending credential in-memory so the retry
+   * proceeds to DCR/authorize instead of re-reading the bad value. We never
+   * delete the stored record here — `saveTokens` is the only commit point, so
+   * the previous tokens survive on disk until a new exchange succeeds
+   * (atomicity preserved, §4.6.2). `discovery` is a no-op: we do not cache
+   * discovery state, so every `auth()` re-discovers already.
+   */
+  invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+    if (scope === 'all' || scope === 'tokens') {
+      this.suppressTokensRead = true;
+    }
+    if (scope === 'all' || scope === 'client') {
+      this.suppressClientRead = true;
+      this.pendingClientInformation = undefined;
+    }
+    if (scope === 'all' || scope === 'verifier') {
+      this.savedCodeVerifier = undefined;
+    }
+  }
+
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     if (this.pendingClientInformation) {
       return this.pendingClientInformation;
+    }
+    if (this.suppressClientRead) {
+      return undefined;
     }
     const record = await this.load();
     return record?.clientInformation;
   }
 
   saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
+    // A fresh registration supersedes any invalidation: surface the new info.
+    this.suppressClientRead = false;
     this.pendingClientInformation = info;
     return Promise.resolve();
   }
@@ -135,6 +164,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // the still-valid stored tokens must resurface instead of the provider
     // staying stuck returning undefined from tokens() for its lifetime.
     this.suppressTokensRead = false;
+    this.suppressClientRead = false;
     const existing = await this.load();
     const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
     if (!clientInformation) {

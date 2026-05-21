@@ -258,6 +258,63 @@ describe('ToolBoxOAuthProvider.suppressStoredTokensForReauth', () => {
   });
 });
 
+describe('ToolBoxOAuthProvider.invalidateCredentials', () => {
+  it("scope 'tokens' hides stored tokens in-memory without deleting the record", async () => {
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord());
+
+    provider.invalidateCredentials('tokens');
+
+    expect(await provider.tokens()).toBeUndefined();
+    expect(await provider.clientInformation()).toEqual(makeClientInfo());
+    expect(await store.read('jira')).not.toBeNull();
+  });
+
+  it("scope 'client' forces re-registration by hiding stored client information", async () => {
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord());
+
+    provider.invalidateCredentials('client');
+
+    expect(await provider.clientInformation()).toBeUndefined();
+    // A fresh registration supersedes the invalidation.
+    await provider.saveClientInformation(makeClientInfo({ client_id: 'reregistered' }));
+    expect(await provider.clientInformation()).toEqual(
+      makeClientInfo({ client_id: 'reregistered' }),
+    );
+  });
+
+  it("scope 'verifier' drops the saved PKCE verifier", async () => {
+    const { provider } = makeProvider();
+    await provider.saveCodeVerifier('verifier-xyz');
+
+    provider.invalidateCredentials('verifier');
+
+    await expect(provider.codeVerifier()).rejects.toThrow(/codeVerifier requested before/);
+  });
+
+  it("scope 'all' hides tokens and client information together", async () => {
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord());
+
+    provider.invalidateCredentials('all');
+
+    expect(await provider.tokens()).toBeUndefined();
+    expect(await provider.clientInformation()).toBeUndefined();
+    expect(await store.read('jira')).not.toBeNull();
+  });
+
+  it("scope 'discovery' is a no-op since discovery state is never cached", async () => {
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord());
+
+    provider.invalidateCredentials('discovery');
+
+    expect(await provider.tokens()).toEqual(makeTokens());
+    expect(await provider.clientInformation()).toEqual(makeClientInfo());
+  });
+});
+
 describe('ToolBoxOAuthProvider.state', () => {
   it('returns distinct UUID-shaped values', async () => {
     const { provider } = makeProvider();

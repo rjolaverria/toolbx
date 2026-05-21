@@ -17,6 +17,8 @@ export interface FakeOAuthServerOptions {
    * abort during the flow's network preflight.
    */
   onRegister?: () => void;
+  /** `/token` rejects the `refresh_token` grant with `invalid_grant`. */
+  rejectRefresh?: boolean;
 }
 
 export interface FakeOAuthServer {
@@ -142,6 +144,10 @@ export async function startFakeOAuthServer(
         return;
       }
       if (grantType === 'refresh_token') {
+        if (controls.rejectRefresh) {
+          json(400, { error: 'invalid_grant', error_description: 'refresh token expired' });
+          return;
+        }
         json(200, {
           access_token: 'refreshed-access-token',
           token_type: 'Bearer',
