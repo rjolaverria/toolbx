@@ -268,6 +268,33 @@ describe('runOAuthLogin', () => {
     expect(await store.read(SERVER_NAME)).toBeNull();
   });
 
+  it('reuses the registered client across forceReauth with a fresh loopback redirect', async () => {
+    const server = await fakeServer();
+    const store = new InMemoryTokenStore();
+
+    const first = await runOAuthLogin(baseInput(server, { tokenStore: store }));
+    expect(first).toEqual({ kind: 'success' });
+    expect(server.registrationCount()).toBe(1);
+
+    // Re-login (identity switch). The DCR client is intentionally reused — no
+    // second registration — and the authorization request carries a fresh
+    // loopback redirect_uri (a new ephemeral callback port). RFC 8252 §7.3
+    // requires servers to accept any loopback port for the registered client,
+    // so re-registering per login would only churn server-side clients.
+    const second = await runOAuthLogin(baseInput(server, { tokenStore: store, forceReauth: true }));
+    expect(second).toEqual({ kind: 'success' });
+    expect(server.registrationCount()).toBe(1);
+
+    const authz = server.authorizeParams();
+    expect(authz).toHaveLength(2);
+    for (const params of authz) {
+      expect(params.clientId).toBe('fake-client-id');
+      const redirect = new URL(params.redirectUri ?? '');
+      expect(redirect.hostname).toBe('127.0.0.1');
+      expect(redirect.pathname).toBe('/callback');
+    }
+  });
+
   it('fails and writes no token when the redirect state does not match', async () => {
     const server = await fakeServer({ tamperState: true });
     const store = new InMemoryTokenStore();

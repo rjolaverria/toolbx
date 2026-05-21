@@ -32,6 +32,10 @@ export interface FakeOAuthServer {
   readonly url: URL;
   /** Count of token-endpoint hits, split by grant type, for assertions. */
   readonly tokenGrants: string[];
+  /** Number of DCR (`/register`) calls — lets tests assert client reuse. */
+  readonly registrationCount: () => number;
+  /** `{ client_id, redirect_uri }` seen at each `/authorize` request. */
+  readonly authorizeParams: () => Array<{ clientId: string | null; redirectUri: string | null }>;
   close(): Promise<void>;
 }
 
@@ -57,6 +61,8 @@ export async function startFakeOAuthServer(
 ): Promise<FakeOAuthServer> {
   const controls: FakeOAuthServerOptions = { ...options };
   const tokenGrants: string[] = [];
+  let registrations = 0;
+  const authorizeParams: Array<{ clientId: string | null; redirectUri: string | null }> = [];
   // code -> the PKCE code_challenge presented at /authorize, so /token can
   // verify the matching code_verifier (proves the SDK round-tripped PKCE).
   const issuedCodes = new Map<string, string>();
@@ -99,6 +105,7 @@ export async function startFakeOAuthServer(
       return;
     }
     if (url.pathname === '/register' && req.method === 'POST') {
+      registrations += 1;
       const clientMetadata = JSON.parse(await readBody(req)) as Record<string, unknown>;
       controls.onRegister?.();
       json(201, { ...clientMetadata, client_id: 'fake-client-id' });
@@ -108,6 +115,7 @@ export async function startFakeOAuthServer(
       const redirectUri = url.searchParams.get('redirect_uri');
       const state = url.searchParams.get('state');
       const codeChallenge = url.searchParams.get('code_challenge');
+      authorizeParams.push({ clientId: url.searchParams.get('client_id'), redirectUri });
       if (!redirectUri || !state || !codeChallenge) {
         res.statusCode = 400;
         res.end('missing authorize params');
@@ -183,6 +191,8 @@ export async function startFakeOAuthServer(
   return {
     url: base,
     tokenGrants,
+    registrationCount: () => registrations,
+    authorizeParams: () => authorizeParams,
     close(): Promise<void> {
       return new Promise<void>((resolve) => {
         server.close(() => resolve());
