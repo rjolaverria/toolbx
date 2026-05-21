@@ -217,7 +217,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     return { kind: 'success' };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    if (isCancelledError(err)) {
+    if (isCancelledError(err, signal)) {
       return { kind: 'cancelled', reason };
     }
     return { kind: 'failed', reason };
@@ -241,7 +241,20 @@ function abortToPromise(signal: AbortSignal): Promise<'aborted'> {
   );
 }
 
-function isCancelledError(err: unknown): boolean {
+/**
+ * Distinguishes a user cancellation from a genuine failure. Cancellation is
+ * keyed off the actual abort-signal state — when we aborted, the resulting
+ * throw (an AbortError from a fetch, a closed callback, etc.) is a cancellation
+ * regardless of its wording — plus the one explicit OAuth user-denial code
+ * (`access_denied`, RFC 6749 §4.1.2.1). Deliberately NOT broad substring
+ * matching on "cancel"/"abort": a real failure whose message merely contains
+ * those words (e.g. a proxy reporting "request was cancelled") must surface as
+ * a failure, not be silently swallowed.
+ */
+function isCancelledError(err: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) {
+    return true;
+  }
   const msg = err instanceof Error ? err.message : '';
-  return /access_denied|cancel|abort|closed before redirect/i.test(msg);
+  return /\baccess_denied\b/i.test(msg);
 }

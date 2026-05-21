@@ -255,6 +255,19 @@ describe('runOAuthLogin', () => {
     expect(await store.read(SERVER_NAME)).toBeNull();
   });
 
+  it('classifies a server error as failed even when its message mentions "cancelled"', async () => {
+    // Without an abort signal, a genuine token-exchange failure whose text
+    // happens to contain "cancelled" must be reported as failed, not silently
+    // swallowed as a user cancellation.
+    const server = await fakeServer({ rejectCodeExchange: true });
+    const store = new InMemoryTokenStore();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store }));
+
+    expect(result.kind).toBe('failed');
+    expect(await store.read(SERVER_NAME)).toBeNull();
+  });
+
   it('fails and writes no token when the redirect state does not match', async () => {
     const server = await fakeServer({ tamperState: true });
     const store = new InMemoryTokenStore();

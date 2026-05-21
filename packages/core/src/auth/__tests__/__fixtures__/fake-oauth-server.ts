@@ -19,6 +19,12 @@ export interface FakeOAuthServerOptions {
   onRegister?: () => void;
   /** `/token` rejects the `refresh_token` grant with `invalid_grant`. */
   rejectRefresh?: boolean;
+  /**
+   * `/token` rejects the `authorization_code` grant with a server error whose
+   * description contains the word "cancelled" — a genuine failure that must NOT
+   * be misread as a user cancellation.
+   */
+  rejectCodeExchange?: boolean;
 }
 
 export interface FakeOAuthServer {
@@ -127,6 +133,10 @@ export async function startFakeOAuthServer(
       const grantType = params.get('grant_type') ?? '';
       tokenGrants.push(grantType);
       if (grantType === 'authorization_code') {
+        if (controls.rejectCodeExchange) {
+          json(500, { error: 'server_error', error_description: 'upstream request was cancelled' });
+          return;
+        }
         const code = params.get('code') ?? '';
         const codeVerifier = params.get('code_verifier') ?? '';
         const expectedChallenge = issuedCodes.get(code);
