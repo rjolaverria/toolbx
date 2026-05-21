@@ -7,7 +7,7 @@ import {
   ToolBoxOAuthProvider,
   type ToolBoxOAuthProviderOpts,
 } from '../oauth-provider.js';
-import { InMemoryTokenStore, type StoredOAuthRecord } from '../token-store.js';
+import { InMemoryTokenStore, type StoredOAuthRecord, type TokenStore } from '../token-store.js';
 
 function makeClientInfo(overrides: Partial<OAuthClientInformation> = {}): OAuthClientInformation {
   return { client_id: 'client-abc', ...overrides };
@@ -70,6 +70,14 @@ describe('ToolBoxOAuthProvider.clientMetadata', () => {
     const meta = provider.clientMetadata;
     expect(meta.client_name).toBe('My ToolBox');
     expect(meta.scope).toBe('read write');
+  });
+
+  it('omits scope entirely when scopes is an empty array', () => {
+    // An empty `scope` string is rejected as malformed by many OAuth servers,
+    // so callers that normalize "no scopes" to [] must produce no scope field.
+    const { provider } = makeProvider({ scopes: [] });
+    expect(provider.clientMetadata.scope).toBeUndefined();
+    expect('scope' in provider.clientMetadata).toBe(false);
   });
 });
 
@@ -222,6 +230,31 @@ describe('ToolBoxOAuthProvider.suppressStoredTokensForReauth', () => {
 
     await provider.saveTokens(makeTokens({ access_token: 'reauthed' }));
     expect(await provider.tokens()).toEqual(makeTokens({ access_token: 'reauthed' }));
+  });
+
+  it('clears suppression when saveTokens fails so stored tokens resurface', async () => {
+    // A failed re-auth (here: the keychain write throws) must not leave the
+    // provider permanently suppressed — the still-valid stored tokens have to
+    // become visible again rather than the provider being stuck unauthenticated.
+    const backing = new InMemoryTokenStore();
+    await backing.write('jira', makeRecord());
+    const failingStore: TokenStore = {
+      read: (name) => backing.read(name),
+      write: () => Promise.reject(new Error('keychain unavailable')),
+      delete: (name) => backing.delete(name),
+      list: () => backing.list(),
+      probe: () => backing.probe(),
+    };
+    const { provider } = makeProvider({ tokenStore: failingStore });
+
+    provider.suppressStoredTokensForReauth();
+    expect(await provider.tokens()).toBeUndefined();
+
+    await expect(provider.saveTokens(makeTokens({ access_token: 'new' }))).rejects.toThrow(
+      /keychain unavailable/,
+    );
+
+    expect(await provider.tokens()).toEqual(makeRecord().tokens);
   });
 });
 

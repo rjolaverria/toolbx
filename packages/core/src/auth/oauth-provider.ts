@@ -78,7 +78,12 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none', // public client; PKCE
-      ...(this.opts.scopes ? { scope: this.opts.scopes.join(' ') } : {}),
+      // Only emit `scope` when there is at least one scope: an empty string is
+      // rejected as malformed by many OAuth servers, and callers normalize "no
+      // scopes" to [].
+      ...(this.opts.scopes && this.opts.scopes.length > 0
+        ? { scope: this.opts.scopes.join(' ') }
+        : {}),
     };
   }
 
@@ -124,6 +129,12 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    // Reaching saveTokens means re-auth has produced a token-exchange result,
+    // so the suppression window is over. Clear it up front rather than only on
+    // a successful write: if a later step throws (validation, keychain write),
+    // the still-valid stored tokens must resurface instead of the provider
+    // staying stuck returning undefined from tokens() for its lifetime.
+    this.suppressTokensRead = false;
     const existing = await this.load();
     const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
     if (!clientInformation) {
@@ -156,7 +167,6 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);
     this.pendingClientInformation = undefined;
-    this.suppressTokensRead = false;
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {
