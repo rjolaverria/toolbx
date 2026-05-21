@@ -1,3 +1,5 @@
+import { getEventListeners } from 'node:events';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createNoopLogger } from '../../logging/logger.js';
@@ -204,6 +206,20 @@ describe('runOAuthLogin', () => {
     expect(result).toEqual({ kind: 'success' });
     expect(authServer.tokenGrants).toEqual(['authorization_code']);
     expect((await store.read(SERVER_NAME))?.tokens.access_token).toBe('fake-access-token');
+  });
+
+  it('does not leak abort listeners across logins that reuse one signal', async () => {
+    const server = await fakeServer();
+    const controller = new AbortController();
+
+    for (let i = 0; i < 3; i++) {
+      const result = await runOAuthLogin(
+        baseInput(server, { tokenStore: new InMemoryTokenStore(), abortSignal: controller.signal }),
+      );
+      expect(result).toEqual({ kind: 'success' });
+    }
+
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
   });
 
   it('fails and writes no token when the redirect state does not match', async () => {

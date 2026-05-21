@@ -52,24 +52,38 @@ export type RunOAuthLoginResult =
 export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> {
   const log = input.logger.child({ component: 'oauth-login', server: input.serverName });
   const openBrowser = input.openBrowser ?? defaultOpenBrowser;
-  const signal = input.abortSignal;
+  const parentSignal = input.abortSignal;
 
   // Short-circuit a signal that is already aborted before doing any
   // side-effecting work. Without this, the first `auth()` call below could
   // refresh an existing token and overwrite the TokenStore — reporting
   // success for an operation the caller already cancelled.
-  if (signal?.aborted) {
+  if (parentSignal?.aborted) {
     return { kind: 'cancelled', reason: 'aborted by caller' };
   }
 
+  // Link the (possibly long-lived, reused) parent signal to a per-call
+  // controller. Every fetch and the browser race listen on this local
+  // controller's signal, which is discarded with the call — so the parent only
+  // ever carries the single link listener we remove in `finally`. Routing the
+  // fetches through the parent directly would instead leave one undici abort
+  // listener per request stranded on it, accumulating across logins until it
+  // trips MaxListenersExceededWarning.
+  const abortController = new AbortController();
+  let disposeAbortLink: () => void = () => undefined;
+  if (parentSignal) {
+    const onParentAbort = (): void => abortController.abort();
+    parentSignal.addEventListener('abort', onParentAbort, { once: true });
+    disposeAbortLink = () => parentSignal.removeEventListener('abort', onParentAbort);
+  }
+  const signal = abortController.signal;
+
   // Make every SDK network call abort-aware. The SDK runs discovery (and, on
   // the early-success path, a token refresh) inside the first `auth()` call;
-  // routing those fetches through the abort signal means a cancellation during
-  // discovery/refresh aborts the request and throws before `saveTokens` can
-  // write, preserving atomicity.
-  const fetchFn: typeof fetch | undefined = signal
-    ? (url, init) => fetch(url, { ...init, signal })
-    : undefined;
+  // routing those fetches through the (linked) abort signal means a
+  // cancellation during discovery/refresh aborts the request and throws before
+  // `saveTokens` can write, preserving atomicity.
+  const fetchFn: typeof fetch = (url, init) => fetch(url, { ...init, signal });
 
   let callback: CallbackServer | null = null;
   try {
@@ -87,7 +101,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     // target the wrong endpoint.
     const serverInfo = await discoverOAuthServerInfo(input.serverUrl.toString(), {
       ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
-      ...(fetchFn ? { fetchFn } : {}),
+      fetchFn,
     });
     if (!serverInfo.authorizationServerUrl) {
       return {
@@ -122,7 +136,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
       await auth(provider, {
         serverUrl: input.serverUrl.toString(),
         ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
-        ...(fetchFn ? { fetchFn } : {}),
+        fetchFn,
       });
       // If `auth()` returned without throwing, the SDK believed we already had
       // a usable token (or refreshed one). With forceReauth=false that's a
@@ -152,15 +166,15 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     // surfaced via the `await` in the success path below.
     void codePromise.catch(() => undefined);
 
-    const abortPromise: Promise<'aborted'> = signal
-      ? abortToPromise(signal)
-      : new Promise(() => undefined);
+    // Listens on the local linked signal, so the listener is discarded with the
+    // call rather than stranded on a reused parent signal.
+    const abortPromise = abortToPromise(signal);
 
     // Re-check cancellation before opening the browser. The discovery/DCR phase
     // above can take time, and a Ctrl-C landing in the local window between the
     // last network call and here would otherwise still pop a browser tab — the
     // abort-aware fetchFn only cancels in-flight requests, not this gap.
-    if (signal?.aborted) {
+    if (signal.aborted) {
       return { kind: 'cancelled', reason: 'aborted by caller' };
     }
 
@@ -193,7 +207,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
       serverUrl: input.serverUrl.toString(),
       authorizationCode: code,
       ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
-      ...(fetchFn ? { fetchFn } : {}),
+      fetchFn,
     });
 
     return { kind: 'success' };
@@ -204,6 +218,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     }
     return { kind: 'failed', reason };
   } finally {
+    disposeAbortLink();
     await callback?.close();
   }
 }
@@ -217,7 +232,9 @@ function abortToPromise(signal: AbortSignal): Promise<'aborted'> {
   if (signal.aborted) {
     return Promise.resolve('aborted');
   }
-  return new Promise((resolve) => signal.addEventListener('abort', () => resolve('aborted')));
+  return new Promise((resolve) =>
+    signal.addEventListener('abort', () => resolve('aborted'), { once: true }),
+  );
 }
 
 function isCancelledError(err: unknown): boolean {

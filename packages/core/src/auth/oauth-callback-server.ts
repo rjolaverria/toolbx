@@ -147,9 +147,20 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
   const redirectUri = new URL(`http://127.0.0.1:${addr.port}/callback`);
   log.debug({ port: addr.port }, 'callback server listening');
 
-  const timer = setTimeout(() => {
-    settle({ ok: false, error: new Error(`Callback timed out after ${timeoutMs}ms`) });
-  }, timeoutMs);
+  // The timeout measures how long the user has to complete authorization, so it
+  // must not start ticking at bind. Callers (runOAuthLogin) bind the server up
+  // front to learn the redirect port, then run discovery/DCR before the browser
+  // opens; starting the timer here would let a slow preflight consume the window
+  // and fail `waitForCode` immediately. Start it on the first `waitForCode`
+  // instead — the moment the caller is actually waiting for the redirect.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const startTimer = (): void => {
+    if (timer === undefined && !settlement) {
+      timer = setTimeout(() => {
+        settle({ ok: false, error: new Error(`Callback timed out after ${timeoutMs}ms`) });
+      }, timeoutMs);
+    }
+  };
 
   let closed = false;
   const close = async (): Promise<void> => {
@@ -172,6 +183,7 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
     host: '127.0.0.1',
     async waitForCode(expectedState: string) {
       expectedStateRef = expectedState;
+      startTimer();
       if (!settlement) {
         await new Promise<void>((resolve) => {
           waiters.push(resolve);
