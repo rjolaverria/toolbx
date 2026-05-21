@@ -52,6 +52,24 @@ export type RunOAuthLoginResult =
 export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> {
   const log = input.logger.child({ component: 'oauth-login', server: input.serverName });
   const openBrowser = input.openBrowser ?? defaultOpenBrowser;
+  const signal = input.abortSignal;
+
+  // Short-circuit a signal that is already aborted before doing any
+  // side-effecting work. Without this, the first `auth()` call below could
+  // refresh an existing token and overwrite the TokenStore — reporting
+  // success for an operation the caller already cancelled.
+  if (signal?.aborted) {
+    return { kind: 'cancelled', reason: 'aborted by caller' };
+  }
+
+  // Make every SDK network call abort-aware. The SDK runs discovery (and, on
+  // the early-success path, a token refresh) inside the first `auth()` call;
+  // routing those fetches through the abort signal means a cancellation during
+  // discovery/refresh aborts the request and throws before `saveTokens` can
+  // write, preserving atomicity.
+  const fetchFn: typeof fetch | undefined = signal
+    ? (url, init) => fetch(url, { ...init, signal })
+    : undefined;
 
   let callback: CallbackServer | null = null;
   try {
@@ -69,6 +87,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     // target the wrong endpoint.
     const serverInfo = await discoverOAuthServerInfo(input.serverUrl.toString(), {
       ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
+      ...(fetchFn ? { fetchFn } : {}),
     });
     if (!serverInfo.authorizationServerUrl) {
       return {
@@ -103,6 +122,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
       await auth(provider, {
         serverUrl: input.serverUrl.toString(),
         ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
+        ...(fetchFn ? { fetchFn } : {}),
       });
       // If `auth()` returned without throwing, the SDK believed we already had
       // a usable token (or refreshed one). With forceReauth=false that's a
@@ -165,6 +185,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
       serverUrl: input.serverUrl.toString(),
       authorizationCode: code,
       ...(input.resourceMetadataUrl ? { resourceMetadataUrl: input.resourceMetadataUrl } : {}),
+      ...(fetchFn ? { fetchFn } : {}),
     });
 
     return { kind: 'success' };

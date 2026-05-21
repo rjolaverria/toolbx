@@ -103,6 +103,25 @@ describe('runOAuthLogin', () => {
     expect(await store.read(SERVER_NAME)).toBeNull();
   });
 
+  it('does not refresh or overwrite a stored token when already aborted', async () => {
+    // A pre-aborted signal must short-circuit before any side-effecting work:
+    // no token-endpoint call, no overwrite of the existing record.
+    const server = await fakeServer();
+    const store = new InMemoryTokenStore();
+    await seedToken(store, server.url.origin);
+    const openBrowser = vi.fn(() => Promise.resolve());
+
+    const result = await runOAuthLogin(
+      baseInput(server, { tokenStore: store, openBrowser, abortSignal: AbortSignal.abort() }),
+    );
+
+    expect(result).toEqual({ kind: 'cancelled', reason: 'aborted by caller' });
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(server.tokenGrants).toEqual([]);
+    const record = await store.read(SERVER_NAME);
+    expect(record?.tokens.access_token).toBe('old-access-token');
+  });
+
   it('reports cancellation and writes no token on an access_denied redirect', async () => {
     const server = await fakeServer({ authorizeError: 'access_denied' });
     const store = new InMemoryTokenStore();
@@ -181,18 +200,24 @@ describe('runOAuthLogin', () => {
     expect(await store.read(SERVER_NAME)).toBeNull();
   });
 
-  it('closes the callback server promptly on abort so a fresh listener can bind', async () => {
+  it('closes the callback server promptly when aborted mid-flow so a fresh listener can bind', async () => {
     const server = await fakeServer();
-    const result = await runOAuthLogin(
-      baseInput(server, {
-        openBrowser: vi.fn(() => Promise.resolve()),
-        abortSignal: AbortSignal.abort(),
-      }),
-    );
-    expect(result.kind).toBe('cancelled');
+    const controller = new AbortController();
+    // Abort at the browser-open step — after the callback server is listening —
+    // and never complete the redirect, so cancellation (not a code) ends the flow.
+    const openBrowser = vi.fn(() => {
+      controller.abort();
+      return new Promise<void>(() => undefined);
+    });
 
-    // If the callback server had leaked, this would still succeed (ephemeral
-    // ports), but the await above resolving at all proves close() did not hang.
+    const result = await runOAuthLogin(
+      baseInput(server, { openBrowser, abortSignal: controller.signal }),
+    );
+    expect(result).toEqual({ kind: 'cancelled', reason: 'aborted by caller' });
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+
+    // The await above resolving at all proves close() did not hang; binding a
+    // fresh callback server confirms the listener was released.
     const fresh = await startCallbackServer({ logger: createNoopLogger() });
     expect(fresh.host).toBe('127.0.0.1');
     await fresh.close();
