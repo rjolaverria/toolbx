@@ -122,6 +122,23 @@ describe('runOAuthLogin', () => {
     expect(record?.tokens.access_token).toBe('old-access-token');
   });
 
+  it('does not open the browser when aborted during the discovery/DCR phase', async () => {
+    // Abort fires while the SDK is still doing pre-browser network work, after
+    // the entry-level check has already passed. The browser must never open.
+    const controller = new AbortController();
+    const server = await fakeServer({ onRegister: () => controller.abort() });
+    const store = new InMemoryTokenStore();
+    const openBrowser = vi.fn(() => Promise.resolve());
+
+    const result = await runOAuthLogin(
+      baseInput(server, { tokenStore: store, openBrowser, abortSignal: controller.signal }),
+    );
+
+    expect(result.kind).toBe('cancelled');
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(await store.read(SERVER_NAME)).toBeNull();
+  });
+
   it('reports cancellation and writes no token on an access_denied redirect', async () => {
     const server = await fakeServer({ authorizeError: 'access_denied' });
     const store = new InMemoryTokenStore();

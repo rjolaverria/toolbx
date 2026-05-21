@@ -11,6 +11,12 @@ export interface FakeOAuthServerOptions {
   authorizeError?: string;
   /** `/authorize` echoes back a different `state` than the one it received. */
   tamperState?: boolean;
+  /**
+   * Invoked while handling the DCR (`/register`) request — a deterministic
+   * point inside the pre-browser discovery phase. Tests use it to fire an
+   * abort during the flow's network preflight.
+   */
+  onRegister?: () => void;
 }
 
 export interface FakeOAuthServer {
@@ -86,6 +92,7 @@ export async function startFakeOAuthServer(
     }
     if (url.pathname === '/register' && req.method === 'POST') {
       const clientMetadata = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      controls.onRegister?.();
       json(201, { ...clientMetadata, client_id: 'fake-client-id' });
       return;
     }

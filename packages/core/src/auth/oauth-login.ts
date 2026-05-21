@@ -152,9 +152,17 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     // surfaced via the `await` in the success path below.
     void codePromise.catch(() => undefined);
 
-    const abortPromise: Promise<'aborted'> = input.abortSignal
-      ? abortToPromise(input.abortSignal)
+    const abortPromise: Promise<'aborted'> = signal
+      ? abortToPromise(signal)
       : new Promise(() => undefined);
+
+    // Re-check cancellation before opening the browser. The discovery/DCR phase
+    // above can take time, and a Ctrl-C landing in the local window between the
+    // last network call and here would otherwise still pop a browser tab — the
+    // abort-aware fetchFn only cancels in-flight requests, not this gap.
+    if (signal?.aborted) {
+      return { kind: 'cancelled', reason: 'aborted by caller' };
+    }
 
     // Race the browser-open AGAINST the abort signal too — a slow or hung
     // `open` (e.g. when no default browser is registered) must not block
