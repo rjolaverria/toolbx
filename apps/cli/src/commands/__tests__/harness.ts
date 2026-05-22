@@ -3,13 +3,16 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
+  createNoopLogger,
   DEFAULT_CONFIG,
+  InMemoryTokenStore,
   saveConfig,
   writeToolCache,
   type CachedTool,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
+import type { AuthCommandDeps } from '../auth/shared.js';
 import type { ServerCommandDeps } from '../server-shared.js';
 import type { ToolsCommandDeps } from '../tools-shared.js';
 
@@ -54,6 +57,34 @@ export function makeHarness(target: string): CommandHarness {
     },
   };
   return { deps, stdout, stderr };
+}
+
+export interface AuthCommandHarness {
+  deps: AuthCommandDeps;
+  store: InMemoryTokenStore;
+  stdout: { value: string };
+  stderr: { value: string };
+}
+
+/**
+ * Auth-command deps wired against an in-memory token store. The OAuth
+ * orchestrators (`runOAuthLogin` / `runOAuthRefresh`) default to throwing so a
+ * test that forgets to stub them fails loudly; each test reassigns the field it
+ * exercises with a `vi.fn`.
+ */
+export function makeAuthHarness(
+  target: string,
+  store: InMemoryTokenStore = new InMemoryTokenStore(),
+): AuthCommandHarness {
+  const base = makeHarness(target);
+  const deps: AuthCommandDeps = {
+    ...base.deps,
+    logger: createNoopLogger(),
+    createTokenStore: () => store,
+    runOAuthLogin: () => Promise.reject(new Error('runOAuthLogin not stubbed')),
+    runOAuthRefresh: () => Promise.reject(new Error('runOAuthRefresh not stubbed')),
+  };
+  return { deps, store, stdout: base.stdout, stderr: base.stderr };
 }
 
 export interface ToolsCommandHarness {
