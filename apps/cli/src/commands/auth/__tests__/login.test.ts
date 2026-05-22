@@ -77,6 +77,37 @@ describe('runAuthLogin', () => {
     expect(await h.store.read('acme')).toEqual(sampleRecord);
   });
 
+  it('threads the probed resource-metadata URL into the login flow', async () => {
+    const h = await harness();
+    const metaUrl = new URL('https://acme.test/.well-known/oauth-protected-resource/mcp');
+    h.deps.probeAuth = vi.fn(() =>
+      Promise.resolve({ kind: 'oauth' as const, resourceMetadataUrl: metaUrl }),
+    );
+    h.deps.runOAuthLogin = vi.fn(() => Promise.resolve({ kind: 'success' as const }));
+
+    const code = await runAuthLogin('acme', {}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.deps.probeAuth).toHaveBeenCalledWith(new URL('https://acme.test/mcp'));
+    expect(h.deps.runOAuthLogin).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceMetadataUrl: metaUrl }),
+    );
+  });
+
+  it('logs in without a resource-metadata URL when the probe does not surface one', async () => {
+    const h = await harness();
+    h.deps.probeAuth = vi.fn(() => Promise.resolve({ kind: 'unknown' as const, status: 0 }));
+    h.deps.runOAuthLogin = vi.fn((input: RunOAuthLoginInput) => {
+      expect(input.resourceMetadataUrl).toBeUndefined();
+      return Promise.resolve({ kind: 'success' as const });
+    });
+
+    const code = await runAuthLogin('acme', {}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.deps.runOAuthLogin).toHaveBeenCalledTimes(1);
+  });
+
   it('exits 2 and writes no token when the flow is cancelled', async () => {
     const h = await harness();
     h.deps.runOAuthLogin = vi.fn(() =>

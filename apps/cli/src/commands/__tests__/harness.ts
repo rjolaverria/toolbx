@@ -81,6 +81,9 @@ export function makeAuthHarness(
     ...base.deps,
     logger: createNoopLogger(),
     createTokenStore: () => store,
+    // Default to an OAuth hint with no resource-metadata URL so the common case
+    // exercises origin-based discovery; tests that care override this.
+    probeAuth: () => Promise.resolve({ kind: 'oauth' }),
     runOAuthLogin: () => Promise.reject(new Error('runOAuthLogin not stubbed')),
     runOAuthRefresh: () => Promise.reject(new Error('runOAuthRefresh not stubbed')),
   };

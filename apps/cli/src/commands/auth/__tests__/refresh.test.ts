@@ -73,6 +73,23 @@ describe('runAuthRefresh', () => {
     expect(stored?.tokens.access_token).toBe('refreshed');
   });
 
+  it('threads the probed resource-metadata URL into the refresh flow', async () => {
+    const h = await harness();
+    await h.store.write('acme', record('2020-01-01T00:00:00.000Z'));
+    const metaUrl = new URL('https://acme.test/.well-known/oauth-protected-resource/mcp');
+    h.deps.probeAuth = vi.fn(() =>
+      Promise.resolve({ kind: 'oauth' as const, resourceMetadataUrl: metaUrl }),
+    );
+    h.deps.runOAuthRefresh = vi.fn(() => Promise.resolve({ kind: 'success' as const }));
+
+    const code = await runAuthRefresh('acme', {}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.deps.runOAuthRefresh).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceMetadataUrl: metaUrl }),
+    );
+  });
+
   it('exits 4 when the refresh fails', async () => {
     const h = await harness();
     await h.store.write('acme', record('2020-01-01T00:00:00.000Z'));

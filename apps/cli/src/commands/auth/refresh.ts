@@ -4,6 +4,7 @@ import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
 import {
   authTypeOf,
   defaultAuthCommandDeps,
+  discoverResourceMetadataUrl,
   isOAuthServer,
   type AuthCommandDeps,
 } from './shared.js';
@@ -37,9 +38,15 @@ export async function runAuthRefresh(
     return 1;
   }
 
+  const serverUrl = new URL(entry.url);
+  // Same RFC 9728 recovery as login: thread the resource-metadata URL so a
+  // metadata-only authorization server still resolves during refresh.
+  const resourceMetadataUrl = await discoverResourceMetadataUrl(deps, serverUrl);
+
   const result = await deps.runOAuthRefresh({
     serverName,
-    serverUrl: new URL(entry.url),
+    serverUrl,
+    ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
     tokenStore,
     logger: deps.logger,
   });

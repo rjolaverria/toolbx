@@ -4,6 +4,7 @@ import { loadOrReportMissing, parsePositiveInt, resolveTargetPath } from '../ser
 import {
   authTypeOf,
   defaultAuthCommandDeps,
+  discoverResourceMetadataUrl,
   isOAuthServer,
   type AuthCommandDeps,
 } from './shared.js';
@@ -50,6 +51,11 @@ export async function runAuthLogin(
     return 3;
   }
 
+  // Recover the RFC 9728 resource-metadata URL so servers whose authorization
+  // server is only advertised via the WWW-Authenticate challenge resolve
+  // correctly; absent one, the SDK falls back to origin-based discovery.
+  const resourceMetadataUrl = await discoverResourceMetadataUrl(deps, serverUrl);
+
   const abortController = new AbortController();
   const onSigint = (): void => abortController.abort();
   process.on('SIGINT', onSigint);
@@ -59,6 +65,7 @@ export async function runAuthLogin(
     const result = await deps.runOAuthLogin({
       serverName,
       serverUrl,
+      ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
       tokenStore,
       logger: deps.logger,
       abortSignal: abortController.signal,
