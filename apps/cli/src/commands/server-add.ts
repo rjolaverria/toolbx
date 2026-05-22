@@ -283,13 +283,25 @@ async function runOAuthAndWrite(
     return 3;
   }
 
-  deps.stdout(`OAuth required for ${name}. Opening browser to authenticate…\n`);
-
   // Snapshot any pre-existing token BEFORE login so a config-write failure can
   // restore the exact prior state. A token here means an orphan from a previous
   // failed attempt — uncommon but real, and §4.6.2 atomicity requires the
-  // (config, token) pair to be unchanged on failure.
-  const priorToken = await tokenStore.read(name);
+  // (config, token) pair to be unchanged on failure. `read` can still throw on a
+  // corrupt/incompatible record even after `probe()` reported ready, so surface a
+  // readable diagnostic instead of crashing — and do it before opening a browser.
+  let priorToken: StoredOAuthRecord | null;
+  try {
+    priorToken = await tokenStore.read(name);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    deps.stderr(
+      `Could not read stored credentials for ${name}: ${message}. ` +
+        `Run \`tlbx doctor\` or \`tlbx auth logout ${name}\`. ${name} was not registered.\n`,
+    );
+    return 1;
+  }
+
+  deps.stdout(`OAuth required for ${name}. Opening browser to authenticate…\n`);
 
   const abortController = new AbortController();
   const onSigint = (): void => abortController.abort();

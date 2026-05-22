@@ -547,6 +547,25 @@ describe('runAddHttp — OAuth atomicity', () => {
     expect(await fs.readFile(target, 'utf8')).toBe(before);
   });
 
+  it('exits non-zero without starting the flow when the prior-token read throws', async () => {
+    const target = await makeTempConfig();
+    const before = await fs.readFile(target, 'utf8');
+    const store = new InMemoryTokenStore();
+    // probe() is ready, but reading the snapshot throws (corrupt/incompatible record).
+    vi.spyOn(store, 'read').mockRejectedValue(new Error('corrupt record'));
+    const h = makeHarness(target, store);
+    h.deps.probeAuth = vi.fn(() => Promise.resolve<AuthHint>({ kind: 'oauth' }));
+    h.deps.runOAuthLogin = loginSucceeds();
+
+    const code = await runAddHttp('acme', httpOpts('https://acme.test/mcp'), h.deps);
+
+    expect(code).not.toBe(0);
+    expect(h.deps.runOAuthLogin).not.toHaveBeenCalled();
+    expect(h.stderr.value).toContain('corrupt record');
+    expect(h.stderr.value).toContain('acme');
+    expect(await fs.readFile(target, 'utf8')).toBe(before);
+  });
+
   it('rolls back to no token when the config write fails and no prior token existed', async () => {
     const target = await makeTempConfig();
     const before = await fs.readFile(target, 'utf8');
