@@ -89,9 +89,14 @@ describe('end-to-end CLI lifecycle (HTTP downstream + HTTP upstream)', () => {
     const handle = await makeTempConfig(seedConfig);
     tempConfigs.push(handle);
 
+    // Pin `--auth none` so add-http skips the discovery probe: this test
+    // exercises the add → serve → roundtrip path, not auth discovery (which is
+    // covered by the server-add unit tests). Probing the single-session echo
+    // upstream here would open and tear down an MCP session before serve's own
+    // connection, which the fixture cannot disambiguate.
     const addCode = await runAddHttp(
       'remote',
-      { url: upstream.url, config: handle.target },
+      { url: upstream.url, config: handle.target, auth: 'none' },
       defaultServerAddDeps(),
     );
     expect(addCode).toBe(0);
