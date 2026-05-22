@@ -1,4 +1,10 @@
-import { DEFAULT_CONFIG, type StoredOAuthRecord, type ToolBoxConfig } from '@toolbox/core';
+import {
+  DEFAULT_CONFIG,
+  InMemoryTokenStore,
+  type StoredOAuthRecord,
+  type TokenStore,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { makeAuthHarness, makeTempConfig, type ConfigHarness } from '../../__tests__/harness.js';
@@ -94,6 +100,70 @@ describe('runAuthStatus', () => {
     expect(h.stdout.value).toContain('read, write');
     expect(h.stdout.value).not.toContain(SECRET);
     expect(h.stdout.value).not.toContain('super-secret-refresh');
+  });
+
+  it('exits 1 with a diagnostic when a single-server detail read throws', async () => {
+    const h = await harness(
+      configWith({
+        acme: {
+          type: 'http',
+          enabled: true,
+          url: 'https://acme.test/mcp',
+          auth: { type: 'oauth' },
+        },
+      }),
+    );
+    const throwing: TokenStore = {
+      read: () => Promise.reject(new Error('keychain is locked')),
+      write: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+      list: () => Promise.resolve([]),
+      probe: () => Promise.resolve({ kind: 'ready' }),
+    };
+    h.deps.createTokenStore = () => throwing;
+
+    const code = await runAuthStatus('acme', {}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('keychain is locked');
+  });
+
+  it('still renders the table and exits 1 when one entry cannot be read', async () => {
+    const h = await harness(
+      configWith({
+        acme: {
+          type: 'http',
+          enabled: true,
+          url: 'https://acme.test/mcp',
+          auth: { type: 'oauth' },
+        },
+        beta: {
+          type: 'http',
+          enabled: true,
+          url: 'https://beta.test/mcp',
+          auth: { type: 'oauth' },
+        },
+      }),
+    );
+    const good = new InMemoryTokenStore();
+    await good.write('acme', record);
+    const partlyThrowing: TokenStore = {
+      read: (name) =>
+        name === 'beta' ? Promise.reject(new Error('corrupt entry')) : good.read(name),
+      write: (n, r) => good.write(n, r),
+      delete: (n) => good.delete(n),
+      list: () => good.list(),
+      probe: () => good.probe(),
+    };
+    h.deps.createTokenStore = () => partlyThrowing;
+
+    const code = await runAuthStatus(undefined, {}, h.deps);
+
+    // One unreadable entry must not take down the whole table.
+    expect(code).toBe(1);
+    const lines = h.stdout.value.split('\n');
+    expect(lines.find((l) => l.startsWith('acme'))).toContain('authenticated');
+    expect(lines.find((l) => l.startsWith('beta'))).toContain('error');
   });
 
   it('exits 1 for an unknown server argument', async () => {

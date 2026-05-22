@@ -8,9 +8,11 @@ export interface AuthStatusOptions {
   config?: string;
 }
 
+type TokenState = 'present' | 'absent' | 'error';
+
 interface StatusRow {
   name: string;
-  hasToken: boolean;
+  state: TokenState;
 }
 
 function pad(value: string, width: number): string {
@@ -20,13 +22,16 @@ function pad(value: string, width: number): string {
   return value + ' '.repeat(width - value.length);
 }
 
+const TOKEN_CELL: Record<TokenState, string> = { present: '✓', absent: '—', error: '!' };
+const STATUS_CELL: Record<TokenState, string> = {
+  present: 'authenticated',
+  absent: 'pending',
+  error: 'error reading',
+};
+
 function formatTable(rows: readonly StatusRow[]): string {
   const headers = ['SERVER', 'TOKEN', 'STATUS'];
-  const cells = rows.map((row) => [
-    row.name,
-    row.hasToken ? '✓' : '—',
-    row.hasToken ? 'authenticated' : 'pending',
-  ]);
+  const cells = rows.map((row) => [row.name, TOKEN_CELL[row.state], STATUS_CELL[row.state]]);
   const widths = headers.map((h, i) =>
     Math.max(h.length, ...cells.map((cell) => (cell[i] ?? '').length)),
   );
@@ -81,7 +86,17 @@ export async function runAuthStatus(
       deps.stderr(`Server "${serverArg}" ${detail}.\n`);
       return 1;
     }
-    const record = await tokenStore.read(serverArg);
+    let record: StoredOAuthRecord | null;
+    try {
+      record = await tokenStore.read(serverArg);
+    } catch (error) {
+      deps.stderr(
+        `Could not read stored credentials for ${serverArg}: ${
+          error instanceof Error ? error.message : String(error)
+        }. Run \`tlbx doctor\` for details.\n`,
+      );
+      return 1;
+    }
     deps.stdout(formatDetail(serverArg, record));
     return 0;
   }
@@ -92,11 +107,20 @@ export async function runAuthStatus(
     return 0;
   }
 
-  const rows = await Promise.all(
-    names.map(async (name) => ({ name, hasToken: (await tokenStore.read(name)) !== null })),
+  // Read each entry independently so one unreadable credential (locked keychain,
+  // corrupt record) surfaces as an `error` row instead of taking down the whole
+  // table. A non-zero exit still signals that at least one entry could not be read.
+  const rows: StatusRow[] = await Promise.all(
+    names.map(async (name): Promise<StatusRow> => {
+      try {
+        return { name, state: (await tokenStore.read(name)) !== null ? 'present' : 'absent' };
+      } catch {
+        return { name, state: 'error' };
+      }
+    }),
   );
   deps.stdout(formatTable(rows));
-  return 0;
+  return rows.some((row) => row.state === 'error') ? 1 : 0;
 }
 
 export function authStatusCommand(): CommandUnknownOpts {

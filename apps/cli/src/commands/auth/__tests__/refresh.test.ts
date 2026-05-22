@@ -2,6 +2,7 @@ import {
   DEFAULT_CONFIG,
   type RunOAuthRefreshInput,
   type StoredOAuthRecord,
+  type TokenStore,
   type ToolBoxConfig,
 } from '@toolbox/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -86,6 +87,27 @@ describe('runAuthRefresh', () => {
 
     expect(code).toBe(0);
     expect(h.stdout.value).toContain('✓ acme token refreshed');
+  });
+
+  it('exits 1 with a diagnostic when reading the token store throws', async () => {
+    const cfg = await makeTempConfig(oauthConfig());
+    harnesses.push(cfg);
+    const h = makeAuthHarness(cfg.target);
+    const throwing: TokenStore = {
+      read: () => Promise.reject(new Error('keychain is locked')),
+      write: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+      list: () => Promise.resolve([]),
+      probe: () => Promise.resolve({ kind: 'ready' }),
+    };
+    h.deps.createTokenStore = () => throwing;
+    h.deps.runOAuthRefresh = vi.fn(() => Promise.resolve({ kind: 'success' as const }));
+
+    const code = await runAuthRefresh('acme', {}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('keychain is locked');
+    expect(h.deps.runOAuthRefresh).not.toHaveBeenCalled();
   });
 
   it('exits 4 when the refresh fails', async () => {

@@ -19,7 +19,19 @@ export async function runAuthRefresh(
   }
 
   const tokenStore = deps.createTokenStore(config.auth.storage);
-  const stored = await tokenStore.read(serverName);
+  let stored;
+  try {
+    stored = await tokenStore.read(serverName);
+  } catch (error) {
+    // A keychain backend can throw on locked/unavailable storage or a corrupt
+    // record; surface a readable diagnostic instead of an unhandled crash.
+    deps.stderr(
+      `Could not read stored credentials for ${serverName}: ${
+        error instanceof Error ? error.message : String(error)
+      }. Run \`tlbx doctor\` for details.\n`,
+    );
+    return 1;
+  }
   if (stored === null) {
     deps.stderr(`No stored token for ${serverName}. Run \`tlbx auth login ${serverName}\`.\n`);
     return 1;
