@@ -73,21 +73,19 @@ describe('runAuthRefresh', () => {
     expect(stored?.tokens.access_token).toBe('refreshed');
   });
 
-  it('threads the probed resource-metadata URL into the refresh flow', async () => {
-    const h = await harness();
+  it('refreshes a server whose config entry is gone but whose token remains', async () => {
+    // Refresh works purely off the stored record, so a removed config entry is
+    // not a blocker (matches logout's config-independent behavior).
+    const cfg = await makeTempConfig(DEFAULT_CONFIG);
+    harnesses.push(cfg);
+    const h = makeAuthHarness(cfg.target);
     await h.store.write('acme', record('2020-01-01T00:00:00.000Z'));
-    const metaUrl = new URL('https://acme.test/.well-known/oauth-protected-resource/mcp');
-    h.deps.probeAuth = vi.fn(() =>
-      Promise.resolve({ kind: 'oauth' as const, resourceMetadataUrl: metaUrl }),
-    );
     h.deps.runOAuthRefresh = vi.fn(() => Promise.resolve({ kind: 'success' as const }));
 
     const code = await runAuthRefresh('acme', {}, h.deps);
 
     expect(code).toBe(0);
-    expect(h.deps.runOAuthRefresh).toHaveBeenCalledWith(
-      expect.objectContaining({ resourceMetadataUrl: metaUrl }),
-    );
+    expect(h.stdout.value).toContain('✓ acme token refreshed');
   });
 
   it('exits 4 when the refresh fails', async () => {

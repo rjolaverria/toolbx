@@ -1,13 +1,7 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
-import {
-  authTypeOf,
-  defaultAuthCommandDeps,
-  discoverResourceMetadataUrl,
-  isOAuthServer,
-  type AuthCommandDeps,
-} from './shared.js';
+import { defaultAuthCommandDeps, type AuthCommandDeps } from './shared.js';
 
 export interface AuthRefreshOptions {
   config?: string;
@@ -31,22 +25,11 @@ export async function runAuthRefresh(
     return 1;
   }
 
-  const entry = config.servers[serverName];
-  if (entry === undefined || !isOAuthServer(entry)) {
-    const detail = entry === undefined ? 'not configured' : `auth.type is "${authTypeOf(entry)}"`;
-    deps.stderr(`Cannot refresh ${serverName}: ${detail}.\n`);
-    return 1;
-  }
-
-  const serverUrl = new URL(entry.url);
-  // Same RFC 9728 recovery as login: thread the resource-metadata URL so a
-  // metadata-only authorization server still resolves during refresh.
-  const resourceMetadataUrl = await discoverResourceMetadataUrl(deps, serverUrl);
-
+  // Refresh runs entirely off the stored record (authorization server, client
+  // info, refresh token), so it does not need the config server entry or a
+  // network probe of the resource server.
   const result = await deps.runOAuthRefresh({
     serverName,
-    serverUrl,
-    ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
     tokenStore,
     logger: deps.logger,
   });
