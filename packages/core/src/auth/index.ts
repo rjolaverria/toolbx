@@ -22,3 +22,9 @@ export {
 } from './oauth-provider.js';
 
 export { runOAuthLogin, type RunOAuthLoginInput, type RunOAuthLoginResult } from './oauth-login.js';
+
+export {
+  runOAuthRefresh,
+  type RunOAuthRefreshInput,
+  type RunOAuthRefreshResult,
+} from './oauth-refresh.js';

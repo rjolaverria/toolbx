@@ -2,6 +2,7 @@
 
 import { Command } from '@commander-js/extra-typings';
 
+import { createAuthCommand } from './commands/auth/index.js';
 import { registerClientInstall } from './commands/client-install.js';
 import { clientCommand } from './commands/client-print-config.js';
 import { configCommand } from './commands/config.js';
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
   program.addCommand(toolsCommand());
   program.addCommand(clientCommand([registerClientInstall]));
   program.addCommand(configCommand());
+  program.addCommand(createAuthCommand());
   program.addCommand(doctorCommand());
 
   await program.parseAsync(process.argv);
