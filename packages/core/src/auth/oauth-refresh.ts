@@ -29,20 +29,23 @@ export type RunOAuthRefreshResult = { kind: 'success' } | { kind: 'failed'; reas
 export async function runOAuthRefresh(input: RunOAuthRefreshInput): Promise<RunOAuthRefreshResult> {
   const log = input.logger.child({ component: 'oauth-refresh', server: input.serverName });
 
-  const record = await input.tokenStore.read(input.serverName);
-  if (record === null) {
-    return { kind: 'failed', reason: `no stored credentials for ${input.serverName}` };
-  }
-  const refreshToken = record.tokens.refresh_token;
-  if (refreshToken === undefined) {
-    return {
-      kind: 'failed',
-      reason: `stored token for ${input.serverName} has no refresh_token; run \`tlbx auth login\``,
-    };
-  }
-
   const fetchOpt = input.fetchFn ? { fetchFn: input.fetchFn } : {};
   try {
+    // Read inside the handled section: a keychain/backend that throws on an
+    // unavailable or corrupt record must yield a `failed` result, not reject —
+    // direct callers (e.g. future gateway lazy refresh) rely on that contract.
+    const record = await input.tokenStore.read(input.serverName);
+    if (record === null) {
+      return { kind: 'failed', reason: `no stored credentials for ${input.serverName}` };
+    }
+    const refreshToken = record.tokens.refresh_token;
+    if (refreshToken === undefined) {
+      return {
+        kind: 'failed',
+        reason: `stored token for ${input.serverName} has no refresh_token; run \`tlbx auth login\``,
+      };
+    }
+
     const metadata = await discoverAuthorizationServerMetadata(
       record.authorizationServer,
       fetchOpt,

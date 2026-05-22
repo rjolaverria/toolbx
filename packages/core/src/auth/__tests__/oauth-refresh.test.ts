@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createNoopLogger } from '../../logging/logger.js';
 import { runOAuthRefresh } from '../oauth-refresh.js';
-import { InMemoryTokenStore, type StoredOAuthRecord } from '../token-store.js';
+import { InMemoryTokenStore, type StoredOAuthRecord, type TokenStore } from '../token-store.js';
 import { startFakeOAuthServer, type FakeOAuthServer } from './__fixtures__/fake-oauth-server.js';
 
 const SERVER_NAME = 'acme';
@@ -106,5 +106,23 @@ describe('runOAuthRefresh', () => {
       logger: createNoopLogger(),
     });
     expect(result.kind).toBe('failed');
+  });
+
+  it('returns a failed result (not a rejection) when the token-store read throws', async () => {
+    const throwing: TokenStore = {
+      read: () => Promise.reject(new Error('keychain is locked')),
+      write: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
+      list: () => Promise.resolve([]),
+      probe: () => Promise.resolve({ kind: 'ready' }),
+    };
+
+    const result = await runOAuthRefresh({
+      serverName: SERVER_NAME,
+      tokenStore: throwing,
+      logger: createNoopLogger(),
+    });
+
+    expect(result).toEqual({ kind: 'failed', reason: 'keychain is locked' });
   });
 });

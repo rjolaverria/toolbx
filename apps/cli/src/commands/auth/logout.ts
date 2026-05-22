@@ -21,19 +21,31 @@ export async function runAuthLogout(
   // Logout never edits config.json — it only clears stored credentials, so a
   // server whose entry was already removed can still have a stale token cleared.
   const tokenStore = deps.createTokenStore(config.auth.storage);
+
+  // Probe for an existing record only to choose the message. A corrupt or
+  // schema-incompatible record throws on read — but logout must still be able to
+  // clear exactly that kind of bad entry, so a read failure must not block the
+  // delete. Treat an unreadable record as present and proceed.
+  let hadToken: boolean;
   try {
-    const existing = await tokenStore.read(serverName);
-    if (existing === null) {
-      deps.stdout(`✓ ${serverName} logged out (no token was stored).\n`);
-      return 0;
-    }
+    hadToken = (await tokenStore.read(serverName)) !== null;
+  } catch {
+    hadToken = true;
+  }
+
+  try {
     await tokenStore.delete(serverName);
-    deps.stdout(`✓ ${serverName} logged out.\n`);
-    return 0;
   } catch (error) {
     deps.stderr(`Logout failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
+
+  deps.stdout(
+    hadToken
+      ? `✓ ${serverName} logged out.\n`
+      : `✓ ${serverName} logged out (no token was stored).\n`,
+  );
+  return 0;
 }
 
 export function authLogoutCommand(): CommandUnknownOpts {
