@@ -5,6 +5,7 @@ import {
   probeUpstreamAuth,
   runOAuthLogin,
   saveConfig,
+  ServerNameSchema,
   type AuthHint,
   type HttpServerConfig,
   type Logger,
@@ -371,6 +372,17 @@ export async function runAddHttp(
     return 1;
   }
   if (rejectDuplicate(config, name, target, deps)) {
+    return 1;
+  }
+
+  // Validate the server name before any auth branching. The probe and OAuth
+  // paths have side effects (a network request, a browser flow, a token write)
+  // that an invalid name should never trigger; failing here keeps invalid CLI
+  // input from reaching them.
+  const nameResult = ServerNameSchema.safeParse(name);
+  if (!nameResult.success) {
+    const message = nameResult.error.issues[0]?.message ?? 'invalid server name';
+    deps.stderr(`Invalid server name "${name}": ${message}\n`);
     return 1;
   }
 

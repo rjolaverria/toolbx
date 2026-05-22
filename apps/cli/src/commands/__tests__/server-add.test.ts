@@ -385,6 +385,22 @@ describe('runAddHttp — explicit --auth', () => {
 });
 
 describe('runAddHttp — discovery mode (no --auth flag)', () => {
+  it('rejects an invalid server name before probing or running OAuth', async () => {
+    const target = await makeTempConfig();
+    const before = await fs.readFile(target, 'utf8');
+    const h = makeHarness(target);
+    h.deps.probeAuth = vi.fn(() => Promise.resolve<AuthHint>({ kind: 'none' }));
+
+    const code = await runAddHttp('Bad Name!', httpOpts('https://svc.example.com/mcp'), h.deps);
+
+    expect(code).toBe(1);
+    // An invalid name must not trigger a network probe or browser OAuth flow.
+    expect(h.deps.probeAuth).not.toHaveBeenCalled();
+    expect(h.deps.runOAuthLogin).not.toHaveBeenCalled();
+    expect(h.stderr.value).toContain('Bad Name!');
+    expect(await fs.readFile(target, 'utf8')).toBe(before);
+  });
+
   it('probe returns none → writes a no-auth entry, does not run OAuth', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
