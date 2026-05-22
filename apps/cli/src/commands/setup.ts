@@ -20,7 +20,8 @@ import {
 } from '@toolbox/core';
 
 import { createConfigIfMissing } from './init.js';
-import { runAddStdio, type ServerAddDeps } from './server-add.js';
+import { runAddStdio } from './server-add.js';
+import { type ServerCommandDeps } from './server-shared.js';
 
 const SUPPORTED_CLIENTS: readonly ClientName[] = ['claude', 'codex', 'opencode'];
 
@@ -588,7 +589,7 @@ async function promptForServer(target: string, deps: SetupDeps): Promise<ServerP
     envEntries.push(entry);
   }
 
-  const serverDeps: ServerAddDeps = {
+  const serverDeps: ServerCommandDeps = {
     resolvePath: () => target,
     cwd: () => deps.cwd(),
     stdout: (m: string) => {
