@@ -586,6 +586,24 @@ describe('runAddHttp — OAuth atomicity', () => {
     expect(await fs.readFile(target, 'utf8')).toBe(before);
   });
 
+  it('does not crash and points at logout when rollback itself fails after a write failure', async () => {
+    const target = await makeTempConfig();
+    const store = new InMemoryTokenStore();
+    // The rollback delete fails too (e.g. the keychain became unavailable).
+    vi.spyOn(store, 'delete').mockRejectedValue(new Error('keychain locked'));
+    const h = makeHarness(target, store);
+    h.deps.probeAuth = vi.fn(() => Promise.resolve<AuthHint>({ kind: 'oauth' }));
+    h.deps.runOAuthLogin = loginSucceeds();
+    h.deps.saveConfig = vi.fn(() => Promise.reject(new Error('disk full')));
+
+    const code = await runAddHttp('acme', httpOpts('https://acme.test/mcp'), h.deps);
+
+    expect(code).not.toBe(0);
+    expect(h.stderr.value).toContain('disk full');
+    // The user must be told the orphaned token needs manual cleanup.
+    expect(h.stderr.value).toContain('tlbx auth logout acme');
+  });
+
   it('restores the prior token when the config write fails and a token already existed', async () => {
     const target = await makeTempConfig();
     const before = await fs.readFile(target, 'utf8');

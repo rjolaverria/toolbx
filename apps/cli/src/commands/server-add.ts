@@ -247,17 +247,32 @@ function parseHttpUrl(raw: string, deps: ServerCommandDeps): URL | null {
  * Restore the token store to its pre-command state after a failed config write,
  * preserving the §4.6.2 atomicity guarantee. A pre-existing record is rewritten;
  * absent one, the freshly-issued token is deleted.
+ *
+ * Best-effort: the rollback is itself a store write/delete that can fail (e.g.
+ * the keychain became unavailable after the initial probe). Returns `false`
+ * instead of throwing so the caller can still emit a clean CLI error and tell
+ * the user the orphaned token needs manual cleanup, rather than crashing.
  */
 async function restorePriorToken(
   tokenStore: TokenStore,
   name: string,
   priorToken: StoredOAuthRecord | null,
-): Promise<void> {
-  if (priorToken !== null) {
-    await tokenStore.write(name, priorToken);
-  } else {
-    await tokenStore.delete(name);
+): Promise<boolean> {
+  try {
+    if (priorToken !== null) {
+      await tokenStore.write(name, priorToken);
+    } else {
+      await tokenStore.delete(name);
+    }
+    return true;
+  } catch {
+    return false;
   }
+}
+
+/** Message shown when a token rollback fails and the credential needs manual cleanup. */
+function orphanedTokenHint(name: string): string {
+  return `Warning: the OAuth token for ${name} could not be cleaned up. Run \`tlbx auth logout ${name}\`.\n`;
 }
 
 /**
@@ -334,15 +349,21 @@ async function runOAuthAndWrite(
   const entry = buildHttpEntry(options, headers, { type: 'oauth' });
   const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
   if (!validated.ok) {
-    await restorePriorToken(tokenStore, name, priorToken);
+    // `validateNextConfig` already reported the validation error to stderr.
+    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
+      deps.stderr(orphanedTokenHint(name));
+    }
     return 1;
   }
   try {
     await deps.saveConfig(validated.next, target);
   } catch (err) {
-    await restorePriorToken(tokenStore, name, priorToken);
+    const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
     const message = err instanceof Error ? err.message : String(err);
     deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
+    if (!rolledBack) {
+      deps.stderr(orphanedTokenHint(name));
+    }
     return 1;
   }
 
