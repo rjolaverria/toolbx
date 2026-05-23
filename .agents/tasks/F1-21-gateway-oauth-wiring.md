@@ -25,11 +25,13 @@ Up to this task, OAuth is only exercised by the CLI. This task is what makes OAu
      - **Stored token exists but refresh fails** (token expired AND no usable refresh_token, or the refresh request itself errored): throw `UpstreamAuthExpiredError` → status becomes `auth_expired`. This is the "your previous auth has run out" state, recoverable by the same command but with a different user-facing message and a different recovery surface (tool-call returns the structured error per §4.6.2).
      - **Stored token exists and refresh succeeds**: retry the connect with the fresh token; status becomes `connected`. No error surfaces.
 
-  3. The provider's `redirectToAuthorization` path **must not be reached** during gateway runtime. If `SuppressedRedirectError` ever bubbles up to `http.ts`, that's a bug — log it, throw `UpstreamAuthRequiredError`, and document this in a comment.
+     Note (verified against `@modelcontextprotocol/sdk@1.29.0`): the SDK transport, given an `authProvider`, performs the refresh-on-401-retry-once **internally** (`send()` → `auth()` → `refreshAuthorization` → `saveTokens` → retry). `http.ts` does not re-implement refresh; it only classifies the failure when the SDK's `auth()` exhausts refresh and proceeds to the authorization step.
 
-- **`packages/mcp-gateway/src/upstream-client/http.ts`** — call wrapping for refresh-on-401-retry-once:
+  3. The provider's `redirectToAuthorization` never opens a browser in any context — it answers with `SuppressedRedirectError` (the CLI login flow is the only place that intercepts that to open a browser). So in the gateway runtime, when the SDK's `auth()` exhausts the refresh path it **does** reach `redirectToAuthorization` and a `SuppressedRedirectError` (or the SDK's `UnauthorizedError`) propagates out of `connect()`/`callTool()`/`listTools()`. This is the expected runtime auth-failure signal, not a bug — `http.ts` catches it and classifies by stored-token presence per the rule in (2): `tokenStore.read(name) === null` → `UpstreamAuthRequiredError`; a stored record present → `UpstreamAuthExpiredError`. The browser-flow guarantee holds because the provider only throws; the gateway never launches a browser. Log the suppressed redirect at debug so the runtime path is observable.
 
-  Wrap every `client.callTool(...)` and `client.listTools(...)` call so that on receiving a 401 (or the SDK's typed equivalent), the wrapper calls `refreshAuthorization` once and retries. On refresh failure, the wrapper does NOT throw `UpstreamAuthRequiredError`; instead, it throws a new typed error `UpstreamAuthExpiredError` so the session state machine (existing code in `upstream-client/session.ts`) can transition to `auth_expired` distinct from `auth_required`.
+- **`packages/mcp-gateway/src/upstream-client/http.ts`** — refresh-on-401-retry-once:
+
+  The SDK transport already performs refresh-on-401-retry-once internally when an `authProvider` is supplied (verified against `@modelcontextprotocol/sdk@1.29.0`: `send()` catches the 401, calls `auth()` which runs `refreshAuthorization` and persists via the provider's `saveTokens`, then retries the request once). `http.ts` therefore does **not** re-implement the refresh; it wraps `client.callTool(...)` and `client.listTools(...)` purely to **classify** the terminal failure: when the SDK exhausts refresh and the suppressed-redirect/`UnauthorizedError` propagates, the wrapper throws `UpstreamAuthExpiredError` (stored record present) rather than `UpstreamAuthRequiredError`, so the session state machine in `upstream-client/session.ts` can transition to `auth_expired` distinct from `auth_required`.
 
 - **`packages/mcp-gateway/src/upstream-client/errors.ts`** (modify): add a new error class:
 
@@ -85,7 +87,7 @@ Up to this task, OAuth is only exercised by the CLI. This task is what makes OAu
 - Refresh-on-401-retry-once is implemented and tested.
 - `auth_expired` is reachable, and recovery to `connected` after a token refresh outside the gateway (via tokenStore.write) is tested.
 - The structured tool-call error message exactly matches the text in SPECS §4.6.2 (modulo `<serverName>` interpolation).
-- The gateway never opens a browser. If `SuppressedRedirectError` ever bubbles into the gateway, it's logged + remapped to `auth_required` (with a test asserting this).
+- The gateway never opens a browser: the provider's `redirectToAuthorization` only throws `SuppressedRedirectError`, never launching a browser. When that error (or the SDK's `UnauthorizedError`) reaches `http.ts` in the runtime, it's logged and classified by stored-token presence — `auth_required` when no token is stored, `auth_expired` when a stored record fails refresh (a test asserts both branches).
 
 ## Out of scope
 
