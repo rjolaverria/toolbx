@@ -1,6 +1,10 @@
-import type { Logger, ServerConfig, ServerStatus } from '@toolbox/core';
+import type { Logger, ServerConfig, ServerStatus, TokenStore } from '@toolbox/core';
 
-import { UpstreamAuthRequiredError, UpstreamNotConnectedError } from './errors.js';
+import {
+  UpstreamAuthExpiredError,
+  UpstreamAuthRequiredError,
+  UpstreamNotConnectedError,
+} from './errors.js';
 import { createHttpUpstreamClient } from './http.js';
 import { createStdioUpstreamClient } from './stdio.js';
 import type {
@@ -36,6 +40,7 @@ export type UpstreamClientFactory = (
     serverName?: string | undefined;
     processEnv?: NodeJS.ProcessEnv | undefined;
     connectTimeoutMs?: number | undefined;
+    tokenStore?: TokenStore | undefined;
   },
 ) => UpstreamClient;
 
@@ -46,6 +51,12 @@ export interface CreateUpstreamSessionDeps {
   connectTimeoutMs?: number;
   pingIntervalMs?: number;
   backoff?: Partial<UpstreamSessionBackoff>;
+  /**
+   * Token store backing OAuth credentials, forwarded to the HTTP upstream
+   * client so it can build a `ToolBoxOAuthProvider`. Omitted for non-OAuth
+   * servers.
+   */
+  tokenStore?: TokenStore;
   /** Test seam: override how the underlying transport client is built. */
   createClient?: UpstreamClientFactory;
   /** Test seam: override timers and clock. Defaults to `globalThis`. */
@@ -103,11 +114,16 @@ const defaultCreateClient: UpstreamClientFactory = (config, deps) => {
     ...(deps.serverName !== undefined ? { serverName: deps.serverName } : {}),
     ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
     ...(deps.connectTimeoutMs !== undefined ? { connectTimeoutMs: deps.connectTimeoutMs } : {}),
+    ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
   });
 };
 
 function isAuthRequiredError(error: unknown): error is UpstreamAuthRequiredError {
   return error instanceof UpstreamAuthRequiredError;
+}
+
+function isAuthExpiredError(error: unknown): error is UpstreamAuthExpiredError {
+  return error instanceof UpstreamAuthExpiredError;
 }
 
 function errorMessage(error: unknown): string {
@@ -145,6 +161,7 @@ export function createUpstreamSession(
     | { kind: 'connected'; client: UpstreamClient }
     | { kind: 'waiting'; attempt: number; retryHandle: unknown }
     | { kind: 'auth_required' }
+    | { kind: 'auth_expired' }
     | { kind: 'stopped' };
 
   let phase: Phase = { kind: 'idle' };
@@ -237,8 +254,17 @@ export function createUpstreamSession(
     scheduleRetry(1, new Error('upstream client exited'));
   }
 
+  function setAuthExpired(reason: string): void {
+    phase = { kind: 'auth_expired' };
+    setStatus({ kind: 'auth_expired', reason });
+  }
+
   function scheduleRetry(failedAttempt: number, lastError: Error): void {
-    if (phase.kind === 'stopped' || phase.kind === 'auth_required') {
+    if (
+      phase.kind === 'stopped' ||
+      phase.kind === 'auth_required' ||
+      phase.kind === 'auth_expired'
+    ) {
       return;
     }
     const delayMs = backoffMs(failedAttempt);
@@ -285,6 +311,7 @@ export function createUpstreamSession(
       ...(serverName !== undefined ? { serverName } : {}),
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
       ...(deps.connectTimeoutMs !== undefined ? { connectTimeoutMs: deps.connectTimeoutMs } : {}),
+      ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
     });
     phase = { kind: 'starting', attempt, client };
     setStatus({ kind: 'starting', attempt });
@@ -300,6 +327,14 @@ export function createUpstreamSession(
         await client.disconnect().catch(() => undefined);
         phase = { kind: 'auth_required' };
         setStatus({ kind: 'auth_required', reason: error.message });
+        return;
+      }
+      if (isAuthExpiredError(error)) {
+        // Stored credentials aged out. Hold in `auth_expired` (no backoff loop)
+        // until the next tool call re-reads the token store and retries the
+        // connect — see `callTool` below (SPECS §4.6.2).
+        await client.disconnect().catch(() => undefined);
+        setAuthExpired(error.message);
         return;
       }
       await client.disconnect().catch(() => undefined);
@@ -388,6 +423,40 @@ export function createUpstreamSession(
     return phase.client;
   }
 
+  async function callToolWithAuthRecovery(
+    name: string,
+    args: Record<string, unknown> | undefined,
+    opts?: UpstreamCallToolOptions,
+  ): Promise<CallToolResult> {
+    if (phase.kind === 'auth_expired') {
+      // Recovery on next call (SPECS §4.6.2): rebuild the client so it re-reads
+      // the token store, then retry the connect. This succeeds once the user
+      // has re-authenticated out of band via `tlbx auth login`.
+      await runConnectAttempt(1);
+    }
+    if (phase.kind !== 'connected') {
+      if (phase.kind === 'auth_expired') {
+        throw UpstreamAuthExpiredError.forServer(serverName);
+      }
+      throw new UpstreamNotConnectedError(serverName);
+    }
+    const client = phase.client;
+    try {
+      return await client.callTool(name, args, opts);
+    } catch (error) {
+      // A mid-session token expiry surfaces here. Drop to `auth_expired` so the
+      // next call re-reads the store and retries the connect, then rethrow so
+      // the caller renders the structured re-auth message.
+      if (isAuthExpiredError(error) && phase.kind === 'connected' && phase.client === client) {
+        detachClientListeners();
+        clearPing();
+        await client.disconnect().catch(() => undefined);
+        setAuthExpired(error.message);
+      }
+      throw error;
+    }
+  }
+
   return {
     serverName,
     get status(): ServerStatus {
@@ -401,7 +470,7 @@ export function createUpstreamSession(
       return requireConnectedClient().listTools();
     },
     async callTool(name, args, opts) {
-      return requireConnectedClient().callTool(name, args, opts);
+      return callToolWithAuthRecovery(name, args, opts);
     },
     async ping() {
       return requireConnectedClient().ping();

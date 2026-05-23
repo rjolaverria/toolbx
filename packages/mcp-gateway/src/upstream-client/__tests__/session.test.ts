@@ -1,7 +1,11 @@
 import { createNoopLogger, type ServerStatus, type StdioServerConfig } from '@toolbox/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { UpstreamAuthRequiredError, UpstreamNotConnectedError } from '../errors.js';
+import {
+  UpstreamAuthExpiredError,
+  UpstreamAuthRequiredError,
+  UpstreamNotConnectedError,
+} from '../errors.js';
 import { createUpstreamSession, type UpstreamClientFactory } from '../session.js';
 import type {
   CallToolResult,
@@ -19,6 +23,7 @@ interface FakeClientControls {
   emitExit: (info: UpstreamExitInfo) => void;
   setListToolsResult: (result: ListToolsResult) => void;
   setPingResult: (resultFactory: () => Promise<void>) => void;
+  setCallToolResult: (resultFactory: () => Promise<CallToolResult>) => void;
   connectCalls: number;
   disconnectCalls: number;
   pingCalls: number;
@@ -34,6 +39,8 @@ function makeFakeClient(serverName?: string): FakeClientControls {
   let pendingConnect: { resolve: () => void; reject: (err: Error) => void } | null = null;
   let listToolsResult = { tools: [] } as unknown as ListToolsResult;
   let pingFactory: () => Promise<void> = () => Promise.resolve();
+  let callToolFactory: () => Promise<CallToolResult> = () =>
+    Promise.resolve({ content: [] } as unknown as CallToolResult);
   const counters = { connect: 0, disconnect: 0, ping: 0, listTools: 0 };
 
   const client: UpstreamClient = {
@@ -53,7 +60,7 @@ function makeFakeClient(serverName?: string): FakeClientControls {
       return Promise.resolve(listToolsResult);
     },
     callTool(): Promise<CallToolResult> {
-      return Promise.resolve({ content: [] } as unknown as CallToolResult);
+      return callToolFactory();
     },
     ping() {
       counters.ping += 1;
@@ -96,6 +103,9 @@ function makeFakeClient(serverName?: string): FakeClientControls {
     },
     setPingResult: (factory) => {
       pingFactory = factory;
+    },
+    setCallToolResult: (factory) => {
+      callToolFactory = factory;
     },
     get connectCalls() {
       return counters.connect;
@@ -335,6 +345,103 @@ describe('createUpstreamSession — auth_required (oauth)', () => {
     // Advance past any reasonable backoff window — no retry should fire.
     await vi.advanceTimersByTimeAsync(60_000);
     expect(controls).toHaveLength(1);
+    await session.dispose();
+  });
+});
+
+describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
+  it('transitions to auth_expired when connect rejects with UpstreamAuthExpiredError and does not retry', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'token expired'));
+    await startPromise;
+
+    expect(session.status.kind).toBe('auth_expired');
+    if (session.status.kind === 'auth_expired') {
+      expect(session.status.reason).toBe('token expired');
+    }
+    // No backoff retry loop — recovery is driven by the next tool call.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(controls).toHaveLength(1);
+    await session.dispose();
+  });
+
+  it('transitions connected -> auth_expired when a tool call throws UpstreamAuthExpiredError', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.status.kind).toBe('connected');
+
+    controls[0]!.setCallToolResult(() =>
+      Promise.reject(new UpstreamAuthExpiredError('fake', 'mid-session expiry')),
+    );
+    await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
+      UpstreamAuthExpiredError,
+    );
+    expect(session.status.kind).toBe('auth_expired');
+    await session.dispose();
+  });
+
+  it('recovers to connected when a tool call after auth_expired reconnects successfully', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'token expired'));
+    await startPromise;
+    expect(session.status.kind).toBe('auth_expired');
+
+    // The next tool call attempts a fresh connect (re-reading tokens). The
+    // freshly-built client connects, simulating a successful `tlbx auth login`.
+    const callPromise = session.callTool('echo', undefined);
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+    controls[1]!.setCallToolResult(() =>
+      Promise.resolve({
+        content: [{ type: 'text', text: 'recovered' }],
+      } as unknown as CallToolResult),
+    );
+    controls[1]!.resolveConnect();
+
+    const result = await callPromise;
+    expect(result.content).toEqual([{ type: 'text', text: 'recovered' }]);
+    expect(session.status.kind).toBe('connected');
+    await session.dispose();
+  });
+
+  it('returns the auth_expired error when the reconnect after auth_expired still fails', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'token expired'));
+    await startPromise;
+    expect(session.status.kind).toBe('auth_expired');
+
+    const callPromise = session.callTool('echo', undefined);
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+    controls[1]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'still expired'));
+
+    await expect(callPromise).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    expect(session.status.kind).toBe('auth_expired');
     await session.dispose();
   });
 });
