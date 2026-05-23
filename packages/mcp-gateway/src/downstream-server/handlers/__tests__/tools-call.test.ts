@@ -237,6 +237,33 @@ describe('tools/call handler', () => {
     await closeAll();
   });
 
+  it('returns a structured re-auth message (not a JSON-RPC error) when the session reports auth_expired', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+    const authExpired = Object.assign(new Error('token expired'), {
+      name: 'UpstreamAuthExpiredError',
+    });
+    jira.callTool.mockRejectedValue(authExpired);
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+    });
+
+    const result = await client.callTool({ name: 'jira__search_issues' });
+    expect(result.isError).toBe(true);
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toContain('Authentication for "jira" has expired.');
+    expect(content[0]?.text).toContain('tlbx auth login jira');
+    await closeAll();
+  });
+
   it('rejects an unknown tool name with MethodNotFound', async () => {
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({

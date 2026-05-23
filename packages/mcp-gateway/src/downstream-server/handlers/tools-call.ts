@@ -95,6 +95,27 @@ export interface RegisterToolsCallHandlerOptions {
   isToolEnabled?: (exposedName: string) => boolean;
 }
 
+/**
+ * Renders the `auth_expired` outcome as a structured tool-call result instead
+ * of a JSON-RPC error. The agent surfaces this text to the user, who recovers
+ * by running `tlbx auth login <server>` in a terminal; the gateway picks up the
+ * refreshed token on the next call (SPECS §4.6.2).
+ */
+function buildAuthExpiredResult(serverName: string): CallToolResult {
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text:
+          `Authentication for "${serverName}" has expired.\n\n` +
+          `Run \`tlbx auth login ${serverName}\` in a terminal to re-authenticate.\n` +
+          `ToolBox will pick up the new token automatically on the next call.`,
+      },
+    ],
+  };
+}
+
 function outcomeOf(result: RouteResult): string {
   if (result.kind === 'upstream_error') {
     return `upstream_error:${result.error.code}`;
@@ -123,7 +144,10 @@ function logCompletion(
   }
 }
 
-function toMcpError(name: string, result: Exclude<RouteResult, { kind: 'ok' }>): McpError {
+function toMcpError(
+  name: string,
+  result: Exclude<RouteResult, { kind: 'ok' } | { kind: 'auth_expired' }>,
+): McpError {
   switch (result.kind) {
     case 'unknown_tool':
       return new McpError(ErrorCode.MethodNotFound, `Unknown tool "${name}"`);
@@ -300,6 +324,9 @@ export function registerToolsCallHandler(
 
     if (result.kind === 'ok') {
       return result.result;
+    }
+    if (result.kind === 'auth_expired') {
+      return buildAuthExpiredResult(result.server);
     }
     throw toMcpError(name, result);
   });
