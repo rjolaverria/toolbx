@@ -319,8 +319,8 @@ describe('createUpstreamSession — auth_required', () => {
   });
 });
 
-describe('createUpstreamSession — auth_required (oauth placeholder)', () => {
-  it('stops reconnecting when connect() rejects with the oauth-not-implemented error', async () => {
+describe('createUpstreamSession — auth_required (oauth)', () => {
+  it('stops reconnecting when connect() rejects with the missing-oauth-token error', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {
       logger: createNoopLogger(),
@@ -328,7 +328,7 @@ describe('createUpstreamSession — auth_required (oauth placeholder)', () => {
     });
 
     const startPromise = session.start();
-    controls[0]!.resolveConnect(UpstreamAuthRequiredError.forOAuthNotImplemented(undefined));
+    controls[0]!.resolveConnect(UpstreamAuthRequiredError.forMissingOAuthToken(undefined));
     await startPromise;
 
     expect(session.status.kind).toBe('auth_required');

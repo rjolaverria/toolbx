@@ -71,11 +71,42 @@ export class UpstreamAuthRequiredError extends Error {
     );
   }
 
-  static forOAuthNotImplemented(serverName: string | undefined): UpstreamAuthRequiredError {
+  static forMissingOAuthToken(serverName: string | undefined): UpstreamAuthRequiredError {
     const where = serverName ? ` for server "${serverName}"` : '';
+    const loginArg = serverName ? ` ${serverName}` : '';
     return new UpstreamAuthRequiredError(
-      `Authentication required${where}: auth.type "oauth" is configured but not yet implemented (F1-21).`,
+      `Authentication required${where}: no stored OAuth token. Run \`tlbx auth login${loginArg}\` to authenticate.`,
       serverName,
+    );
+  }
+}
+
+/**
+ * Raised when an OAuth-protected upstream rejects the stored credentials and
+ * the SDK's refresh-on-401 path cannot recover them (refresh token expired or
+ * revoked, or no refresh token to use). Distinct from
+ * `UpstreamAuthRequiredError`: a stored record *exists*, it has simply aged
+ * out, so the session transitions to `auth_expired` rather than `auth_required`
+ * and the recovery surface is the structured tool-call message (SPECS §4.6.2).
+ */
+export class UpstreamAuthExpiredError extends Error {
+  override readonly name = 'UpstreamAuthExpiredError';
+
+  constructor(
+    public readonly serverName: string | undefined,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+  }
+
+  static forServer(serverName: string | undefined, cause?: unknown): UpstreamAuthExpiredError {
+    const where = serverName ? ` for server "${serverName}"` : '';
+    const loginArg = serverName ? ` ${serverName}` : '';
+    return new UpstreamAuthExpiredError(
+      serverName,
+      `Authentication expired${where}: stored OAuth token could not be refreshed. Run \`tlbx auth login${loginArg}\` to re-authenticate.`,
+      cause !== undefined ? { cause } : undefined,
     );
   }
 }
