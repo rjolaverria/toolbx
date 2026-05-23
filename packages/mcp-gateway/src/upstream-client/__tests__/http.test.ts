@@ -161,7 +161,11 @@ describe('createHttpUpstreamClient — connect', () => {
     }
   });
 
-  it('rejects with UpstreamAuthRequiredError when auth.type is "oauth" (F1-21 not yet implemented)', async () => {
+  it('rejects with UpstreamAuthRequiredError when auth.type is "oauth" but no token store is wired', async () => {
+    // Without a TokenStore the client cannot build an OAuth provider, so it
+    // surfaces auth_required (pointing the user at `tlbx auth login`) rather
+    // than crashing the connect attempt. The full OAuth path is covered in
+    // http-oauth.test.ts.
     const client = track(
       createHttpUpstreamClient(
         httpConfig({
@@ -184,7 +188,7 @@ describe('createHttpUpstreamClient — connect', () => {
     }
     expect(caught).toBeInstanceOf(UpstreamAuthRequiredError);
     if (caught instanceof UpstreamAuthRequiredError) {
-      expect(caught.message).toContain('F1-21');
+      expect(caught.message).toContain('tlbx auth login');
       expect(caught.serverName).toBe('fake');
     }
   });

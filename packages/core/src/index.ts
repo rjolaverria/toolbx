@@ -183,6 +183,8 @@ export {
   probeUpstreamAuth,
   runOAuthLogin,
   runOAuthRefresh,
+  SuppressedRedirectError,
+  ToolBoxOAuthProvider,
   type AuthHint,
   type CreateTokenStoreDeps,
   type ProbeUpstreamAuthDeps,
@@ -193,4 +195,5 @@ export {
   type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
+  type ToolBoxOAuthProviderOpts,
 } from './auth/index.js';

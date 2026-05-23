@@ -1,3 +1,4 @@
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
@@ -6,10 +7,17 @@ import {
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import type { HttpServerConfig, Logger } from '@toolbox/core';
+import {
+  SuppressedRedirectError,
+  ToolBoxOAuthProvider,
+  type HttpServerConfig,
+  type Logger,
+  type TokenStore,
+} from '@toolbox/core';
 
 import { resolveEnvPlaceholders } from './env.js';
 import {
+  UpstreamAuthExpiredError,
   UpstreamAuthRequiredError,
   UpstreamCallToolTimeoutError,
   UpstreamConnectError,
@@ -48,6 +56,13 @@ export interface CreateHttpUpstreamClientDeps {
    * request before failing `connect()`. Defaults to 30 seconds.
    */
   connectTimeoutMs?: number;
+  /**
+   * Token store backing OAuth credentials. Required when `config.auth.type ===
+   * 'oauth'`; the client builds a `ToolBoxOAuthProvider` over it and hands it to
+   * the SDK transport so the SDK can attach the access token, refresh it on a
+   * 401, and persist the refreshed pair back through the store.
+   */
+  tokenStore?: TokenStore;
 }
 
 export function createHttpUpstreamClient(
@@ -58,6 +73,64 @@ export function createHttpUpstreamClient(
   const baseLogger = serverName ? deps.logger.child({ server: serverName }) : deps.logger;
   const log = baseLogger.child({ component: 'upstream-http' });
   const processEnv = deps.processEnv ?? process.env;
+
+  const isOAuth = config.auth?.type === 'oauth';
+  // Build the OAuth provider once per client. The SDK transport drives the
+  // whole token lifecycle through it: it reads the stored access token via
+  // `tokens()`, refreshes on a 401 and persists the new pair via `saveTokens`,
+  // and — when refresh is exhausted — calls `redirectToAuthorization`, which
+  // the provider answers with `SuppressedRedirectError` instead of opening a
+  // browser. We classify that signal in `classifyOAuthFailure` below.
+  let authProvider: ToolBoxOAuthProvider | undefined;
+  if (isOAuth && serverName !== undefined && deps.tokenStore !== undefined) {
+    authProvider = new ToolBoxOAuthProvider({
+      serverName,
+      // Placeholder redirect URL: the gateway never completes a browser flow,
+      // so this never reaches a user-visible authorization request. The SDK's
+      // `OAuthClientProvider` interface requires the field regardless.
+      redirectUrl: new URL('http://127.0.0.1:0/unused'),
+      tokenStore: deps.tokenStore,
+      logger: log,
+    });
+  }
+
+  /**
+   * Map an SDK auth failure surfaced from `connect()`/`callTool()`/`listTools()`
+   * to a ToolBox auth error. The SDK reaches `redirectToAuthorization` (→
+   * `SuppressedRedirectError`) whenever it cannot mint a usable access token —
+   * either there is no stored token, or refresh failed. We disambiguate by
+   * reading the store: an absent record is `auth_required` (never authenticated
+   * this server); a present record that still failed is `auth_expired` (the
+   * stored credentials aged out). Returns `null` for non-auth errors so callers
+   * fall through to their normal error wrapping.
+   */
+  async function classifyOAuthFailure(error: unknown): Promise<Error | null> {
+    if (!isOAuth) {
+      return null;
+    }
+    if (!(error instanceof SuppressedRedirectError) && !(error instanceof UnauthorizedError)) {
+      return null;
+    }
+    log.debug(
+      { err: error },
+      'oauth authorization redirect suppressed in gateway runtime; classifying by stored-token presence',
+    );
+    if (deps.tokenStore === undefined || serverName === undefined) {
+      return UpstreamAuthRequiredError.forMissingOAuthToken(serverName);
+    }
+    try {
+      const record = await deps.tokenStore.read(serverName);
+      if (record === null) {
+        return UpstreamAuthRequiredError.forMissingOAuthToken(serverName);
+      }
+      return UpstreamAuthExpiredError.forServer(serverName, error);
+    } catch (readError) {
+      // A token store we cannot even read is not a recoverable refresh case —
+      // surface auth_required so the user re-runs `tlbx auth login`.
+      log.warn({ err: readError }, 'failed to read token store while classifying oauth failure');
+      return UpstreamAuthRequiredError.forMissingOAuthToken(serverName);
+    }
+  }
 
   const handlers: { [K in UpstreamClientEvent]: Set<UpstreamClientEvents[K]> } = {
     tools_list_changed: new Set(),
@@ -111,12 +184,14 @@ export function createHttpUpstreamClient(
         throw UpstreamAuthRequiredError.forMissingBearerToken(config.auth.tokenEnv, serverName);
       }
       headers['Authorization'] = `Bearer ${token}`;
-    } else if (config.auth?.type === 'oauth') {
-      // OAuth header injection is wired up in F1-21 (gateway side); fail
-      // loudly with an auth_required-classified error so the session enters
-      // the terminal auth_required state instead of looping through
-      // scheduleRetry.
-      throw UpstreamAuthRequiredError.forOAuthNotImplemented(serverName);
+    }
+    // OAuth servers carry no static Authorization header here: the SDK
+    // transport injects (and refreshes) the bearer token via `authProvider`.
+    if (isOAuth && authProvider === undefined) {
+      // Misconfiguration: an OAuth server reached the client without a token
+      // store / server name to build the provider. Surface auth_required so the
+      // user can re-run `tlbx auth login` rather than crashing the session.
+      throw UpstreamAuthRequiredError.forMissingOAuthToken(serverName);
     }
     return headers;
   }
@@ -156,6 +231,7 @@ export function createHttpUpstreamClient(
     // we're connecting.
     const localTransport = new StreamableHTTPClientTransport(url, {
       requestInit: { headers },
+      ...(authProvider !== undefined ? { authProvider } : {}),
     });
 
     const localClient = new Client(TOOLBOX_CLIENT_INFO, { capabilities: {} });
@@ -188,6 +264,10 @@ export function createHttpUpstreamClient(
         state = 'closed';
       }
       emitExitOnce();
+      const authError = await classifyOAuthFailure(error);
+      if (authError !== null) {
+        throw authError;
+      }
       throw new UpstreamConnectError(
         `Failed to connect to upstream HTTP server${serverName ? ` "${serverName}"` : ''}: ${message}`,
         serverName,
@@ -264,7 +344,15 @@ export function createHttpUpstreamClient(
 
   async function listTools(): Promise<ListToolsResult> {
     const c = requireClient();
-    return c.listTools();
+    try {
+      return await c.listTools();
+    } catch (error) {
+      const authError = await classifyOAuthFailure(error);
+      if (authError !== null) {
+        throw authError;
+      }
+      throw error;
+    }
   }
 
   async function callTool(
@@ -286,6 +374,10 @@ export function createHttpUpstreamClient(
     } catch (error) {
       if (error instanceof McpError && isRequestTimeoutCode(error.code)) {
         throw new UpstreamCallToolTimeoutError(name, timeoutMs, serverName, { cause: error });
+      }
+      const authError = await classifyOAuthFailure(error);
+      if (authError !== null) {
+        throw authError;
       }
       throw error;
     }
