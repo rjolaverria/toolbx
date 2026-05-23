@@ -40,12 +40,12 @@ function readBody(req) {
 }
 
 export async function startOAuthMcpServer(options = {}) {
-  const {
-    validTokens: initialValidTokens = [],
-    rejectRefresh = false,
-    refreshAccessToken = 'refreshed-access-token',
-  } = options;
+  const { validTokens: initialValidTokens = [], refreshAccessToken = 'refreshed-access-token' } =
+    options;
 
+  // Mutable so tests can flip behaviour at runtime to simulate a mid-session
+  // token expiry (delete the live token + reject the refresh).
+  let rejectRefresh = options.rejectRefresh ?? false;
   const validTokens = new Set(initialValidTokens);
   const authHeaders = [];
   const tokenGrants = [];
@@ -184,6 +184,9 @@ export async function startOAuthMcpServer(options = {}) {
     authHeaders,
     tokenGrants,
     refreshCount: () => refreshCount,
+    setRejectRefresh(value) {
+      rejectRefresh = value;
+    },
     async close() {
       await new Promise((resolve, reject) => {
         httpServer.close((error) => (error ? reject(error) : resolve(undefined)));

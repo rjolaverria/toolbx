@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { createNoopLogger, type Logger, type ToolBoxConfig } from '@toolbox/core';
+import { createNoopLogger, type Logger, type ToolBoxConfig, type TokenStore } from '@toolbox/core';
 
 import { createDownstreamHttpServer } from '../../../downstream-server/http.js';
 import type { DownstreamHttpServer } from '../../../downstream-server/types.js';
@@ -117,6 +117,8 @@ export interface StartHarnessOptions {
   harness: IntegrationHarness;
   logger?: Logger;
   processEnv?: NodeJS.ProcessEnv;
+  /** Token store for OAuth upstreams. Forwarded to the gateway runtime. */
+  tokenStore?: TokenStore;
   /**
    * Names of upstream servers to wait for in `connected` status before the
    * helper returns. Defaults to every enabled server in the config.
@@ -143,6 +145,7 @@ export async function startHarness(options: StartHarnessOptions): Promise<Starte
     config: options.config,
     logger,
     ...(options.processEnv !== undefined ? { processEnv: options.processEnv } : {}),
+    ...(options.tokenStore !== undefined ? { tokenStore: options.tokenStore } : {}),
   });
   options.harness.runtimes.add(runtime);
   runtime.startUpstreams();

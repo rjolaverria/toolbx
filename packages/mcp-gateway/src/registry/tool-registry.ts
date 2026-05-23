@@ -13,8 +13,11 @@ import { formatExposedName, type NamespaceOptions, type ServerStatus } from '@to
  * (`../runtime/runtime.ts`), which `tlbx serve` and other gateway entry
  * points instantiate. Tests for M2-04 drive the registry directly.
  *
- * Servers in `disabled`, `error`, `auth_required`, `auth_expired`, `stopped`,
- * or `starting` status do not contribute tools. Only `connected` does.
+ * Servers in `disabled`, `error`, `auth_required`, `stopped`, or `starting`
+ * status do not contribute tools. `connected` contributes, and so does
+ * `auth_expired`: its tools stay published so the agent can still call them
+ * (each call returns a structured re-auth message) and `routeToolCall` can
+ * reach the session to drive next-call recovery (F1-21, SPECS §4.6.2).
  */
 
 export interface RegisteredTool {
@@ -61,7 +64,9 @@ interface InternalEntry {
 }
 
 function isServerVisible(entry: InternalEntry): boolean {
-  return entry.enabled && entry.status.kind === 'connected';
+  return (
+    entry.enabled && (entry.status.kind === 'connected' || entry.status.kind === 'auth_expired')
+  );
 }
 
 function buildRegisteredTools(
