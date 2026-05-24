@@ -224,6 +224,15 @@ export function createUpstreamSession(
     try {
       cached = await client.listTools();
     } catch (error) {
+      // An auth failure on tools/list (e.g. initialize succeeded but the token
+      // aged out before the list call, or refresh failed only here) must not be
+      // swallowed: it would leave the session marked `connected` with no tools
+      // and an unreachable re-auth surface. Propagate it so the caller can
+      // transition to auth_expired/auth_required. Other refresh failures are
+      // non-fatal and stay swallowed.
+      if (isAuthExpiredError(error) || isAuthRequiredError(error)) {
+        throw error;
+      }
       log.debug({ err: error }, 'failed to refresh upstream tools list');
     }
   }
@@ -265,6 +274,21 @@ export function createUpstreamSession(
   function setAuthExpired(reason: string): void {
     phase = { kind: 'auth_expired' };
     setStatus({ kind: 'auth_expired', reason });
+  }
+
+  /**
+   * Transition to `auth_expired` and, when no tool list was ever cached, fall
+   * back to the connection manager's reconnect backoff. With tools cached the
+   * server stays callable and recovery is call-driven (SPECS §4.6.2); with
+   * nothing cached the runtime publishes no tools, so no downstream call can
+   * reach the session and only a reconnect can carry it back after the user
+   * re-authenticates. `recoveryAttempt` seeds the backoff sequence.
+   */
+  function enterAuthExpired(reason: string, recoveryAttempt: number): void {
+    setAuthExpired(reason);
+    if (cached === undefined) {
+      scheduleAuthRecovery(recoveryAttempt);
+    }
   }
 
   function scheduleAuthRecovery(failedAttempt: number): void {
@@ -321,7 +345,9 @@ export function createUpstreamSession(
           // path. This is mid-session expiry, not transport loss: keep the
           // cached tools published and surface `auth_expired` so the next call
           // drives re-auth recovery, matching the call-path behavior (§4.6.2).
-          setAuthExpired(error.message);
+          // If nothing was ever cached, enterAuthExpired falls back to a
+          // reconnect since no downstream call can reach this session.
+          enterAuthExpired(error.message, 1);
           return;
         }
         log.debug({ err: error }, 'upstream ping failed; treating as transport loss');
@@ -382,10 +408,7 @@ export function createUpstreamSession(
         if (phase.kind !== 'starting' || phase.client !== client) {
           return;
         }
-        setAuthExpired(error.message);
-        if (cached === undefined) {
-          scheduleAuthRecovery(attempt);
-        }
+        enterAuthExpired(error.message, attempt);
         return;
       }
       await client.disconnect().catch(() => undefined);
@@ -393,13 +416,44 @@ export function createUpstreamSession(
       return;
     }
 
-    if ((phase as Phase).kind !== 'starting') {
+    const active = phase as Phase;
+    if (active.kind !== 'starting' || active.client !== client) {
+      // A dispose()/restart() during the connect await moved us out of this
+      // attempt (or started a newer one), so this resolved client is stale.
       await client.disconnect().catch(() => undefined);
       return;
     }
 
+    // Load the initial tool list before marking connected so an auth failure on
+    // tools/list surfaces the auth state instead of a tools-less "connected".
+    let refreshError: unknown = null;
+    try {
+      await refreshTools(client);
+    } catch (error) {
+      refreshError = error;
+    }
+
+    // The listTools await is another point where dispose()/restart() can move
+    // us out of this attempt; re-check before committing any phase change.
+    const settled = phase as Phase;
+    if (settled.kind !== 'starting' || settled.client !== client) {
+      await client.disconnect().catch(() => undefined);
+      return;
+    }
+
+    if (isAuthRequiredError(refreshError)) {
+      await client.disconnect().catch(() => undefined);
+      phase = { kind: 'auth_required' };
+      setStatus({ kind: 'auth_required', reason: refreshError.message });
+      return;
+    }
+    if (isAuthExpiredError(refreshError)) {
+      await client.disconnect().catch(() => undefined);
+      enterAuthExpired(refreshError.message, attempt);
+      return;
+    }
+
     attachClient(client);
-    await refreshTools(client);
     phase = { kind: 'connected', client };
     setStatus({ kind: 'connected', since: scheduler.now() });
     startPing(client);
@@ -512,7 +566,12 @@ export function createUpstreamSession(
         detachClientListeners();
         clearPing();
         await client.disconnect().catch(() => undefined);
-        setAuthExpired(error.message);
+        // A dispose()/restart() may have run during the disconnect await; only
+        // transition if we are still this connected client, so a stale call
+        // cannot drag a stopped or newer-starting session back to auth_expired.
+        if (phase.kind === 'connected' && phase.client === client) {
+          enterAuthExpired(error.message, 1);
+        }
       }
       throw error;
     }

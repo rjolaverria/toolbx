@@ -22,8 +22,11 @@ interface FakeClientControls {
   emitToolsListChanged: () => void;
   emitExit: (info: UpstreamExitInfo) => void;
   setListToolsResult: (result: ListToolsResult) => void;
+  failListTools: (err: Error) => void;
   setPingResult: (resultFactory: () => Promise<void>) => void;
   setCallToolResult: (resultFactory: () => Promise<CallToolResult>) => void;
+  deferDisconnect: () => void;
+  flushDisconnect: () => void;
   connectCalls: number;
   disconnectCalls: number;
   pingCalls: number;
@@ -38,9 +41,12 @@ function makeFakeClient(serverName?: string): FakeClientControls {
   };
   let pendingConnect: { resolve: () => void; reject: (err: Error) => void } | null = null;
   let listToolsResult = { tools: [] } as unknown as ListToolsResult;
+  let listToolsError: Error | null = null;
   let pingFactory: () => Promise<void> = () => Promise.resolve();
   let callToolFactory: () => Promise<CallToolResult> = () =>
     Promise.resolve({ content: [] } as unknown as CallToolResult);
+  let blockDisconnect = false;
+  const disconnectResolvers: Array<() => void> = [];
   const counters = { connect: 0, disconnect: 0, ping: 0, listTools: 0 };
 
   const client: UpstreamClient = {
@@ -53,10 +59,18 @@ function makeFakeClient(serverName?: string): FakeClientControls {
     },
     disconnect() {
       counters.disconnect += 1;
+      if (blockDisconnect) {
+        return new Promise<void>((resolve) => {
+          disconnectResolvers.push(resolve);
+        });
+      }
       return Promise.resolve();
     },
     listTools() {
       counters.listTools += 1;
+      if (listToolsError) {
+        return Promise.reject(listToolsError);
+      }
       return Promise.resolve(listToolsResult);
     },
     callTool(): Promise<CallToolResult> {
@@ -100,12 +114,26 @@ function makeFakeClient(serverName?: string): FakeClientControls {
     },
     setListToolsResult: (result) => {
       listToolsResult = result;
+      listToolsError = null;
+    },
+    failListTools: (err) => {
+      listToolsError = err;
     },
     setPingResult: (factory) => {
       pingFactory = factory;
     },
     setCallToolResult: (factory) => {
       callToolFactory = factory;
+    },
+    deferDisconnect: () => {
+      blockDisconnect = true;
+    },
+    flushDisconnect: () => {
+      blockDisconnect = false;
+      const pending = disconnectResolvers.splice(0);
+      for (const resolve of pending) {
+        resolve();
+      }
     },
     get connectCalls() {
       return counters.connect;
@@ -588,6 +616,108 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     expect(controls).toHaveLength(2);
     await session.dispose();
   });
+
+  it('reports auth_expired when tools/list rejects with expired creds after a successful connect', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      backoff: { initialMs: 100, factor: 2, maxMs: 10_000 },
+    });
+
+    const startPromise = session.start();
+    // initialize succeeds, but the first tools/list fails its OAuth refresh.
+    controls[0]!.failListTools(new UpstreamAuthExpiredError('fake', 'tools/list expired'));
+    controls[0]!.resolveConnect();
+    await startPromise;
+
+    expect(session.status.kind).toBe('auth_expired');
+    expect(session.cachedTools()).toBeUndefined();
+    await session.dispose();
+  });
+
+  it('reports auth_required when tools/list rejects with missing creds after a successful connect', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.failListTools(UpstreamAuthRequiredError.forMissingOAuthToken(undefined));
+    controls[0]!.resolveConnect();
+    await startPromise;
+
+    expect(session.status.kind).toBe('auth_required');
+    await session.dispose();
+  });
+
+  it('does not announce auth_expired after a dispose races a mid-call expiry', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+    const events: ServerStatus[] = [];
+    session.on('status', (s) => events.push(s));
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+
+    controls[0]!.setCallToolResult(() =>
+      Promise.reject(new UpstreamAuthExpiredError('fake', 'mid-session expiry')),
+    );
+    // Hold the disconnect so dispose() interleaves before the catch sets phase.
+    controls[0]!.deferDisconnect();
+    const callPromise = session.callTool('echo', undefined);
+    await flushMicrotasks();
+
+    const disposePromise = session.dispose();
+    controls[0]!.flushDisconnect();
+
+    await expect(callPromise).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    await disposePromise;
+
+    expect(session.status.kind).toBe('stopped');
+    // A disposed session must never have been dragged back to auth_expired.
+    expect(statusKinds(events)).not.toContain('auth_expired');
+  });
+
+  it('does not let a stale successful connect attempt clobber a concurrent restart', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    const restartPromise = session.restart();
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+
+    // The original attempt connects late — after restart already created
+    // controls[1]. It must not attach over the newer attempt.
+    controls[0]!.resolveConnect();
+    await flushMicrotasks();
+
+    controls[1]!.setCallToolResult(() =>
+      Promise.resolve({
+        content: [{ type: 'text', text: 'new-attempt' }],
+      } as unknown as CallToolResult),
+    );
+    controls[1]!.resolveConnect();
+    await Promise.all([startPromise, restartPromise]);
+
+    expect(session.status.kind).toBe('connected');
+    // The live client must be the newer attempt, and the stale one torn down.
+    expect(controls[0]!.disconnectCalls).toBeGreaterThan(0);
+    const result = await session.callTool('echo', undefined);
+    expect(result.content).toEqual([{ type: 'text', text: 'new-attempt' }]);
+    await session.dispose();
+  });
 });
 
 describe('createUpstreamSession — restart race', () => {
@@ -751,6 +881,40 @@ describe('createUpstreamSession — ping', () => {
     // No generic reconnect backoff should be scheduled.
     await vi.advanceTimersByTimeAsync(2_000);
     expect(controls).toHaveLength(1);
+    await session.dispose();
+  });
+
+  it('schedules a reconnect when a ping fails with expired creds and no tools were cached', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      pingIntervalMs: 500,
+      backoff: { initialMs: 100, factor: 2, maxMs: 10_000 },
+    });
+
+    const startPromise = session.start();
+    // listTools fails during connect, so the connected session caches no tools.
+    controls[0]!.failListTools(new Error('list failed'));
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.status.kind).toBe('connected');
+    expect(session.cachedTools()).toBeUndefined();
+
+    controls[0]!.setPingResult(() =>
+      Promise.reject(new UpstreamAuthExpiredError('fake', 'idle token expired')),
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+    expect(session.status.kind).toBe('auth_expired');
+
+    // With no cached tools, no downstream call can drive recovery, so the
+    // session must fall back to the reconnect backoff (as connect-time does).
+    await vi.advanceTimersByTimeAsync(100);
+    expect(controls).toHaveLength(2);
+    controls[1]!.resolveConnect();
+    await flushMicrotasks();
+    expect(session.status.kind).toBe('connected');
     await session.dispose();
   });
 });
