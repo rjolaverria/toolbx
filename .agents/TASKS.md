@@ -95,7 +95,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-18** — [`runOAuthLogin` orchestrator](tasks/F1-18-run-oauth-login.md) — closed by this PR
 - [x] **F1-19** — [`tlbx auth login | logout | status | refresh` commands](tasks/F1-19-auth-cli-commands.md) — closed by 3939da9 (branch `f1-19-auth-cli-commands`)
 - [x] **F1-20** — [`server add-http` probe-and-trigger integration](tasks/F1-20-add-http-oauth-integration.md) — closed by PR #63 (branch `f1-20-add-http-oauth-integration`)
-- [ ] **F1-21** — [Gateway OAuth wiring + lazy refresh + `auth_expired` surface](tasks/F1-21-gateway-oauth-wiring.md)
+- [x] **F1-21** — [Gateway OAuth wiring + lazy refresh + `auth_expired` surface](tasks/F1-21-gateway-oauth-wiring.md) — closed by PR #64 (branch `f1-21-gateway-oauth-wiring`)
 - [ ] **F1-22** — [`tlbx doctor` OAuth drift check + `--fix`](tasks/F1-22-doctor-oauth-drift.md)
 - [ ] **F1-23** — [End-to-end OAuth integration tests + CI security gates](tasks/F1-23-oauth-integration-tests.md)
 - [ ] **F1-24** — [Persist and replay the OAuth resource indicator on refresh](tasks/F1-24-oauth-refresh-resource-indicator.md)
