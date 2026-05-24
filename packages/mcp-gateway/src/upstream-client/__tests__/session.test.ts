@@ -1001,6 +1001,40 @@ describe('createUpstreamSession — ping', () => {
     await session.dispose();
   });
 
+  it('transitions to auth_expired (preserving tools) when a background ping fails with missing creds', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      pingIntervalMs: 500,
+      backoff: { initialMs: 50, factor: 2, maxMs: 1_000 },
+    });
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.cachedTools()).toBe(tools);
+
+    // The token record was removed mid-session, so the keepalive ping classifies
+    // as auth_required. Mid-session credential loss must land on auth_expired
+    // (tools preserved for call-driven recovery), not the generic
+    // transport-loss/error path that drops tools.
+    controls[0]!.setPingResult(() =>
+      Promise.reject(UpstreamAuthRequiredError.forMissingOAuthToken(undefined)),
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+
+    expect(session.status.kind).toBe('auth_expired');
+    expect(session.cachedTools()).toBe(tools);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(controls).toHaveLength(1);
+    await session.dispose();
+  });
+
   it('schedules a reconnect when a ping fails with expired creds and no tools were cached', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {

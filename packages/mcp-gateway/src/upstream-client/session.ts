@@ -382,14 +382,16 @@ export function createUpstreamSession(
         detachClientListeners();
         clearPing();
         void client.disconnect().catch(() => undefined);
-        if (isAuthExpiredError(error)) {
-          // An idle token aged out and the keepalive ping hit the SDK's refresh
-          // path. This is mid-session expiry, not transport loss: keep the
-          // cached tools published and surface `auth_expired` so the next call
-          // drives re-auth recovery, matching the call-path behavior (§4.6.2).
+        if (isAuthExpiredError(error) || isAuthRequiredError(error)) {
+          // A keepalive ping hit the SDK's refresh path and failed on auth —
+          // either the token aged out (auth_expired) or its record was removed
+          // (auth_required). This is mid-session credential loss, not transport
+          // loss: surface it as `auth_expired` (the valid connected-> transition
+          // that keeps cached tools published) so the next call drives re-auth
+          // recovery, matching the call and tools_list_changed paths (§4.6.2).
           // If nothing was ever cached, enterAuthExpired falls back to a
           // reconnect since no downstream call can reach this session.
-          enterAuthExpired(error.message, 1);
+          enterAuthExpired(errorMessage(error), 1);
           return;
         }
         log.debug({ err: error }, 'upstream ping failed; treating as transport loss');
