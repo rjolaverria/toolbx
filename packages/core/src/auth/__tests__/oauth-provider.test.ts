@@ -495,8 +495,26 @@ describe('ToolBoxOAuthProvider.validateResourceURL', () => {
       }),
     );
 
-    const result = await provider.validateResourceURL('https://api.example.com/', undefined);
+    const result = await provider.validateResourceURL('https://api.example.com/mcp', undefined);
     expect(result?.toString()).toBe('https://api.example.com/mcp');
+  });
+
+  it('omits a persisted resource that does not match the current server URL', async () => {
+    // Server retargeted under the same name: the stored resource is for a
+    // different origin and must not be replayed as the audience. validateResourceURL
+    // overrides the SDK's default validation entirely, so it must re-run the
+    // compatibility check itself.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://old-origin.example/mcp',
+        tokens: makeTokens({ refresh_token: 'rt' }),
+      }),
+    );
+
+    const result = await provider.validateResourceURL('https://new-origin.example/', undefined);
+    expect(result).toBeUndefined();
   });
 
   it('sends no resource during suppressed reauth even if one is stored', async () => {

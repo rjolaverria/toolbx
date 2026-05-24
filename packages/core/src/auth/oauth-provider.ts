@@ -201,8 +201,16 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     }
     if (!this.suppressTokensRead) {
       const record = await this.load();
-      if (record?.tokens.refresh_token !== undefined && record.resource !== undefined) {
-        return new URL(record.resource);
+      const stored = record?.resource;
+      if (record?.tokens.refresh_token !== undefined && stored !== undefined) {
+        // The persisted resource bypasses the SDK's default validation (we
+        // override it entirely), so re-check it against the current server. If
+        // the server URL was retargeted under this name, a stale resource must
+        // not be replayed as the audience — omit it so the refresh sends no
+        // indicator rather than the wrong one.
+        if (checkResourceAllowed({ requestedResource: serverUrl, configuredResource: stored })) {
+          return new URL(stored);
+        }
       }
     }
     return undefined;

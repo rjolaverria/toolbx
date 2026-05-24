@@ -252,7 +252,9 @@ describe('runOAuthLogin', () => {
     // back to the browser.
     const server = await fakeServer({ requireResourceOnRefresh: true });
     const store = new InMemoryTokenStore();
-    const resource = 'https://api.example.com/mcp';
+    // The persisted resource must be compatible with the MCP server URL — the
+    // provider re-validates it before replaying — so use the server's own URL.
+    const resource = server.url.toString();
     await seedToken(store, server.url.toString(), resource);
     const openBrowser = fetchingBrowser();
 
