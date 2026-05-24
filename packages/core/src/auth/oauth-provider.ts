@@ -77,6 +77,14 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // rediscovering. Without this, DCR/authorize, the exchange, and the persisted
   // issuer could diverge if the server's metadata changes between calls.
   private discoveryStateCache: OAuthDiscoveryState | undefined;
+  // Whether a discovery has been saved in the current flow but not yet consumed
+  // by a token save. Distinguishes a fresh login/reauth (whose discovery result
+  // is the authoritative resource selection) from a refresh re-save that merely
+  // reuses cached discovery — the latter must keep the most recent stored
+  // resource rather than resurrecting a stale session-cached one. The gateway
+  // provider is long-lived, so discoveryStateCache being set is NOT on its own
+  // proof that discovery ran for this particular save.
+  private discoveryStateSavedThisFlow = false;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -143,6 +151,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     }
     if (scope === 'all' || scope === 'discovery') {
       this.discoveryStateCache = undefined;
+      this.discoveryStateSavedThisFlow = false;
     }
   }
 
@@ -157,6 +166,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
 
   saveDiscoveryState(state: OAuthDiscoveryState): void {
     this.discoveryStateCache = state;
+    this.discoveryStateSavedThisFlow = true;
     // The authorization server the SDK actually resolved for this flow is the
     // one we must persist with the tokens, so refreshes target the same issuer.
     this.resolvedAuthorizationServer = state.authorizationServerUrl;
@@ -218,16 +228,18 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
           'Call provider.setAuthorizationServer(...) before the token exchange completes.',
       );
     }
-    // The RFC 8707 resource indicator to persist. When discovery ran in this
+    // The RFC 8707 resource indicator to persist. When a discovery ran in this
     // flow (the normal login/reauth path), the SDK's selection is authoritative:
     // the `resource` advertised in RFC 9728 protected-resource metadata, or none
-    // when the server advertises none. We must take it verbatim — including
-    // "none" — so a reauth against a server that dropped (or never had) a
-    // resource cannot inherit a stale indicator and replay the wrong audience on
-    // later refreshes. Only a re-save that skipped discovery falls back to the
-    // previously stored resource.
-    const resource = this.discoveryStateCache
-      ? this.discoveryStateCache.resourceMetadata?.resource
+    // when the server advertises none. We take it verbatim — including "none" —
+    // so a reauth against a server that dropped (or never had) a resource cannot
+    // inherit a stale indicator and replay the wrong audience on later refreshes.
+    // A refresh re-save that only reused cached discovery keeps the most recent
+    // stored resource: the long-lived gateway provider holds discovery from the
+    // initial connect, so the cache alone is not proof a discovery ran for this
+    // save, and an external `tlbx auth login` may have rebound the resource since.
+    const resource = this.discoveryStateSavedThisFlow
+      ? this.discoveryStateCache?.resourceMetadata?.resource
       : existing?.resource;
     const next: StoredOAuthRecord = {
       schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
@@ -240,6 +252,10 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);
     this.pendingClientInformation = undefined;
+    // Consume the fresh-discovery signal: a later refresh re-save on this
+    // (possibly long-lived) provider that reuses cached discovery must fall back
+    // to the stored resource instead of this flow's selection.
+    this.discoveryStateSavedThisFlow = false;
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {

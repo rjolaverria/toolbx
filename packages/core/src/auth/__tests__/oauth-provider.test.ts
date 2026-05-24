@@ -374,6 +374,42 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     expect(record?.resource).toBe('https://api.example.com/mcp');
   });
 
+  it('does not overwrite a newer externally-stored resource on a refresh re-save that reuses cached discovery', async () => {
+    // The gateway provider is long-lived: the SDK reuses its cached discovery
+    // across 401-refreshes, so discoveryStateCache stays set from the initial
+    // connect. If an external `tlbx auth login` rebinds the server to a new
+    // resource (read-through picks up the new record), a later refresh re-save
+    // must not resurrect the stale session-cached resource over the newer one.
+    const { provider, store } = makeProvider();
+    provider.saveDiscoveryState({
+      authorizationServerUrl: 'https://issuer.example/',
+      resourceMetadata: {
+        resource: 'https://a.example/mcp',
+        authorization_servers: ['https://issuer.example/'],
+      },
+    });
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveTokens(makeTokens({ access_token: 'first' }));
+    expect((await store.read('jira'))?.resource).toBe('https://a.example/mcp');
+
+    // External relogin rebinds to resource B (no new discovery on this provider).
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://b.example/mcp',
+        tokens: makeTokens({ access_token: 'external', refresh_token: 'rt' }),
+      }),
+    );
+
+    // A later refresh re-save: the SDK reused cached discovery, so no fresh
+    // saveDiscoveryState ran before this save.
+    await provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+
+    const record = await store.read('jira');
+    expect(record?.tokens.access_token).toBe('refreshed');
+    expect(record?.resource).toBe('https://b.example/mcp');
+  });
+
   it('drops a stale resource when reauth rediscovers metadata that advertises none', async () => {
     // Interactive reauth (or a server retargeted under the same name) runs fresh
     // discovery. If that discovery selects no resource, the freshly authenticated
