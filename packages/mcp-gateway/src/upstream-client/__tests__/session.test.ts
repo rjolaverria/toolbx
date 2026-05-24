@@ -350,7 +350,7 @@ describe('createUpstreamSession — auth_required (oauth)', () => {
 });
 
 describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
-  it('transitions to auth_expired when connect rejects with UpstreamAuthExpiredError and does not retry', async () => {
+  it('reports auth_expired when connect rejects with UpstreamAuthExpiredError', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {
       logger: createNoopLogger(),
@@ -365,7 +365,63 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     if (session.status.kind === 'auth_expired') {
       expect(session.status.reason).toBe('token expired');
     }
-    // No backoff retry loop — recovery is driven by the next tool call.
+    await session.dispose();
+  });
+
+  it('schedules a reconnect when connect-time auth_expired never cached tools', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      backoff: { initialMs: 100, factor: 2, maxMs: 10_000 },
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'token expired'));
+    await startPromise;
+    expect(session.status.kind).toBe('auth_expired');
+
+    // No tool list was ever cached, so no downstream tools/call can reach the
+    // session to drive call-based recovery (SPECS §4.6.2). The connection
+    // manager's reconnect backoff carries the session back once the user has
+    // re-authenticated — no restart, no downstream call.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(controls).toHaveLength(2);
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[1]!.setListToolsResult(tools);
+    controls[1]!.resolveConnect();
+    await flushMicrotasks();
+
+    expect(session.status.kind).toBe('connected');
+    expect(session.cachedTools()).toBe(tools);
+    await session.dispose();
+  });
+
+  it('does not spin a background reconnect when mid-session auth_expired has cached tools', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      backoff: { initialMs: 100, factor: 2, maxMs: 10_000 },
+    });
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.status.kind).toBe('connected');
+
+    controls[0]!.setCallToolResult(() =>
+      Promise.reject(new UpstreamAuthExpiredError('fake', 'mid-session expiry')),
+    );
+    await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
+      UpstreamAuthExpiredError,
+    );
+    expect(session.status.kind).toBe('auth_expired');
+
+    // Tools stay cached, so recovery is call-driven; no background reconnect
+    // loop should fire on its own.
     await vi.advanceTimersByTimeAsync(60_000);
     expect(controls).toHaveLength(1);
     await session.dispose();
@@ -442,6 +498,41 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
 
     await expect(callPromise).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
     expect(session.status.kind).toBe('auth_expired');
+    await session.dispose();
+  });
+
+  it('throws auth_required guidance when the reconnect after auth_expired finds no stored token', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+
+    // Mid-session expiry keeps tools cached so the server stays callable.
+    controls[0]!.setCallToolResult(() =>
+      Promise.reject(new UpstreamAuthExpiredError('fake', 'mid-session expiry')),
+    );
+    await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
+      UpstreamAuthExpiredError,
+    );
+    expect(session.status.kind).toBe('auth_expired');
+
+    // The next call drives a reconnect. The stored token has since been
+    // removed, so the upstream now reports auth_required. The caller must get
+    // re-auth guidance, not a generic not-connected error.
+    const callPromise = session.callTool('echo', undefined);
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+    controls[1]!.resolveConnect(UpstreamAuthRequiredError.forMissingOAuthToken(undefined));
+
+    await expect(callPromise).rejects.toBeInstanceOf(UpstreamAuthRequiredError);
+    expect(session.status.kind).toBe('auth_required');
     await session.dispose();
   });
 });

@@ -167,6 +167,7 @@ export function createUpstreamSession(
   let phase: Phase = { kind: 'idle' };
   let status: ServerStatus = { kind: 'stopped' };
   let pingHandle: unknown = null;
+  let authRecoveryHandle: unknown = null;
   let cached: ListToolsResult | undefined;
   let activeListeners: { client: UpstreamClient; off: () => void } | null = null;
   let pendingStart: Promise<void> | null = null;
@@ -197,6 +198,13 @@ export function createUpstreamSession(
     if (pingHandle !== null) {
       scheduler.clearInterval(pingHandle);
       pingHandle = null;
+    }
+  }
+
+  function clearAuthRecovery(): void {
+    if (authRecoveryHandle !== null) {
+      scheduler.clearTimeout(authRecoveryHandle);
+      authRecoveryHandle = null;
     }
   }
 
@@ -257,6 +265,20 @@ export function createUpstreamSession(
   function setAuthExpired(reason: string): void {
     phase = { kind: 'auth_expired' };
     setStatus({ kind: 'auth_expired', reason });
+  }
+
+  function scheduleAuthRecovery(failedAttempt: number): void {
+    clearAuthRecovery();
+    const delayMs = backoffMs(failedAttempt);
+    const nextAttempt = failedAttempt + 1;
+    authRecoveryHandle = scheduler.setTimeout(() => {
+      authRecoveryHandle = null;
+      if (phase.kind !== 'auth_expired') {
+        return;
+      }
+      phase = { kind: 'idle' };
+      void runConnectAttempt(nextAttempt);
+    }, delayMs);
   }
 
   function scheduleRetry(failedAttempt: number, lastError: Error): void {
@@ -330,11 +352,23 @@ export function createUpstreamSession(
         return;
       }
       if (isAuthExpiredError(error)) {
-        // Stored credentials aged out. Hold in `auth_expired` (no backoff loop)
-        // until the next tool call re-reads the token store and retries the
-        // connect — see `callTool` below (SPECS §4.6.2).
+        // Stored credentials aged out. When a tool list was already cached
+        // (mid-session expiry), hold in `auth_expired` with no backoff loop:
+        // the server stays callable, so the next tool call re-reads the token
+        // store and retries the connect — call-driven recovery (SPECS §4.6.2).
+        //
+        // When nothing was ever cached (the very first connect failed), no
+        // downstream `tools/call` can reach this server, so call-driven
+        // recovery can never fire. Fall back to the connection manager's
+        // reconnect backoff so the session self-heals after the user runs
+        // `tlbx auth login`, without a gateway restart. This is connection
+        // recovery, not proactive token refresh — refresh still happens lazily
+        // inside the SDK on each connect.
         await client.disconnect().catch(() => undefined);
         setAuthExpired(error.message);
+        if (cached === undefined) {
+          scheduleAuthRecovery(attempt);
+        }
         return;
       }
       await client.disconnect().catch(() => undefined);
@@ -397,6 +431,7 @@ export function createUpstreamSession(
     const previous = phase;
     phase = opts.keepStopped ? { kind: 'stopped' } : { kind: 'idle' };
     clearPing();
+    clearAuthRecovery();
     detachClientListeners();
     if (previous.kind === 'waiting') {
       scheduler.clearTimeout(previous.retryHandle);
@@ -431,12 +466,21 @@ export function createUpstreamSession(
     if (phase.kind === 'auth_expired') {
       // Recovery on next call (SPECS §4.6.2): rebuild the client so it re-reads
       // the token store, then retry the connect. This succeeds once the user
-      // has re-authenticated out of band via `tlbx auth login`.
+      // has re-authenticated out of band via `tlbx auth login`. Clear any
+      // pending background reconnect first so this call drives the single
+      // reconnect rather than racing a scheduled one.
+      clearAuthRecovery();
       await runConnectAttempt(1);
     }
     if (phase.kind !== 'connected') {
       if (phase.kind === 'auth_expired') {
         throw UpstreamAuthExpiredError.forServer(serverName);
+      }
+      if (phase.kind === 'auth_required') {
+        // The reconnect found the stored token gone (e.g. revoked or logged
+        // out), so the upstream now needs a fresh login rather than a refresh.
+        // Surface the re-auth guidance instead of a generic not-connected error.
+        throw UpstreamAuthRequiredError.forMissingOAuthToken(serverName);
       }
       throw new UpstreamNotConnectedError(serverName);
     }
