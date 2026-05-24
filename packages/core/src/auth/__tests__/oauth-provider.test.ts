@@ -361,9 +361,9 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     expect((await store.read('jira'))?.resource).toBeUndefined();
   });
 
-  it('preserves an existing record resource on re-save when discovery carries none', async () => {
-    // A gateway-side refresh re-saves tokens without rediscovering protected-
-    // resource metadata; the resource captured at login must not be dropped.
+  it('preserves an existing record resource on re-save when no discovery ran in this flow', async () => {
+    // A re-save that skipped discovery (no saveDiscoveryState call) must not
+    // drop the resource captured at login.
     const { provider, store } = makeProvider();
     await store.write('jira', makeRecord({ resource: 'https://api.example.com/mcp' }));
 
@@ -372,6 +372,23 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     const record = await store.read('jira');
     expect(record?.tokens.access_token).toBe('refreshed');
     expect(record?.resource).toBe('https://api.example.com/mcp');
+  });
+
+  it('drops a stale resource when reauth rediscovers metadata that advertises none', async () => {
+    // Interactive reauth (or a server retargeted under the same name) runs fresh
+    // discovery. If that discovery selects no resource, the freshly authenticated
+    // record must NOT inherit the previously stored resource, or every later
+    // refresh would replay a stale audience (invalid_target / wrong-audience token).
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord({ resource: 'https://api.example.com/mcp' }));
+
+    provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveTokens(makeTokens({ access_token: 'reauthed' }));
+
+    const record = await store.read('jira');
+    expect(record?.tokens.access_token).toBe('reauthed');
+    expect(record?.resource).toBeUndefined();
   });
 });
 

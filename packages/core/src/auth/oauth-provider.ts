@@ -218,13 +218,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
           'Call provider.setAuthorizationServer(...) before the token exchange completes.',
       );
     }
-    // The RFC 8707 resource indicator the SDK selected for this flow. The
-    // default `selectResourceURL` returns the `resource` advertised in RFC 9728
-    // protected-resource metadata, which the SDK hands us via saveDiscoveryState;
-    // when no protected-resource metadata exists it selects none, and we persist
-    // none so refresh stays resource-free. Fall back to any previously stored
-    // resource so a refresh-style re-save does not drop it.
-    const resource = this.discoveryStateCache?.resourceMetadata?.resource ?? existing?.resource;
+    // The RFC 8707 resource indicator to persist. When discovery ran in this
+    // flow (the normal login/reauth path), the SDK's selection is authoritative:
+    // the `resource` advertised in RFC 9728 protected-resource metadata, or none
+    // when the server advertises none. We must take it verbatim — including
+    // "none" — so a reauth against a server that dropped (or never had) a
+    // resource cannot inherit a stale indicator and replay the wrong audience on
+    // later refreshes. Only a re-save that skipped discovery falls back to the
+    // previously stored resource.
+    const resource = this.discoveryStateCache
+      ? this.discoveryStateCache.resourceMetadata?.resource
+      : existing?.resource;
     const next: StoredOAuthRecord = {
       schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
       clientInformation,
