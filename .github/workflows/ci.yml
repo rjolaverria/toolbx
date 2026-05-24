@@ -62,7 +62,10 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm build
       - name: Capture runtime logs
-        run: pnpm test:integration 2>&1 | tee runtime-token-leak-check.log
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:integration 2>&1 | tee runtime-token-leak-check.log
       - run: node scripts/check-no-token-leaks.mjs
 
   coverage:
