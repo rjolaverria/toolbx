@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
+  createNoopLogger,
+  createTokenStore,
   DEFAULT_CONFIG,
   detectCollisions,
   LOOPBACK_HOSTS,
@@ -14,9 +16,12 @@ import {
   ToolBoxConfigSchema,
   ToolCacheMissingError,
   type CachedTool,
+  type TokenStorage,
+  type TokenStore,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
+import { isOAuthServer } from './auth/shared.js';
 import {
   collectIssues,
   defaultConfigValidateDeps,
@@ -55,6 +60,10 @@ export interface DoctorDeps extends ConfigValidateDeps {
   readConfigSource: (target: string) => Promise<string | null>;
   /** Prompts the user to confirm a mutating fix. Resolves true to proceed. */
   confirmFix: (prompt: string) => Promise<boolean>;
+  /** Resolves the configured token-store backend. Tests inject an in-memory store. */
+  createTokenStore: (storage: TokenStorage) => TokenStore;
+  /** Host platform, used to tailor token-store remediation hints. */
+  platform: () => NodeJS.Platform;
 }
 
 const PACKAGE_JSON_PATH = (() => {
@@ -113,6 +122,8 @@ export function defaultDoctorDeps(): DoctorDeps {
         rl.close();
       }
     },
+    createTokenStore: (storage) => createTokenStore(storage, { logger: createNoopLogger() }),
+    platform: () => process.platform,
   };
 }
 
@@ -414,6 +425,182 @@ export function extractBindHost(parsed: unknown): string | null {
   return typeof host === 'string' ? host : null;
 }
 
+/** Sorted names of HTTP servers configured with `auth.type === 'oauth'`. */
+function oauthServerNames(config: ToolBoxConfig): string[] {
+  return Object.entries(config.servers)
+    .filter(([, entry]) => isOAuthServer(entry))
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Platform-tailored remediation for an unavailable token store. Best-effort:
+ * the underlying `probe()` reason already carries the precise error, so this
+ * only points the user at the most likely cause for their OS.
+ */
+export function tokenStoreUnavailableHint(platform: NodeJS.Platform): string {
+  if (platform === 'darwin') {
+    return 'macOS Keychain access denied — run `tlbx auth login <server>` and approve the prompt';
+  }
+  if (platform === 'linux') {
+    return 'Linux: install gnome-keyring or kwallet and start the secret service, then retry';
+  }
+  return 'Ensure your OS credential store is reachable, then run `tlbx auth login <server>`';
+}
+
+export interface AuthCheckResult {
+  /** Rows to splice into the doctor report (empty when the section is omitted). */
+  rows: readonly CheckResult[];
+  /** Server names with a stored token but no matching OAuth config entry. */
+  orphans: readonly string[];
+  /** OAuth-configured server names with no stored token. */
+  missing: readonly string[];
+}
+
+const NO_AUTH_SECTION: AuthCheckResult = { rows: [], orphans: [], missing: [] };
+
+interface AuthRowsInput {
+  orphans?: readonly string[];
+  missing?: readonly string[];
+  /** Servers whose stored credential exists but could not be read (e.g. corrupt). */
+  unreadable?: readonly { name: string; reason: string }[];
+  /** Set when `list()` failed, so orphan detection could not run. */
+  enumerationError?: string | null;
+}
+
+/** Assemble the Auth section: a store-health PASS row plus drift/health rows. */
+function authRows(storageType: string, input: AuthRowsInput): CheckResult[] {
+  const rows: CheckResult[] = [
+    { id: 'auth-store', severity: 'PASS', message: `Token store (${storageType}) is available` },
+  ];
+  if (input.enumerationError != null) {
+    rows.push({
+      id: 'auth-orphans-unavailable',
+      severity: 'WARN',
+      message: `Orphan-token detection skipped: could not enumerate the token store (${input.enumerationError})`,
+    });
+  }
+  for (const name of input.orphans ?? []) {
+    rows.push({
+      id: `auth-orphan:${name}`,
+      severity: 'WARN',
+      message: `Orphan token for "${name}" — server entry not in config`,
+    });
+  }
+  for (const name of input.missing ?? []) {
+    rows.push({
+      id: `auth-missing:${name}`,
+      severity: 'WARN',
+      message: `Missing token for "${name}" — run \`tlbx auth login ${name}\``,
+    });
+  }
+  for (const { name, reason } of input.unreadable ?? []) {
+    rows.push({
+      id: `auth-unreadable:${name}`,
+      severity: 'FAIL',
+      message: `Stored credentials for "${name}" are unreadable: ${reason}`,
+      fixHint: `Run \`tlbx auth login ${name}\` to re-authenticate and overwrite the entry`,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Token-store health and config/token drift. The section is gated on "OAuth in
+ * config OR tokens in store" so it stays silent for users who do not use OAuth.
+ *
+ * When no OAuth server is configured we deliberately avoid `probe()`: on the
+ * keychain backend it writes and deletes a sentinel credential, which would
+ * touch (or prompt for) the OS credential store on every `tlbx doctor` run even
+ * for users with no tokens. The read-only `list()` is enough to decide whether
+ * there is anything (orphan tokens) worth reporting.
+ */
+export async function checkAuth(
+  config: ToolBoxConfig,
+  tokenStore: TokenStore,
+  storageType: string,
+  platform: NodeJS.Platform,
+): Promise<AuthCheckResult> {
+  const oauthNames = oauthServerNames(config);
+
+  if (oauthNames.length === 0) {
+    // The only thing worth reporting without OAuth config is orphan tokens, and
+    // those only surface through `list()`. Use it (read-only) instead of
+    // `probe()`, and stay silent when it is empty, unsupported, or throws.
+    let stored: readonly string[];
+    try {
+      stored = await tokenStore.list();
+    } catch {
+      return NO_AUTH_SECTION;
+    }
+    if (stored.length === 0) {
+      return NO_AUTH_SECTION;
+    }
+    const orphans = [...stored].sort((a, b) => a.localeCompare(b));
+    return { rows: authRows(storageType, { orphans }), orphans, missing: [] };
+  }
+
+  // OAuth is configured, so store health genuinely matters — probe it. A
+  // keychain prompt here is expected: the user explicitly relies on OAuth.
+  const health = await tokenStore.probe();
+  if (health.kind === 'unavailable') {
+    return {
+      rows: [
+        {
+          id: 'auth-store',
+          severity: 'FAIL',
+          message: `Token store (${storageType}) is unavailable: ${health.reason}`,
+          fixHint: tokenStoreUnavailableHint(platform),
+        },
+      ],
+      orphans: [],
+      missing: [],
+    };
+  }
+
+  // Orphan detection needs enumeration. `list()`'s contract allows a successful
+  // `[]` to mean either "no records" or "enumeration unsupported", and the call
+  // may also throw. A successful empty result is treated as "no orphans"; a
+  // failure is surfaced as a WARN (`enumerationError`) so the user knows orphan
+  // detection was skipped rather than silently assuming there are none.
+  let stored: readonly string[] = [];
+  let enumerationError: string | null = null;
+  try {
+    stored = await tokenStore.list();
+  } catch (error) {
+    enumerationError = error instanceof Error ? error.message : String(error);
+  }
+
+  // Missing-token detection reads each configured server directly rather than
+  // trusting `list()`: an empty/unsupported enumeration would otherwise report
+  // servers with valid stored credentials as missing. A `read()` that throws
+  // means an entry exists but is unreadable (e.g. corrupt); that is a real,
+  // separate problem (`auth status`, refresh, and gateway use will fail on it),
+  // so it is surfaced as a FAIL row rather than silently treated as present.
+  const missing: string[] = [];
+  const unreadable: { name: string; reason: string }[] = [];
+  for (const name of oauthNames) {
+    try {
+      if ((await tokenStore.read(name)) === null) {
+        missing.push(name);
+      }
+    } catch (error) {
+      unreadable.push({ name, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  const configured = new Set(oauthNames);
+  const orphans = [...stored]
+    .filter((name) => !configured.has(name))
+    .sort((a, b) => a.localeCompare(b));
+
+  return {
+    rows: authRows(storageType, { orphans, missing, unreadable, enumerationError }),
+    orphans,
+    missing,
+  };
+}
+
 function tryParseJson(source: string): unknown {
   try {
     return JSON.parse(source) as unknown;
@@ -551,6 +738,43 @@ async function fixMissingEnvVars(ctx: FixContext): Promise<FixOutcome> {
     status: 'APPLIED',
     summary: 'printed an export snippet for the missing environment variable(s)',
     lines: names.map((name) => `export ${name}=...`),
+  };
+}
+
+async function fixOrphanToken(
+  name: string,
+  tokenStore: TokenStore,
+  ctx: FixContext,
+): Promise<FixOutcome> {
+  const action = `Delete the orphan OAuth token for "${name}" (no matching server in config)`;
+  if (!(await confirmAction(ctx, action))) {
+    return DECLINED;
+  }
+  // Safe to prune: the user can always re-run `tlbx auth login <name>`. Deletion
+  // can still fail (permission denied, store became unavailable) — report that
+  // as a skipped fix rather than letting it abort the whole doctor run.
+  try {
+    await tokenStore.delete(name);
+  } catch (error) {
+    return {
+      status: 'SKIPPED_NO_FIX',
+      summary: `could not delete orphan token for "${name}": ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+  return { status: 'APPLIED', summary: `deleted orphan token for "${name}"` };
+}
+
+/**
+ * Missing tokens are never auto-fixed: silently opening a browser from
+ * `doctor --fix` would violate the "browser only opens from explicit user
+ * action" principle. We report the manual remediation instead.
+ */
+function missingTokenFixNotice(name: string): FixOutcome {
+  return {
+    status: 'SKIPPED_NO_FIX',
+    summary: `run \`tlbx auth login ${name}\` to obtain the missing token`,
   };
 }
 
@@ -758,10 +982,31 @@ export async function runDoctor(options: DoctorOptions, deps: DoctorDeps): Promi
   // of being swallowed by the generic config-validation failure path.
   checks.push(checkBindAddress(extractBindHost(parsed)));
 
-  const fixOutcomes: ReadonlyMap<string, FixOutcome> =
-    options.fix === true
-      ? await applyFixes(checks, { target, source, config, issues, options, deps })
-      : new Map<string, FixOutcome>();
+  // Auth section runs last, only when the config loaded — it needs the resolved
+  // `auth.storage` backend and the validated server list.
+  let tokenStore: TokenStore | null = null;
+  let auth: AuthCheckResult = NO_AUTH_SECTION;
+  if (config !== null) {
+    tokenStore = deps.createTokenStore(config.auth.storage);
+    auth = await checkAuth(config, tokenStore, config.auth.storage.type, deps.platform());
+    checks.push(...auth.rows);
+  }
+
+  const fixCtx: FixContext = { target, source, config, issues, options, deps };
+  const fixOutcomes = new Map<string, FixOutcome>(
+    options.fix === true ? await applyFixes(checks, fixCtx) : [],
+  );
+  if (options.fix === true && tokenStore !== null) {
+    // Orphan and missing tokens are WARN rows, so the FAIL-only generic fixer
+    // above skips them: `--fix` prunes orphan tokens and only reports the manual
+    // remediation for missing ones.
+    for (const name of auth.orphans) {
+      fixOutcomes.set(`auth-orphan:${name}`, await fixOrphanToken(name, tokenStore, fixCtx));
+    }
+    for (const name of auth.missing) {
+      fixOutcomes.set(`auth-missing:${name}`, missingTokenFixNotice(name));
+    }
+  }
 
   if (options.json === true) {
     deps.stdout(
