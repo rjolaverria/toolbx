@@ -114,12 +114,82 @@ describe('gateway OAuth runtime', () => {
     expect(stored?.tokens.access_token).toBe('refreshed-access-token');
   }, 20_000);
 
-  // The auth_expired recovery path (mid-session expiry -> structured re-auth
-  // tool-call error -> reconnect after re-login) is covered deterministically
-  // by the session, route, handler, and runtime unit tests. Driving it through
-  // a real HTTP upstream here is non-deterministic: the SDK transport's
-  // background SSE stream races the explicit call and retries on its own timer,
-  // which would make this case slow and flaky.
+  it('refreshes a stale token from a downstream tool call and persists rotated tokens', async () => {
+    const upstream = await startUpstream({ validTokens: ['refreshed-access-token'] });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      record(upstream.issuer, {
+        access_token: 'stale-access-token',
+        refresh_token: 'valid-refresh-token',
+      }),
+    );
+
+    const { runtime, downstream } = await startHarness({
+      config: configFor(upstream.url),
+      harness,
+      tokenStore,
+      waitForServers: [],
+    });
+    await waitFor(() => runtime.statusRegistry.get('demo')?.status.kind === 'connected', 5000);
+
+    const client = await connectHttpClient(downstream.url, 'oauth-refresh-call', harness);
+    const result = await client.callTool({ name: 'demo__echo', arguments: { message: 'ok' } });
+
+    expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(upstream.tokenGrants).toContain('refresh_token');
+    const stored = await tokenStore.read('demo');
+    expect(stored?.tokens.access_token).toBe('refreshed-access-token');
+    expect(runtime.statusRegistry.get('demo')?.status.kind).toBe('connected');
+  }, 20_000);
+
+  it('surfaces auth_expired on revoked refresh and recovers after fresh tokens are written', async () => {
+    const upstream = await startUpstream({
+      validTokens: ['fresh-login-token'],
+      rejectRefresh: true,
+    });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      record(upstream.issuer, {
+        access_token: 'stale-access-token',
+        refresh_token: 'revoked-refresh-token',
+      }),
+    );
+
+    const { runtime, downstream } = await startHarness({
+      config: configFor(upstream.url),
+      harness,
+      tokenStore,
+      waitForServers: [],
+    });
+    await waitFor(() => runtime.statusRegistry.get('demo')?.status.kind === 'auth_expired', 5000);
+
+    const client = await connectHttpClient(downstream.url, 'oauth-expired-recovery', harness);
+    const expired = await client.callTool({
+      name: 'demo__echo',
+      arguments: { message: 'should fail' },
+    });
+
+    expect(expired.isError).toBe(true);
+    expect(JSON.stringify(expired.content)).toContain('tlbx auth login demo');
+    expect(runtime.statusRegistry.get('demo')?.status.kind).toBe('auth_expired');
+
+    upstream.setRejectRefresh(false);
+    await tokenStore.write(
+      'demo',
+      record(upstream.issuer, {
+        access_token: 'fresh-login-token',
+        refresh_token: 'fresh-refresh-token',
+      }),
+    );
+    await waitFor(() => runtime.statusRegistry.get('demo')?.status.kind === 'connected', 5000);
+
+    const recovered = await client.callTool({ name: 'demo__echo', arguments: { message: 'ok' } });
+
+    expect(recovered.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(runtime.statusRegistry.get('demo')?.status.kind).toBe('connected');
+  }, 20_000);
 
   it('enters auth_required when no token is stored at all', async () => {
     const upstream = await startUpstream({ validTokens: ['tok-1'] });

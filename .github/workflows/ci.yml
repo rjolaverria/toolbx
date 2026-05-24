@@ -53,6 +53,21 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm test:run
 
+  token-leak-check:
+    name: Token-leak check
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - name: Capture runtime logs
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:integration 2>&1 | tee runtime-token-leak-check.log
+      - run: node scripts/check-no-token-leaks.mjs
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

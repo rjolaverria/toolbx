@@ -97,7 +97,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-20** — [`server add-http` probe-and-trigger integration](tasks/F1-20-add-http-oauth-integration.md) — closed by PR #63 (branch `f1-20-add-http-oauth-integration`)
 - [x] **F1-21** — [Gateway OAuth wiring + lazy refresh + `auth_expired` surface](tasks/F1-21-gateway-oauth-wiring.md) — closed by PR #64 (branch `f1-21-gateway-oauth-wiring`)
 - [x] **F1-22** — [`tlbx doctor` OAuth drift check + `--fix`](tasks/F1-22-doctor-oauth-drift.md) — closed by PR #65 (branch `f1-22-doctor-oauth-drift`)
-- [ ] **F1-23** — [End-to-end OAuth integration tests + CI security gates](tasks/F1-23-oauth-integration-tests.md)
+- [x] **F1-23** — [End-to-end OAuth integration tests + CI security gates](tasks/F1-23-oauth-integration-tests.md) — closed by 4ac57f6; CLI snapshots manually reviewed for token-byte leakage
 - [ ] **F1-24** — [Persist and replay the OAuth resource indicator on refresh](tasks/F1-24-oauth-refresh-resource-indicator.md)
 
 ## Phase 2 — Electron Desktop UI
