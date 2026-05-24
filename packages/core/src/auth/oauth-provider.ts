@@ -77,14 +77,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // rediscovering. Without this, DCR/authorize, the exchange, and the persisted
   // issuer could diverge if the server's metadata changes between calls.
   private discoveryStateCache: OAuthDiscoveryState | undefined;
-  // Whether a discovery has been saved in the current flow but not yet consumed
-  // by a token save. Distinguishes a fresh login/reauth (whose discovery result
-  // is the authoritative resource selection) from a refresh re-save that merely
-  // reuses cached discovery — the latter must keep the most recent stored
-  // resource rather than resurrecting a stale session-cached one. The gateway
-  // provider is long-lived, so discoveryStateCache being set is NOT on its own
-  // proof that discovery ran for this particular save.
-  private discoveryStateSavedThisFlow = false;
+  // Whether this flow performed an authorization-code exchange (interactive
+  // login/reauth) whose result has not yet been consumed by a token save. Only
+  // that path freshly selects the RFC 8707 resource, so only then is the
+  // discovered resource authoritative; a refresh grant never reaches here with
+  // this set. Keying off the code-exchange path — not off saveDiscoveryState —
+  // matters because the long-lived gateway provider runs discovery on connect
+  // and may then be satisfied by a stored token (no save to consume a
+  // discovery-based marker), after which a later refresh must keep the most
+  // recent stored resource rather than a stale session-cached one. Set when the
+  // SDK saves the PKCE verifier (authorization-code path only).
+  private authorizationCodeExchangeInFlight = false;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -148,10 +151,12 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     }
     if (scope === 'all' || scope === 'verifier') {
       this.savedCodeVerifier = undefined;
+      // The pending authorization-code flow is being torn down; drop its marker
+      // so a later refresh save does not treat its discovery as authoritative.
+      this.authorizationCodeExchangeInFlight = false;
     }
     if (scope === 'all' || scope === 'discovery') {
       this.discoveryStateCache = undefined;
-      this.discoveryStateSavedThisFlow = false;
     }
   }
 
@@ -166,7 +171,6 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
 
   saveDiscoveryState(state: OAuthDiscoveryState): void {
     this.discoveryStateCache = state;
-    this.discoveryStateSavedThisFlow = true;
     // The authorization server the SDK actually resolved for this flow is the
     // one we must persist with the tokens, so refreshes target the same issuer.
     this.resolvedAuthorizationServer = state.authorizationServerUrl;
@@ -228,17 +232,16 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
           'Call provider.setAuthorizationServer(...) before the token exchange completes.',
       );
     }
-    // The RFC 8707 resource indicator to persist. When a discovery ran in this
-    // flow (the normal login/reauth path), the SDK's selection is authoritative:
+    // The RFC 8707 resource indicator to persist. On a fresh authorization-code
+    // exchange (interactive login/reauth) the SDK's selection is authoritative:
     // the `resource` advertised in RFC 9728 protected-resource metadata, or none
     // when the server advertises none. We take it verbatim — including "none" —
     // so a reauth against a server that dropped (or never had) a resource cannot
     // inherit a stale indicator and replay the wrong audience on later refreshes.
-    // A refresh re-save that only reused cached discovery keeps the most recent
-    // stored resource: the long-lived gateway provider holds discovery from the
-    // initial connect, so the cache alone is not proof a discovery ran for this
-    // save, and an external `tlbx auth login` may have rebound the resource since.
-    const resource = this.discoveryStateSavedThisFlow
+    // A refresh grant (no code exchange) keeps the most recent stored resource:
+    // the long-lived gateway provider holds discovery from the initial connect,
+    // so an external `tlbx auth login` may have rebound the resource since.
+    const resource = this.authorizationCodeExchangeInFlight
       ? this.discoveryStateCache?.resourceMetadata?.resource
       : existing?.resource;
     const next: StoredOAuthRecord = {
@@ -252,10 +255,10 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);
     this.pendingClientInformation = undefined;
-    // Consume the fresh-discovery signal: a later refresh re-save on this
-    // (possibly long-lived) provider that reuses cached discovery must fall back
-    // to the stored resource instead of this flow's selection.
-    this.discoveryStateSavedThisFlow = false;
+    // Consume the authorization-code marker: a later refresh save on this
+    // (possibly long-lived) provider must fall back to the stored resource
+    // instead of this flow's selection.
+    this.authorizationCodeExchangeInFlight = false;
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {
@@ -268,6 +271,11 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
 
   saveCodeVerifier(verifier: string): Promise<void> {
     this.savedCodeVerifier = verifier;
+    // The SDK only saves a PKCE verifier on the interactive authorization-code
+    // path, so this marks the upcoming token save as a fresh authorization whose
+    // selected resource is authoritative (vs a refresh grant, which never saves
+    // a verifier).
+    this.authorizationCodeExchangeInFlight = true;
     return Promise.resolve();
   }
 

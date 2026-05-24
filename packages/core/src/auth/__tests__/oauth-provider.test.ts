@@ -346,6 +346,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     });
 
     await provider.saveClientInformation(makeClientInfo());
+    await provider.saveCodeVerifier('verifier'); // interactive authorization-code flow
     await provider.saveTokens(makeTokens());
 
     expect((await store.read('jira'))?.resource).toBe('https://api.example.com/mcp');
@@ -356,14 +357,15 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
 
     await provider.saveClientInformation(makeClientInfo());
+    await provider.saveCodeVerifier('verifier');
     await provider.saveTokens(makeTokens());
 
     expect((await store.read('jira'))?.resource).toBeUndefined();
   });
 
-  it('preserves an existing record resource on re-save when no discovery ran in this flow', async () => {
-    // A re-save that skipped discovery (no saveDiscoveryState call) must not
-    // drop the resource captured at login.
+  it('preserves an existing record resource on a refresh re-save (no code exchange)', async () => {
+    // A refresh grant performs no authorization-code exchange, so it must keep
+    // the resource captured at login rather than dropping it.
     const { provider, store } = makeProvider();
     await store.write('jira', makeRecord({ resource: 'https://api.example.com/mcp' }));
 
@@ -374,12 +376,12 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     expect(record?.resource).toBe('https://api.example.com/mcp');
   });
 
-  it('does not overwrite a newer externally-stored resource on a refresh re-save that reuses cached discovery', async () => {
+  it('does not overwrite a newer externally-stored resource on a refresh re-save', async () => {
     // The gateway provider is long-lived: the SDK reuses its cached discovery
     // across 401-refreshes, so discoveryStateCache stays set from the initial
     // connect. If an external `tlbx auth login` rebinds the server to a new
     // resource (read-through picks up the new record), a later refresh re-save
-    // must not resurrect the stale session-cached resource over the newer one.
+    // (no code exchange) must not resurrect the stale session-cached resource.
     const { provider, store } = makeProvider();
     provider.saveDiscoveryState({
       authorizationServerUrl: 'https://issuer.example/',
@@ -389,6 +391,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
       },
     });
     await provider.saveClientInformation(makeClientInfo());
+    await provider.saveCodeVerifier('verifier'); // initial interactive login
     await provider.saveTokens(makeTokens({ access_token: 'first' }));
     expect((await store.read('jira'))?.resource).toBe('https://a.example/mcp');
 
@@ -410,6 +413,38 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     expect(record?.resource).toBe('https://b.example/mcp');
   });
 
+  it('does not treat discovery as authoritative when the flow ran no code exchange (stored token satisfied auth)', async () => {
+    // A connect that runs discovery but is satisfied by an already-valid stored
+    // token performs no code exchange and no token save. The fresh-discovery
+    // signal must not linger on this long-lived provider: a later refresh save,
+    // after an external relogin rebinds the resource, must keep the newer stored
+    // value rather than the stale session-cached discovery.
+    const { provider, store } = makeProvider();
+    provider.saveDiscoveryState({
+      authorizationServerUrl: 'https://issuer.example/',
+      resourceMetadata: {
+        resource: 'https://a.example/mcp',
+        authorization_servers: ['https://issuer.example/'],
+      },
+    });
+    // No saveCodeVerifier and no saveTokens here: auth() was satisfied by the
+    // stored token.
+
+    // External relogin rebinds to resource B.
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://b.example/mcp',
+        tokens: makeTokens({ access_token: 'external', refresh_token: 'rt' }),
+      }),
+    );
+
+    // A later refresh save (refresh grant — no code verifier).
+    await provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+
+    expect((await store.read('jira'))?.resource).toBe('https://b.example/mcp');
+  });
+
   it('drops a stale resource when reauth rediscovers metadata that advertises none', async () => {
     // Interactive reauth (or a server retargeted under the same name) runs fresh
     // discovery. If that discovery selects no resource, the freshly authenticated
@@ -420,6 +455,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
 
     provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
     await provider.saveClientInformation(makeClientInfo());
+    await provider.saveCodeVerifier('verifier'); // interactive reauth
     await provider.saveTokens(makeTokens({ access_token: 'reauthed' }));
 
     const record = await store.read('jira');
