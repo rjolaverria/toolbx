@@ -239,9 +239,27 @@ export function createUpstreamSession(
 
   function attachClient(client: UpstreamClient): void {
     const onToolsListChanged = (): void => {
-      void refreshTools(client).then(() => {
-        emitToolsListChanged();
-      });
+      void refreshTools(client)
+        .then(() => {
+          emitToolsListChanged();
+        })
+        .catch((error: unknown) => {
+          // refreshTools only rejects with auth errors (others are swallowed).
+          // A notification-time auth failure is mid-session expiry: surface it
+          // like the ping/call paths instead of leaving the session connected.
+          if (phase.kind !== 'connected' || phase.client !== client) {
+            return;
+          }
+          detachClientListeners();
+          clearPing();
+          void client.disconnect().catch(() => undefined);
+          if (isAuthRequiredError(error)) {
+            phase = { kind: 'auth_required' };
+            setStatus({ kind: 'auth_required', reason: error.message });
+          } else if (isAuthExpiredError(error)) {
+            enterAuthExpired(error.message, 1);
+          }
+        });
     };
     const onExit = (info: { intentional: boolean }): void => {
       if (info.intentional) {
@@ -441,15 +459,21 @@ export function createUpstreamSession(
       return;
     }
 
-    if (isAuthRequiredError(refreshError)) {
+    if (refreshError !== null) {
+      // tools/list reported an auth failure. Disconnect, then re-check once more
+      // — the disconnect await is itself a race window where dispose()/restart()
+      // can move us out of this attempt — before surfacing the auth state.
       await client.disconnect().catch(() => undefined);
-      phase = { kind: 'auth_required' };
-      setStatus({ kind: 'auth_required', reason: refreshError.message });
-      return;
-    }
-    if (isAuthExpiredError(refreshError)) {
-      await client.disconnect().catch(() => undefined);
-      enterAuthExpired(refreshError.message, attempt);
+      const afterDisconnect = phase as Phase;
+      if (afterDisconnect.kind !== 'starting' || afterDisconnect.client !== client) {
+        return;
+      }
+      if (isAuthRequiredError(refreshError)) {
+        phase = { kind: 'auth_required' };
+        setStatus({ kind: 'auth_required', reason: refreshError.message });
+      } else if (isAuthExpiredError(refreshError)) {
+        enterAuthExpired(refreshError.message, attempt);
+      }
       return;
     }
 

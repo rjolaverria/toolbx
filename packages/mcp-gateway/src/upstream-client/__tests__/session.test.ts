@@ -652,6 +652,54 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     await session.dispose();
   });
 
+  it('transitions to auth_expired when a tools_list_changed refresh fails with expired creds', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.status.kind).toBe('connected');
+
+    // A change notification triggers a refresh, but the token has since expired.
+    controls[0]!.failListTools(new UpstreamAuthExpiredError('fake', 'refresh expired'));
+    controls[0]!.emitToolsListChanged();
+    await flushMicrotasks();
+
+    expect(session.status.kind).toBe('auth_expired');
+    await session.dispose();
+  });
+
+  it('does not announce auth_expired when dispose races a tools/list auth failure', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+    const events: ServerStatus[] = [];
+    session.on('status', (s) => events.push(s));
+
+    const startPromise = session.start();
+    // connect succeeds, but the initial tools/list reports expired creds, and
+    // the disconnect in that auth branch is held so dispose() can interleave.
+    controls[0]!.failListTools(new UpstreamAuthExpiredError('fake', 'tools/list expired'));
+    controls[0]!.deferDisconnect();
+    controls[0]!.resolveConnect();
+    await flushMicrotasks();
+
+    const disposePromise = session.dispose();
+    controls[0]!.flushDisconnect();
+    await Promise.all([startPromise, disposePromise]);
+
+    expect(session.status.kind).toBe('stopped');
+    expect(statusKinds(events)).not.toContain('auth_expired');
+  });
+
   it('does not announce auth_expired after a dispose races a mid-call expiry', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {
