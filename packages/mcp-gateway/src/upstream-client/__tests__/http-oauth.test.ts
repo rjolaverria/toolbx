@@ -157,4 +157,29 @@ describe('createHttpUpstreamClient — OAuth', () => {
     const client = makeClient(upstream.url, tokenStore);
     await expect(client.connect()).rejects.toBeInstanceOf(UpstreamAuthRequiredError);
   }, 15_000);
+
+  it('classifies a ping-time refresh failure as UpstreamAuthExpiredError', async () => {
+    const upstream = await startServer({
+      validTokens: ['fake-access-token'],
+      rejectRefresh: true,
+    });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      makeRecord(upstream.issuer, {
+        access_token: 'fake-access-token',
+        refresh_token: 'revoked-refresh-token',
+      }),
+    );
+
+    const client = makeClient(upstream.url, tokenStore);
+    await client.connect();
+
+    // The access token is revoked server-side mid-session, so the next
+    // keepalive ping 401s and the SDK's refresh attempt is rejected. The ping
+    // path must classify this the same way connect/callTool do.
+    upstream.validTokens.delete('fake-access-token');
+    await expect(client.ping()).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    await client.disconnect();
+  }, 15_000);
 });

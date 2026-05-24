@@ -385,7 +385,15 @@ export function createHttpUpstreamClient(
 
   async function ping(): Promise<void> {
     const c = requireClient();
-    await c.ping();
+    try {
+      await c.ping();
+    } catch (error) {
+      const authError = await classifyOAuthFailure(error);
+      if (authError !== null) {
+        throw authError;
+      }
+      throw error;
+    }
   }
 
   function on<E extends UpstreamClientEvent>(event: E, handler: UpstreamClientEvents[E]): void {

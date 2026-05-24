@@ -535,6 +535,59 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     expect(session.status.kind).toBe('auth_required');
     await session.dispose();
   });
+
+  it('does not let a stale auth_expired connect attempt clobber a concurrent restart', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      backoff: { initialMs: 100, factor: 2, maxMs: 10_000 },
+    });
+
+    // First connect attempt is still pending when a restart starts a second.
+    const startPromise = session.start();
+    const restartPromise = session.restart();
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+
+    // The original attempt now rejects with expired creds — but it is stale, so
+    // it must not resurrect auth_expired or schedule a reconnect over the new
+    // attempt.
+    controls[0]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'stale attempt'));
+    await flushMicrotasks();
+
+    controls[1]!.resolveConnect();
+    await Promise.all([startPromise, restartPromise]);
+
+    expect(session.status.kind).toBe('connected');
+    // No third client and no scheduled reconnect from the stale attempt.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(controls).toHaveLength(2);
+    await session.dispose();
+  });
+
+  it('does not let a stale auth_required connect attempt clobber a concurrent restart', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    const restartPromise = session.restart();
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+
+    controls[0]!.resolveConnect(UpstreamAuthRequiredError.forMissingOAuthToken(undefined));
+    await flushMicrotasks();
+
+    controls[1]!.resolveConnect();
+    await Promise.all([startPromise, restartPromise]);
+
+    expect(session.status.kind).toBe('connected');
+    expect(controls).toHaveLength(2);
+    await session.dispose();
+  });
 });
 
 describe('createUpstreamSession — restart race', () => {
@@ -663,6 +716,41 @@ describe('createUpstreamSession — ping', () => {
     controls[1]!.resolveConnect();
     await flushMicrotasks();
     expect(session.status.kind).toBe('connected');
+    await session.dispose();
+  });
+
+  it('transitions to auth_expired (preserving tools) when a background ping fails with expired creds', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+      pingIntervalMs: 500,
+      backoff: { initialMs: 50, factor: 2, maxMs: 1_000 },
+    });
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.cachedTools()).toBe(tools);
+
+    // An idle token ages out; the next keepalive ping hits the OAuth refresh
+    // path and fails. This is mid-session expiry, not transport loss, so the
+    // session must surface auth_expired (and keep tools published for the
+    // call-driven recovery surface) rather than the generic error/retry path.
+    controls[0]!.setPingResult(() =>
+      Promise.reject(new UpstreamAuthExpiredError('fake', 'idle token expired')),
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushMicrotasks();
+
+    expect(session.status.kind).toBe('auth_expired');
+    expect(session.cachedTools()).toBe(tools);
+    // No generic reconnect backoff should be scheduled.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(controls).toHaveLength(1);
     await session.dispose();
   });
 });

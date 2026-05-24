@@ -313,12 +313,19 @@ export function createUpstreamSession(
         if (phase.kind !== 'connected' || phase.client !== client) {
           return;
         }
-        log.debug({ err: error }, 'upstream ping failed; treating as transport loss');
-        // Trigger the same recovery path as an unexpected exit.
-        const failedClient = phase.client;
         detachClientListeners();
         clearPing();
-        void failedClient.disconnect().catch(() => undefined);
+        void client.disconnect().catch(() => undefined);
+        if (isAuthExpiredError(error)) {
+          // An idle token aged out and the keepalive ping hit the SDK's refresh
+          // path. This is mid-session expiry, not transport loss: keep the
+          // cached tools published and surface `auth_expired` so the next call
+          // drives re-auth recovery, matching the call-path behavior (§4.6.2).
+          setAuthExpired(error.message);
+          return;
+        }
+        log.debug({ err: error }, 'upstream ping failed; treating as transport loss');
+        // Trigger the same recovery path as an unexpected exit.
         scheduleRetry(1, error instanceof Error ? error : new Error(errorMessage(error)));
       });
     }, pingIntervalMs);
@@ -347,6 +354,9 @@ export function createUpstreamSession(
       }
       if (isAuthRequiredError(error)) {
         await client.disconnect().catch(() => undefined);
+        if (phase.kind !== 'starting' || phase.client !== client) {
+          return;
+        }
         phase = { kind: 'auth_required' };
         setStatus({ kind: 'auth_required', reason: error.message });
         return;
@@ -365,6 +375,13 @@ export function createUpstreamSession(
         // recovery, not proactive token refresh — refresh still happens lazily
         // inside the SDK on each connect.
         await client.disconnect().catch(() => undefined);
+        // A dispose()/restart() may have run during the disconnect await,
+        // moving us out of this attempt. Re-check before mutating shared state
+        // so a stale attempt cannot resurrect a torn-down session or clobber a
+        // newer connect attempt with an `auth_expired` phase and reconnect timer.
+        if (phase.kind !== 'starting' || phase.client !== client) {
+          return;
+        }
         setAuthExpired(error.message);
         if (cached === undefined) {
           scheduleAuthRecovery(attempt);
