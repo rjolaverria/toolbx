@@ -63,10 +63,12 @@ function makeTokenStore(
     listThrows?: boolean;
     enumerable?: boolean;
     readThrows?: readonly string[];
+    deleteThrows?: readonly string[];
   } = {},
 ): FakeTokenStore {
   const names = new Set(opts.names ?? []);
   const readThrows = new Set(opts.readThrows ?? []);
+  const deleteThrows = new Set(opts.deleteThrows ?? []);
   const enumerable = opts.enumerable ?? true;
   const deleted: string[] = [];
   const probeCount = { value: 0 };
@@ -82,6 +84,9 @@ function makeTokenStore(
         ? Promise.reject(new Error('enumeration boom'))
         : Promise.resolve(enumerable ? [...names] : []),
     delete: (name) => {
+      if (deleteThrows.has(name)) {
+        return Promise.reject(new Error('deletion denied'));
+      }
       names.delete(name);
       deleted.push(name);
       return Promise.resolve();
@@ -1063,6 +1068,22 @@ describe('runDoctor auth section', () => {
     await runDoctor({}, rerun.deps);
 
     expect(rerun.stdout.value).not.toContain('auth-orphan');
+  });
+
+  it('reports a skipped fix instead of aborting when orphan deletion fails', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const store = makeTokenStore({ names: ['acme', 'ghost'], deleteThrows: ['ghost'] });
+    const h = makeHarness(cfg.target, { ...healthy, tokenStore: store });
+
+    // Must not throw: a delete failure becomes a skipped-fix outcome, and the
+    // rest of the doctor report (and exit code) still renders.
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('[WARN] auth-orphan:ghost');
+    expect(h.stdout.value).toContain('could not delete orphan token for "ghost"');
+    expect(h.stdout.value).toContain('deletion denied');
   });
 
   it('does not prune an orphan token when the fix is declined', async () => {

@@ -750,8 +750,19 @@ async function fixOrphanToken(
   if (!(await confirmAction(ctx, action))) {
     return DECLINED;
   }
-  // Safe to prune: the user can always re-run `tlbx auth login <name>`.
-  await tokenStore.delete(name);
+  // Safe to prune: the user can always re-run `tlbx auth login <name>`. Deletion
+  // can still fail (permission denied, store became unavailable) — report that
+  // as a skipped fix rather than letting it abort the whole doctor run.
+  try {
+    await tokenStore.delete(name);
+  } catch (error) {
+    return {
+      status: 'SKIPPED_NO_FIX',
+      summary: `could not delete orphan token for "${name}": ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
   return { status: 'APPLIED', summary: `deleted orphan token for "${name}"` };
 }
 
