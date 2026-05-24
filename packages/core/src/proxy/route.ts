@@ -144,9 +144,12 @@ function describeUpstreamError(
  * 2. If the registry has no entry for the exposed name, the router uses the
  *    parsed server name to consult the session lookup:
  *    - no session for that server → `unknown_tool`.
+ *    - session exists and its status is `auth_expired` →
+ *      `auth_expired`, so the downstream handler can return structured
+ *      re-auth guidance without executing a registry-missing guessed tool.
  *    - session exists but its status is not `connected` →
  *      `server_unavailable` with the live status. This covers `disabled`,
- *      `starting`, `error`, `auth_required`, `auth_expired`, and `stopped`.
+ *      `starting`, `error`, `auth_required`, and `stopped`.
  *    - session is connected but the tool is genuinely absent → `unknown_tool`.
  * 3. If the registry has the entry, the router validates the argument shape,
  *    re-resolves the session (race-safe recheck after `find`), and forwards
