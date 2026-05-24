@@ -183,6 +183,7 @@ describe('gateway OAuth runtime', () => {
         refresh_token: 'fresh-refresh-token',
       }),
     );
+    await waitFor(() => runtime.statusRegistry.get('demo')?.status.kind === 'connected', 5000);
 
     const recovered = await client.callTool({ name: 'demo__echo', arguments: { message: 'ok' } });
 

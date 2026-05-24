@@ -607,9 +607,8 @@ describe('routeToolCall — auth_expired', () => {
     expect(jira.calls).toHaveLength(1);
   });
 
-  it('forwards a namespaced call to an auth_expired session when no tools were cached yet', async () => {
-    const result: CallToolResult = { content: [{ type: 'text', text: 'recovered' }] };
-    const jira = makeSession({ status: { kind: 'auth_expired', reason: 'expired' }, result });
+  it('returns auth_expired without forwarding when no tools were cached yet', async () => {
+    const jira = makeSession({ status: { kind: 'auth_expired', reason: 'expired' } });
 
     const routed = await routeToolCall({
       exposedName: 'jira__search',
@@ -619,10 +618,8 @@ describe('routeToolCall — auth_expired', () => {
       namespacing: NS,
     });
 
-    expect(routed).toEqual({ kind: 'ok', result });
-    expect(jira.calls).toHaveLength(1);
-    expect(jira.calls[0]?.name).toBe('search');
-    expect(jira.calls[0]?.args).toEqual({ jql: 'x' });
+    expect(routed).toEqual({ kind: 'auth_expired', server: 'jira' });
+    expect(jira.calls).toEqual([]);
   });
 
   it('returns an auth_expired result when the session throws UpstreamAuthExpiredError', async () => {

@@ -176,8 +176,7 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
       return { kind: 'unknown_tool' };
     }
     if (session.status.kind === 'auth_expired') {
-      serverName = parsed.serverName;
-      upstreamName = parsed.upstreamName;
+      return { kind: 'auth_expired', server: parsed.serverName };
     } else if (session.status.kind !== 'connected') {
       return { kind: 'server_unavailable', server: parsed.serverName, status: session.status };
     } else {
