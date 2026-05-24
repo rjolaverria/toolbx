@@ -29,7 +29,7 @@ async function harness(config: ToolBoxConfig) {
 
 const SECRET = 'super-secret-access-token';
 const record: StoredOAuthRecord = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   clientInformation: { client_id: 'cid' },
   tokens: { access_token: SECRET, token_type: 'Bearer', refresh_token: 'super-secret-refresh' },
   authorizationServer: 'https://auth.acme.test',

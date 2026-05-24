@@ -20,6 +20,19 @@ export interface FakeOAuthServerOptions {
   /** `/token` rejects the `refresh_token` grant with `invalid_grant`. */
   rejectRefresh?: boolean;
   /**
+   * Serve RFC 9728 protected-resource metadata at the well-known path,
+   * advertising this server as its own authorization server and its origin as
+   * the `resource`. With this on, the SDK selects an RFC 8707 resource
+   * indicator during login, so a resource value is persisted into the record.
+   */
+  serveResourceMetadata?: boolean;
+  /**
+   * Models a resource-bound authorization server: the `refresh_token` grant is
+   * rejected with `invalid_target` unless the request carries a `resource`
+   * parameter.
+   */
+  requireResourceOnRefresh?: boolean;
+  /**
    * `/token` rejects the `authorization_code` grant with a server error whose
    * description contains the word "cancelled" — a genuine failure that must NOT
    * be misread as a user cancellation.
@@ -32,6 +45,12 @@ export interface FakeOAuthServer {
   readonly url: URL;
   /** Count of token-endpoint hits, split by grant type, for assertions. */
   readonly tokenGrants: string[];
+  /**
+   * The `resource` form parameter seen at the token endpoint, one entry per
+   * `/token` call (parallel to `tokenGrants`); `null` when the request sent no
+   * resource indicator. Lets tests assert the RFC 8707 round-trip.
+   */
+  readonly tokenResources: Array<string | null>;
   /** Number of DCR (`/register`) calls — lets tests assert client reuse. */
   readonly registrationCount: () => number;
   /** Hits to the authorization-server metadata endpoint — asserts discovery caching. */
@@ -63,6 +82,7 @@ export async function startFakeOAuthServer(
 ): Promise<FakeOAuthServer> {
   const controls: FakeOAuthServerOptions = { ...options };
   const tokenGrants: string[] = [];
+  const tokenResources: Array<string | null> = [];
   let registrations = 0;
   let discoveries = 0;
   const authorizeParams: Array<{ clientId: string | null; redirectUri: string | null }> = [];
@@ -95,10 +115,19 @@ export async function startFakeOAuthServer(
       res.end(JSON.stringify(body));
     };
 
-    // RFC 9728 protected-resource metadata is intentionally unimplemented:
+    // RFC 9728 protected-resource metadata is unimplemented by default:
     // discovery falls back to treating the MCP server origin as the
-    // authorization server (the legacy MCP behaviour).
+    // authorization server (the legacy MCP behaviour). When
+    // `serveResourceMetadata` is on, we advertise ourselves so the SDK selects
+    // an RFC 8707 resource indicator.
     if (url.pathname === '/.well-known/oauth-protected-resource') {
+      if (controls.serveResourceMetadata) {
+        json(200, {
+          resource: base.origin,
+          authorization_servers: [base.origin],
+        });
+        return;
+      }
       res.statusCode = 404;
       res.end('not found');
       return;
@@ -144,6 +173,7 @@ export async function startFakeOAuthServer(
       const params = new URLSearchParams(await readBody(req));
       const grantType = params.get('grant_type') ?? '';
       tokenGrants.push(grantType);
+      tokenResources.push(params.get('resource'));
       if (grantType === 'authorization_code') {
         if (controls.rejectCodeExchange) {
           json(500, { error: 'server_error', error_description: 'upstream request was cancelled' });
@@ -168,6 +198,13 @@ export async function startFakeOAuthServer(
       if (grantType === 'refresh_token') {
         if (controls.rejectRefresh) {
           json(400, { error: 'invalid_grant', error_description: 'refresh token expired' });
+          return;
+        }
+        if (controls.requireResourceOnRefresh && !params.get('resource')) {
+          json(400, {
+            error: 'invalid_target',
+            error_description: 'resource indicator required on refresh',
+          });
           return;
         }
         json(200, {
@@ -195,6 +232,7 @@ export async function startFakeOAuthServer(
   return {
     url: base,
     tokenGrants,
+    tokenResources,
     registrationCount: () => registrations,
     discoveryCount: () => discoveries,
     authorizeParams: () => authorizeParams,

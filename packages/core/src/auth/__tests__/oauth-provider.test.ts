@@ -19,7 +19,7 @@ function makeTokens(overrides: Partial<OAuthTokens> = {}): OAuthTokens {
 
 function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: makeClientInfo(),
     tokens: makeTokens(),
     authorizationServer: 'https://auth.example.com',
@@ -333,6 +333,45 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
     provider.invalidateCredentials('discovery');
     expect(provider.discoveryState()).toBeUndefined();
+  });
+
+  it('persists the RFC 8707 resource indicator from the discovered protected-resource metadata', async () => {
+    const { provider, store } = makeProvider();
+    provider.saveDiscoveryState({
+      authorizationServerUrl: 'https://issuer.example/',
+      resourceMetadata: {
+        resource: 'https://api.example.com/mcp',
+        authorization_servers: ['https://issuer.example/'],
+      },
+    });
+
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveTokens(makeTokens());
+
+    expect((await store.read('jira'))?.resource).toBe('https://api.example.com/mcp');
+  });
+
+  it('persists no resource when the discovered metadata advertises none', async () => {
+    const { provider, store } = makeProvider();
+    provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
+
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveTokens(makeTokens());
+
+    expect((await store.read('jira'))?.resource).toBeUndefined();
+  });
+
+  it('preserves an existing record resource on re-save when discovery carries none', async () => {
+    // A gateway-side refresh re-saves tokens without rediscovering protected-
+    // resource metadata; the resource captured at login must not be dropped.
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord({ resource: 'https://api.example.com/mcp' }));
+
+    await provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+
+    const record = await store.read('jira');
+    expect(record?.tokens.access_token).toBe('refreshed');
+    expect(record?.resource).toBe('https://api.example.com/mcp');
   });
 });
 

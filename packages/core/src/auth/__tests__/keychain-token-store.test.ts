@@ -81,7 +81,7 @@ function rejectLoadKeyring(reason: unknown): Promise<TestKeyringModule> {
 
 function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: { client_id: 'client-abc' },
     tokens: { access_token: 'access-1', token_type: 'Bearer' },
     authorizationServer: 'https://auth.example.com',
@@ -213,6 +213,28 @@ describe('KeychainTokenStore', () => {
     keyringMock.passwords.set('dev.toolbox.cli:oauth:github', JSON.stringify(record));
 
     expect(await store.read('github')).toEqual(record);
+  });
+
+  it('loads a pre-resource-indicator v1 record by migrating it forward on read', async () => {
+    const store = createStore();
+    // A record exactly as F1-13..F1-19 wrote it: schemaVersion 1, no resource.
+    keyringMock.passwords.set(
+      'dev.toolbox.cli:oauth:github',
+      JSON.stringify({
+        schemaVersion: 1,
+        clientInformation: { client_id: 'client-abc' },
+        tokens: { access_token: 'access-1', token_type: 'Bearer' },
+        authorizationServer: 'https://auth.example.com',
+        scopes: ['read'],
+        obtainedAt: '2026-05-19T00:00:00.000Z',
+      }),
+    );
+
+    const record = await store.read('github');
+
+    expect(record?.schemaVersion).toBe(2);
+    expect(record?.resource).toBeUndefined();
+    expect(record?.tokens.access_token).toBe('access-1');
   });
 
   it('uses the ToolBox service name and oauth-prefixed account name', async () => {

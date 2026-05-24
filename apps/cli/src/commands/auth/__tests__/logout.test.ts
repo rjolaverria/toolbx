@@ -32,7 +32,7 @@ async function harness() {
 }
 
 const record: StoredOAuthRecord = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   clientInformation: { client_id: 'cid' },
   tokens: { access_token: 'a', token_type: 'Bearer', refresh_token: 'r' },
   authorizationServer: 'https://acme.test',

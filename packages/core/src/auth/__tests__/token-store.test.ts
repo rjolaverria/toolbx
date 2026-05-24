@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { InMemoryTokenStore, type StoredOAuthRecord } from '../token-store.js';
+import {
+  InMemoryTokenStore,
+  StoredOAuthRecordSchema,
+  migrateStoredOAuthRecord,
+  type StoredOAuthRecord,
+} from '../token-store.js';
 
 function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: { client_id: 'client-abc' },
     tokens: { access_token: 'access-1', token_type: 'Bearer' },
     authorizationServer: 'https://auth.example.com',
@@ -59,5 +64,49 @@ describe('InMemoryTokenStore', () => {
   it('probe reports ready', async () => {
     const store = new InMemoryTokenStore();
     expect(await store.probe()).toEqual({ kind: 'ready' });
+  });
+});
+
+describe('StoredOAuthRecordSchema resource indicator', () => {
+  it('accepts a record carrying an RFC 8707 resource URL', () => {
+    const parsed = StoredOAuthRecordSchema.safeParse(
+      makeRecord({ resource: 'https://api.example.com/mcp' }),
+    );
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.resource).toBe('https://api.example.com/mcp');
+  });
+
+  it('accepts a record with no resource (the common, non-resource-bound case)', () => {
+    const parsed = StoredOAuthRecordSchema.safeParse(makeRecord());
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.resource).toBeUndefined();
+  });
+});
+
+describe('migrateStoredOAuthRecord', () => {
+  it('upgrades a v1 record (no resource field) to the current version, leaving resource absent', () => {
+    const v1 = {
+      schemaVersion: 1,
+      clientInformation: { client_id: 'client-abc' },
+      tokens: { access_token: 'access-1', token_type: 'Bearer' },
+      authorizationServer: 'https://auth.example.com',
+      scopes: ['read'],
+      obtainedAt: '2026-05-19T00:00:00.000Z',
+    };
+
+    const migrated = StoredOAuthRecordSchema.parse(migrateStoredOAuthRecord(v1));
+
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.resource).toBeUndefined();
+  });
+
+  it('passes a current-version record through unchanged', () => {
+    const current = makeRecord({ resource: 'https://api.example.com/mcp' });
+    expect(migrateStoredOAuthRecord(current)).toEqual(current);
+  });
+
+  it('passes a non-object value through untouched so schema validation can reject it', () => {
+    expect(migrateStoredOAuthRecord('garbage')).toBe('garbage');
+    expect(migrateStoredOAuthRecord(null)).toBeNull();
   });
 });

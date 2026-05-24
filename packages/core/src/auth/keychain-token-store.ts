@@ -1,6 +1,7 @@
 import type { Logger } from '../logging/logger.js';
 import {
   StoredOAuthRecordSchema,
+  migrateStoredOAuthRecord,
   type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
@@ -89,7 +90,7 @@ function parseStoredRecord(serverName: string, raw: string): StoredOAuthRecord {
     throw corruptEntryError(serverName, 'invalid JSON');
   }
 
-  const result = StoredOAuthRecordSchema.safeParse(parsed);
+  const result = StoredOAuthRecordSchema.safeParse(migrateStoredOAuthRecord(parsed));
   if (!result.success) {
     throw corruptEntryError(serverName, 'stored record does not match schema');
   }

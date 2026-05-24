@@ -34,7 +34,7 @@ async function harness() {
 
 function record(obtainedAt: string, accessToken = 'a'): StoredOAuthRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: { client_id: 'cid' },
     tokens: { access_token: accessToken, token_type: 'Bearer', refresh_token: 'r' },
     authorizationServer: 'https://acme.test',

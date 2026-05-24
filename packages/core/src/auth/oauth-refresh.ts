@@ -50,10 +50,15 @@ export async function runOAuthRefresh(input: RunOAuthRefreshInput): Promise<RunO
       record.authorizationServer,
       fetchOpt,
     );
+    // Replay the RFC 8707 resource indicator login selected (if any). Sending
+    // it only when the record carries one keeps the common, non-resource-bound
+    // path indicator-free; omitting it for a resource-bound server would let the
+    // grant be rejected or scoped to the wrong audience (RFC 8707 §2).
     const tokens = await refreshAuthorization(record.authorizationServer, {
       ...(metadata ? { metadata } : {}),
       clientInformation: record.clientInformation,
       refreshToken,
+      ...(record.resource !== undefined ? { resource: new URL(record.resource) } : {}),
       ...fetchOpt,
     });
     // `refreshAuthorization` preserves the prior refresh_token when the server

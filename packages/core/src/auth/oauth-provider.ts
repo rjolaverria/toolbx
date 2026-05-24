@@ -11,7 +11,11 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import type { Logger } from '../logging/logger.js';
-import type { StoredOAuthRecord, TokenStore } from './token-store.js';
+import {
+  CURRENT_OAUTH_SCHEMA_VERSION,
+  type StoredOAuthRecord,
+  type TokenStore,
+} from './token-store.js';
 
 export interface ToolBoxOAuthProviderOpts {
   serverName: string;
@@ -214,12 +218,20 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
           'Call provider.setAuthorizationServer(...) before the token exchange completes.',
       );
     }
+    // The RFC 8707 resource indicator the SDK selected for this flow. The
+    // default `selectResourceURL` returns the `resource` advertised in RFC 9728
+    // protected-resource metadata, which the SDK hands us via saveDiscoveryState;
+    // when no protected-resource metadata exists it selects none, and we persist
+    // none so refresh stays resource-free. Fall back to any previously stored
+    // resource so a refresh-style re-save does not drop it.
+    const resource = this.discoveryStateCache?.resourceMetadata?.resource ?? existing?.resource;
     const next: StoredOAuthRecord = {
-      schemaVersion: 1,
+      schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
       clientInformation,
       tokens,
       authorizationServer,
       scopes: existing?.scopes ?? this.opts.scopes ?? [],
+      ...(resource !== undefined ? { resource } : {}),
       obtainedAt: new Date().toISOString(),
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);

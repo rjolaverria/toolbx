@@ -22,9 +22,13 @@ async function fakeServer(
   return server;
 }
 
-function seedToken(store: InMemoryTokenStore, authorizationServer: string): Promise<void> {
+function seedToken(
+  store: InMemoryTokenStore,
+  authorizationServer: string,
+  resource?: string,
+): Promise<void> {
   const record: StoredOAuthRecord = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: { client_id: 'fake-client-id' },
     tokens: {
       access_token: 'old-access-token',
@@ -34,6 +38,7 @@ function seedToken(store: InMemoryTokenStore, authorizationServer: string): Prom
     authorizationServer,
     scopes: ['read'],
     obtainedAt: '2020-01-01T00:00:00.000Z',
+    ...(resource !== undefined ? { resource } : {}),
   };
   return store.write(SERVER_NAME, record);
 }
@@ -80,6 +85,60 @@ describe('runOAuthRefresh', () => {
     expect(authServer.discoveryCount()).toBe(1);
     expect(authServer.tokenGrants).toEqual(['refresh_token']);
     expect((await store.read(SERVER_NAME))?.tokens.access_token).toBe('refreshed-access-token');
+  });
+
+  it('replays the persisted resource indicator so a resource-bound server accepts the refresh', async () => {
+    const server = await fakeServer({ requireResourceOnRefresh: true });
+    const store = new InMemoryTokenStore();
+    const resource = 'https://api.example.com/mcp';
+    await seedToken(store, server.url.toString(), resource);
+
+    const result = await runOAuthRefresh({
+      serverName: SERVER_NAME,
+      tokenStore: store,
+      logger: createNoopLogger(),
+    });
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(server.tokenResources).toEqual([resource]);
+    const record = await store.read(SERVER_NAME);
+    expect(record?.tokens.access_token).toBe('refreshed-access-token');
+    // The resource indicator must survive the refresh write so later refreshes
+    // keep replaying it.
+    expect(record?.resource).toBe(resource);
+  });
+
+  it('sends no resource indicator when the record carries none', async () => {
+    const server = await fakeServer();
+    const store = new InMemoryTokenStore();
+    await seedToken(store, server.url.toString());
+
+    const result = await runOAuthRefresh({
+      serverName: SERVER_NAME,
+      tokenStore: store,
+      logger: createNoopLogger(),
+    });
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(server.tokenResources).toEqual([null]);
+    expect((await store.read(SERVER_NAME))?.resource).toBeUndefined();
+  });
+
+  it('fails against a resource-bound server when the record carries no resource', async () => {
+    // Guards the negative path: a record written without a resource must not
+    // silently fabricate one, so a server that demands it rejects the refresh.
+    const server = await fakeServer({ requireResourceOnRefresh: true });
+    const store = new InMemoryTokenStore();
+    await seedToken(store, server.url.toString());
+
+    const result = await runOAuthRefresh({
+      serverName: SERVER_NAME,
+      tokenStore: store,
+      logger: createNoopLogger(),
+    });
+
+    expect(result.kind).toBe('failed');
+    expect((await store.read(SERVER_NAME))?.tokens.access_token).toBe('old-access-token');
   });
 
   it('reports failure and leaves the stored token untouched when the refresh grant is rejected', async () => {
