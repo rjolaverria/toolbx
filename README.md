@@ -99,6 +99,11 @@ before writing the server entry:
 npx tlbx server add-http github --url https://api.githubcopilot.com/mcp/
 # Browser opens; authenticate; ToolBox stores the OAuth tokens.
 npx tlbx auth status
+```
+
+When a server later reports expired credentials, re-authenticate with:
+
+```bash
 npx tlbx auth login github
 ```
 
