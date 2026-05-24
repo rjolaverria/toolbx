@@ -675,6 +675,33 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     await session.dispose();
   });
 
+  it('surfaces a tools_list_changed missing-token failure as auth_expired, not auth_required', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+    const events: ServerStatus[] = [];
+    session.on('status', (s) => events.push(s));
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+
+    // A refresh after a change notification finds the token gone entirely.
+    controls[0]!.failListTools(UpstreamAuthRequiredError.forMissingOAuthToken(undefined));
+    controls[0]!.emitToolsListChanged();
+    await flushMicrotasks();
+
+    // connected -> auth_required is not a valid status transition; mid-session
+    // credential loss is surfaced as auth_expired (which keeps tools published).
+    expect(session.status.kind).toBe('auth_expired');
+    expect(statusKinds(events)).not.toContain('auth_required');
+    await session.dispose();
+  });
+
   it('does not announce auth_expired when dispose races a tools/list auth failure', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {

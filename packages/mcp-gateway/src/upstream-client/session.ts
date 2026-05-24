@@ -245,19 +245,20 @@ export function createUpstreamSession(
         })
         .catch((error: unknown) => {
           // refreshTools only rejects with auth errors (others are swallowed).
-          // A notification-time auth failure is mid-session expiry: surface it
-          // like the ping/call paths instead of leaving the session connected.
+          // We were connected, so this is mid-session credential loss: surface
+          // it as auth_expired — the valid `connected ->` auth transition, and
+          // the surface that keeps tools published for call-driven recovery —
+          // matching the ping/call paths. A direct connected -> auth_required
+          // transition is rejected by the status state machine, so even a
+          // "missing token" failure here is reported as auth_expired.
           if (phase.kind !== 'connected' || phase.client !== client) {
             return;
           }
-          detachClientListeners();
-          clearPing();
-          void client.disconnect().catch(() => undefined);
-          if (isAuthRequiredError(error)) {
-            phase = { kind: 'auth_required' };
-            setStatus({ kind: 'auth_required', reason: error.message });
-          } else if (isAuthExpiredError(error)) {
-            enterAuthExpired(error.message, 1);
+          if (isAuthExpiredError(error) || isAuthRequiredError(error)) {
+            detachClientListeners();
+            clearPing();
+            void client.disconnect().catch(() => undefined);
+            enterAuthExpired(errorMessage(error), 1);
           }
         });
     };
