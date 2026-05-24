@@ -61,7 +61,11 @@ function baseInput(
   };
 }
 
-function seedToken(store: InMemoryTokenStore, authorizationServer: string): Promise<void> {
+function seedToken(
+  store: InMemoryTokenStore,
+  authorizationServer: string,
+  resource?: string,
+): Promise<void> {
   const record: StoredOAuthRecord = {
     schemaVersion: 2,
     clientInformation: { client_id: 'preexisting-client' },
@@ -72,6 +76,7 @@ function seedToken(store: InMemoryTokenStore, authorizationServer: string): Prom
     },
     authorizationServer,
     scopes: [],
+    ...(resource !== undefined ? { resource } : {}),
     obtainedAt: new Date().toISOString(),
   };
   return store.write(SERVER_NAME, record);
@@ -236,6 +241,30 @@ describe('runOAuthLogin', () => {
     expect(result).toEqual({ kind: 'success' });
     expect(authServer.tokenGrants).toEqual(['authorization_code']);
     expect((await store.read(SERVER_NAME))?.tokens.access_token).toBe('fake-access-token');
+  });
+
+  it('replays the persisted resource on an SDK-driven refresh when the metadata is no longer discoverable', async () => {
+    // Mirrors the gateway 401-refresh: the SDK drives the refresh through the
+    // provider and selects the resource itself. The server requires a resource
+    // on refresh but no longer advertises protected-resource metadata, so the
+    // only way the refresh succeeds is for the provider to replay the resource
+    // login persisted. Without that, the refresh is rejected and the flow falls
+    // back to the browser.
+    const server = await fakeServer({ requireResourceOnRefresh: true });
+    const store = new InMemoryTokenStore();
+    const resource = 'https://api.example.com/mcp';
+    await seedToken(store, server.url.toString(), resource);
+    const openBrowser = fetchingBrowser();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store, openBrowser }));
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(server.tokenGrants).toEqual(['refresh_token']);
+    expect(server.tokenResources).toEqual([resource]);
+    const record = await store.read(SERVER_NAME);
+    expect(record?.tokens.access_token).toBe('refreshed-access-token');
+    expect(record?.resource).toBe(resource);
   });
 
   it('persists the selected resource indicator and replays it on a later refresh', async () => {

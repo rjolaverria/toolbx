@@ -464,6 +464,73 @@ describe('ToolBoxOAuthProvider discovery state', () => {
   });
 });
 
+describe('ToolBoxOAuthProvider.validateResourceURL', () => {
+  it('returns the discovered protected-resource resource when present', async () => {
+    const { provider } = makeProvider();
+    const result = await provider.validateResourceURL(
+      'https://api.example.com/mcp',
+      'https://api.example.com/mcp',
+    );
+    expect(result?.toString()).toBe('https://api.example.com/mcp');
+  });
+
+  it('throws when the discovered resource is incompatible with the server', async () => {
+    const { provider } = makeProvider();
+    await expect(
+      provider.validateResourceURL('https://api.example.com/mcp', 'https://evil.example/'),
+    ).rejects.toThrow(/does not match/);
+  });
+
+  it('replays the persisted resource on a refresh when discovery found no metadata', async () => {
+    // The gateway SDK refresh selects the token-request resource here. When the
+    // server's protected-resource metadata is not rediscovered (resource arg
+    // undefined), the resource login persisted must still be sent so a
+    // resource-bound server accepts the refresh.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://api.example.com/mcp',
+        tokens: makeTokens({ refresh_token: 'rt' }),
+      }),
+    );
+
+    const result = await provider.validateResourceURL('https://api.example.com/', undefined);
+    expect(result?.toString()).toBe('https://api.example.com/mcp');
+  });
+
+  it('sends no resource during suppressed reauth even if one is stored', async () => {
+    // Interactive reauth suppresses stored tokens; the persisted resource must
+    // not be replayed, so a server that dropped its resource is honored.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://api.example.com/mcp',
+        tokens: makeTokens({ refresh_token: 'rt' }),
+      }),
+    );
+    provider.suppressStoredTokensForReauth();
+
+    const result = await provider.validateResourceURL('https://api.example.com/', undefined);
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined when discovery found none and there is no refreshable stored record', async () => {
+    const { provider } = makeProvider();
+    const result = await provider.validateResourceURL('https://api.example.com/', undefined);
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined when the stored record has a resource but no refresh token', async () => {
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord({ resource: 'https://api.example.com/mcp' }));
+
+    const result = await provider.validateResourceURL('https://api.example.com/', undefined);
+    expect(result).toBeUndefined();
+  });
+});
+
 describe('ToolBoxOAuthProvider.state', () => {
   it('returns distinct UUID-shaped values', async () => {
     const { provider } = makeProvider();

@@ -4,6 +4,7 @@ import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
 } from '@modelcontextprotocol/sdk/client/auth.js';
+import { checkResourceAllowed } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -167,6 +168,44 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
    */
   discoveryState(): OAuthDiscoveryState | undefined {
     return this.discoveryStateCache;
+  }
+
+  /**
+   * Overrides the SDK's RFC 8707 resource-indicator selection. The SDK calls
+   * this for every token request (authorize, code exchange, and refresh) with
+   * the resource it discovered from RFC 9728 protected-resource metadata, if
+   * any. We extend the default behavior only to replay a persisted resource on
+   * refresh:
+   *
+   * - When metadata was discovered (`resource` present), it is authoritative —
+   *   the same as the SDK default, including its server-compatibility check — so
+   *   a fresh login/reauth always uses the current metadata.
+   * - When no metadata was discovered, a refresh of stored credentials replays
+   *   the resource login persisted, so a resource-bound server (e.g. one reached
+   *   through the gateway, whose metadata is not rediscoverable on a 401) still
+   *   receives the correct audience. This never fires during interactive reauth,
+   *   when stored tokens are suppressed — so a server that legitimately dropped
+   *   its resource is honored rather than re-sent a stale one.
+   */
+  async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL | undefined> {
+    if (resource !== undefined) {
+      // `serverUrl` is the SDK's default resource (resourceUrlFromServerUrl).
+      // Mirror the default validation so a metadata-advertised resource cannot
+      // redirect the audience away from the server we are talking to.
+      if (!checkResourceAllowed({ requestedResource: serverUrl, configuredResource: resource })) {
+        throw new Error(
+          `Protected resource ${resource} does not match expected ${serverUrl.toString()} (or origin)`,
+        );
+      }
+      return new URL(resource);
+    }
+    if (!this.suppressTokensRead) {
+      const record = await this.load();
+      if (record?.tokens.refresh_token !== undefined && record.resource !== undefined) {
+        return new URL(record.resource);
+      }
+    }
+    return undefined;
   }
 
   saveDiscoveryState(state: OAuthDiscoveryState): void {
