@@ -769,14 +769,12 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     await session.dispose();
   });
 
-  it('does not announce auth_expired after a dispose races a mid-call expiry', async () => {
+  it('routes a concurrent call to recovery, not the torn-down client, during a mid-call auth transition', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {
       logger: createNoopLogger(),
       createClient: factory,
     });
-    const events: ServerStatus[] = [];
-    session.on('status', (s) => events.push(s));
 
     const startPromise = session.start();
     const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
@@ -787,20 +785,34 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     controls[0]!.setCallToolResult(() =>
       Promise.reject(new UpstreamAuthExpiredError('fake', 'mid-session expiry')),
     );
-    // Hold the disconnect so dispose() interleaves before the catch sets phase.
+    // Hold the disconnect: if the transition awaited it (instead of firing it
+    // and moving to auth_expired synchronously), the session would stay
+    // `connected` here and a concurrent call would reuse the dying client.
     controls[0]!.deferDisconnect();
-    const callPromise = session.callTool('echo', undefined);
+
+    const callA = session.callTool('echo', undefined);
     await flushMicrotasks();
 
-    const disposePromise = session.dispose();
+    // The mid-call transition completes synchronously, so the session is already
+    // auth_expired: a concurrent call drives a fresh recovery connect rather
+    // than reusing controls[0].
+    const callB = session.callTool('echo', undefined);
+    await flushMicrotasks();
+    expect(controls).toHaveLength(2);
+
     controls[0]!.flushDisconnect();
+    controls[1]!.setCallToolResult(() =>
+      Promise.resolve({
+        content: [{ type: 'text', text: 'recovered' }],
+      } as unknown as CallToolResult),
+    );
+    controls[1]!.resolveConnect();
 
-    await expect(callPromise).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
-    await disposePromise;
-
-    expect(session.status.kind).toBe('stopped');
-    // A disposed session must never have been dragged back to auth_expired.
-    expect(statusKinds(events)).not.toContain('auth_expired');
+    await expect(callA).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    const resultB = await callB;
+    expect(resultB.content).toEqual([{ type: 'text', text: 'recovered' }]);
+    expect(session.status.kind).toBe('connected');
+    await session.dispose();
   });
 
   it('does not let a stale successful connect attempt clobber a concurrent restart', async () => {

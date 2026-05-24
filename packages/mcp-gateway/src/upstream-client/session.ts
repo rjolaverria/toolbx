@@ -604,20 +604,20 @@ export function createUpstreamSession(
         phase.kind === 'connected' &&
         phase.client === client
       ) {
+        // Move out of `connected` synchronously (fire-and-forget the disconnect,
+        // as the ping/tools_list paths do) so a concurrent tool call cannot see
+        // a still-`connected` session and reuse this client while it is being
+        // torn down. The synchronous guard + mutation also leaves no await for a
+        // dispose()/restart() to interleave with.
         detachClientListeners();
         clearPing();
-        await client.disconnect().catch(() => undefined);
-        // A dispose()/restart() may have run during the disconnect await; only
-        // transition if we are still this connected client, so a stale call
-        // cannot drag a stopped or newer-starting session back to auth_expired.
-        if (phase.kind === 'connected' && phase.client === client) {
-          enterAuthExpired(errorMessage(error), 1);
-          // Throw auth_expired (even when the underlying failure was
-          // auth_required) so routeToolCall renders the structured re-auth
-          // result — it only special-cases UpstreamAuthExpiredError, and the
-          // session state is now auth_expired.
-          throw UpstreamAuthExpiredError.forServer(serverName, error);
-        }
+        void client.disconnect().catch(() => undefined);
+        enterAuthExpired(errorMessage(error), 1);
+        // Throw auth_expired (even when the underlying failure was auth_required)
+        // so routeToolCall renders the structured re-auth result — it only
+        // special-cases UpstreamAuthExpiredError, and the session state is now
+        // auth_expired.
+        throw UpstreamAuthExpiredError.forServer(serverName, error);
       }
       throw error;
     }
