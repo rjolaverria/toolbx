@@ -459,12 +459,41 @@ export interface AuthCheckResult {
 
 const NO_AUTH_SECTION: AuthCheckResult = { rows: [], orphans: [], missing: [] };
 
+/** Assemble the Auth section rows: a store-health PASS row plus drift WARNs. */
+function authRows(
+  storageType: string,
+  orphans: readonly string[],
+  missing: readonly string[],
+): CheckResult[] {
+  const rows: CheckResult[] = [
+    { id: 'auth-store', severity: 'PASS', message: `Token store (${storageType}) is available` },
+  ];
+  for (const name of orphans) {
+    rows.push({
+      id: `auth-orphan:${name}`,
+      severity: 'WARN',
+      message: `Orphan token for "${name}" — server entry not in config`,
+    });
+  }
+  for (const name of missing) {
+    rows.push({
+      id: `auth-missing:${name}`,
+      severity: 'WARN',
+      message: `Missing token for "${name}" — run \`tlbx auth login ${name}\``,
+    });
+  }
+  return rows;
+}
+
 /**
  * Token-store health and config/token drift. The section is gated on "OAuth in
  * config OR tokens in store" so it stays silent for users who do not use OAuth.
- * When the store is unavailable the drift report is suppressed — `list()` would
- * throw per the keychain's fail-loud policy, and there is nothing useful to
- * render without it.
+ *
+ * When no OAuth server is configured we deliberately avoid `probe()`: on the
+ * keychain backend it writes and deletes a sentinel credential, which would
+ * touch (or prompt for) the OS credential store on every `tlbx doctor` run even
+ * for users with no tokens. The read-only `list()` is enough to decide whether
+ * there is anything (orphan tokens) worth reporting.
  */
 export async function checkAuth(
   config: ToolBoxConfig,
@@ -474,14 +503,27 @@ export async function checkAuth(
 ): Promise<AuthCheckResult> {
   const oauthNames = oauthServerNames(config);
 
-  const health = await tokenStore.probe();
-  if (health.kind === 'unavailable') {
-    // With no OAuth in config we cannot enumerate the store to prove any tokens
-    // exist, so stay silent rather than nag about a keychain the user does not
-    // rely on.
-    if (oauthNames.length === 0) {
+  if (oauthNames.length === 0) {
+    // The only thing worth reporting without OAuth config is orphan tokens, and
+    // those only surface through `list()`. Use it (read-only) instead of
+    // `probe()`, and stay silent when it is empty, unsupported, or throws.
+    let stored: readonly string[];
+    try {
+      stored = await tokenStore.list();
+    } catch {
       return NO_AUTH_SECTION;
     }
+    if (stored.length === 0) {
+      return NO_AUTH_SECTION;
+    }
+    const orphans = [...stored].sort((a, b) => a.localeCompare(b));
+    return { rows: authRows(storageType, orphans, []), orphans, missing: [] };
+  }
+
+  // OAuth is configured, so store health genuinely matters — probe it. A
+  // keychain prompt here is expected: the user explicitly relies on OAuth.
+  const health = await tokenStore.probe();
+  if (health.kind === 'unavailable') {
     return {
       rows: [
         {
@@ -496,24 +538,16 @@ export async function checkAuth(
     };
   }
 
-  // `list()` drives orphan detection and section gating, but its contract
-  // allows `[]` to mean either "no records" or "enumeration unsupported" (and
-  // some backends throw outright). Neither is fatal: missing-token detection
-  // below uses authoritative per-server `read()`s, and orphan detection simply
-  // reports nothing when the backend can't enumerate.
+  // Orphan detection needs enumeration, but `list()`'s contract allows `[]` to
+  // mean either "no records" or "enumeration unsupported" (and some backends
+  // throw). Neither is fatal: missing-token detection below uses authoritative
+  // per-server `read()`s, and orphan detection reports nothing when the backend
+  // can't enumerate.
   let stored: readonly string[];
   try {
     stored = await tokenStore.list();
   } catch {
     stored = [];
-  }
-
-  // Nothing OAuth-related to report: omit the section entirely so `tlbx doctor`
-  // is never noisy for users who don't use OAuth. This also covers a thrown or
-  // unsupported `list()` on a config with no OAuth servers — there is nothing
-  // we could render anyway.
-  if (oauthNames.length === 0 && stored.length === 0) {
-    return NO_AUTH_SECTION;
   }
 
   // Missing-token detection reads each configured server directly rather than
@@ -538,24 +572,7 @@ export async function checkAuth(
     .filter((name) => !configured.has(name))
     .sort((a, b) => a.localeCompare(b));
 
-  const rows: CheckResult[] = [
-    { id: 'auth-store', severity: 'PASS', message: `Token store (${storageType}) is available` },
-  ];
-  for (const name of orphans) {
-    rows.push({
-      id: `auth-orphan:${name}`,
-      severity: 'WARN',
-      message: `Orphan token for "${name}" — server entry not in config`,
-    });
-  }
-  for (const name of missing) {
-    rows.push({
-      id: `auth-missing:${name}`,
-      severity: 'WARN',
-      message: `Missing token for "${name}" — run \`tlbx auth login ${name}\``,
-    });
-  }
-  return { rows, orphans, missing };
+  return { rows: authRows(storageType, orphans, missing), orphans, missing };
 }
 
 function tryParseJson(source: string): unknown {

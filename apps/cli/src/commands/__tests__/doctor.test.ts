@@ -47,10 +47,14 @@ const STORED_RECORD: StoredOAuthRecord = {
   obtainedAt: '2026-05-21T00:00:00.000Z',
 };
 
+type FakeTokenStore = TokenStore & { deleted: string[]; probeCount: { value: number } };
+
 /**
  * Token store seeded by name. `read()` is authoritative (returns a record for
  * seeded names); `list()` enumerates unless `enumerable: false` (simulating a
  * backend without `findCredentials`, which returns `[]`) or `listThrows: true`.
+ * `probeCount` records how many times `probe()` was called so tests can assert
+ * the credential store is left untouched for non-OAuth users.
  */
 function makeTokenStore(
   opts: {
@@ -60,14 +64,19 @@ function makeTokenStore(
     enumerable?: boolean;
     readThrows?: readonly string[];
   } = {},
-): TokenStore & { deleted: string[] } {
+): FakeTokenStore {
   const names = new Set(opts.names ?? []);
   const readThrows = new Set(opts.readThrows ?? []);
   const enumerable = opts.enumerable ?? true;
   const deleted: string[] = [];
+  const probeCount = { value: 0 };
   return {
     deleted,
-    probe: () => Promise.resolve(opts.health ?? { kind: 'ready' }),
+    probeCount,
+    probe: () => {
+      probeCount.value += 1;
+      return Promise.resolve(opts.health ?? { kind: 'ready' });
+    },
     list: () =>
       opts.listThrows === true
         ? Promise.reject(new Error('enumeration boom'))
@@ -96,7 +105,7 @@ interface Stub {
   /** Answer returned by the interactive confirm prompt (defaults to false). */
   confirm?: boolean;
   /** Token store backing the Auth section (defaults to a ready, empty store). */
-  tokenStore?: TokenStore & { deleted: string[] };
+  tokenStore?: FakeTokenStore;
   /** Host platform reported to remediation hints (defaults to 'darwin'). */
   platform?: NodeJS.Platform;
 }
@@ -108,7 +117,7 @@ interface Harness {
   /** Every prompt string passed to `confirmFix`, in order. */
   confirmPrompts: string[];
   /** The token store wired into `deps.createTokenStore`. */
-  store: TokenStore & { deleted: string[] };
+  store: FakeTokenStore;
 }
 
 function makeHarness(target: string, stub: Stub = {}): Harness {
@@ -963,6 +972,38 @@ describe('runDoctor auth section', () => {
     expect(code).toBe(0);
     expect(h.stdout.value).not.toContain('auth-store');
     expect(h.stdout.value).toMatch(/6 check\(s\):/);
+  });
+
+  it('never probes the credential store when no OAuth is configured and it is empty', async () => {
+    // probe() mutates the keychain (writes/deletes a sentinel); doctor must not
+    // touch it for users who don't use OAuth and have no stored tokens.
+    const cfg = await makeTempConfig(
+      configWith({ github: { type: 'stdio', enabled: true, command: 'true', args: [] } }),
+    );
+    harnesses.push(cfg);
+    const store = makeTokenStore();
+    const h = makeHarness(cfg.target, { ...healthy, commands: { true: true }, tokenStore: store });
+
+    await runDoctor({}, h.deps);
+
+    expect(store.probeCount.value).toBe(0);
+    expect(h.stdout.value).not.toContain('auth-store');
+  });
+
+  it('reports orphan tokens without probing when no OAuth is configured', async () => {
+    const cfg = await makeTempConfig(
+      configWith({ github: { type: 'stdio', enabled: true, command: 'true', args: [] } }),
+    );
+    harnesses.push(cfg);
+    const store = makeTokenStore({ names: ['ghost'] });
+    const h = makeHarness(cfg.target, { ...healthy, commands: { true: true }, tokenStore: store });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(store.probeCount.value).toBe(0);
+    expect(h.stdout.value).toContain('[PASS] auth-store');
+    expect(h.stdout.value).toContain('[WARN] auth-orphan:ghost');
   });
 
   it('passes with a green token-store row when there is no drift', async () => {
