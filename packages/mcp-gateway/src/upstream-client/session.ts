@@ -310,6 +310,29 @@ export function createUpstreamSession(
     }
   }
 
+  /**
+   * Surface an auth failure raised while connecting. A first-time connect with
+   * no stored token is terminal `auth_required` (recovery needs a gateway
+   * restart in the bearer model, and a fresh login in OAuth). But when we are
+   * already recovering an `auth_expired` session, a still-missing token must not
+   * collapse it into terminal `auth_required` — that would strand the call-driven
+   * "no restart" recovery flow (SPECS §4.6.2). In that case stay in `auth_expired`
+   * so the next attempt keeps re-reading the keychain. `auth_expired` failures
+   * always stay `auth_expired` regardless.
+   */
+  function surfaceConnectAuthFailure(
+    error: UpstreamAuthRequiredError | UpstreamAuthExpiredError,
+    attempt: number,
+    recovering: boolean,
+  ): void {
+    if (isAuthRequiredError(error) && !recovering) {
+      phase = { kind: 'auth_required' };
+      setStatus({ kind: 'auth_required', reason: error.message });
+      return;
+    }
+    enterAuthExpired(error.message, attempt);
+  }
+
   function scheduleAuthRecovery(failedAttempt: number): void {
     clearAuthRecovery();
     const delayMs = backoffMs(failedAttempt);
@@ -320,7 +343,7 @@ export function createUpstreamSession(
         return;
       }
       phase = { kind: 'idle' };
-      void runConnectAttempt(nextAttempt);
+      void runConnectAttempt(nextAttempt, true);
     }, delayMs);
   }
 
@@ -376,7 +399,7 @@ export function createUpstreamSession(
     }, pingIntervalMs);
   }
 
-  async function runConnectAttempt(attempt: number): Promise<void> {
+  async function runConnectAttempt(attempt: number, recovering = false): Promise<void> {
     if (phase.kind === 'stopped' || phase.kind === 'auth_required') {
       return;
     }
@@ -397,37 +420,23 @@ export function createUpstreamSession(
         await client.disconnect().catch(() => undefined);
         return;
       }
-      if (isAuthRequiredError(error)) {
+      if (isAuthRequiredError(error) || isAuthExpiredError(error)) {
+        // Auth failed during connect. `auth_expired` (stored token aged out) is
+        // call-driven recovery: with tools cached the server stays callable and
+        // the next call retries; with nothing cached enterAuthExpired falls back
+        // to a reconnect backoff so it self-heals after `tlbx auth login`
+        // without a restart. `auth_required` (no stored token) is terminal on a
+        // first connect, but stays `auth_expired` when we are recovering an
+        // already-expired session — see surfaceConnectAuthFailure (SPECS §4.6.2).
         await client.disconnect().catch(() => undefined);
+        // A dispose()/restart() may have run during the disconnect await, moving
+        // us out of this attempt. Re-check before mutating shared state so a
+        // stale attempt cannot resurrect a torn-down session or clobber a newer
+        // connect attempt.
         if (phase.kind !== 'starting' || phase.client !== client) {
           return;
         }
-        phase = { kind: 'auth_required' };
-        setStatus({ kind: 'auth_required', reason: error.message });
-        return;
-      }
-      if (isAuthExpiredError(error)) {
-        // Stored credentials aged out. When a tool list was already cached
-        // (mid-session expiry), hold in `auth_expired` with no backoff loop:
-        // the server stays callable, so the next tool call re-reads the token
-        // store and retries the connect — call-driven recovery (SPECS §4.6.2).
-        //
-        // When nothing was ever cached (the very first connect failed), no
-        // downstream `tools/call` can reach this server, so call-driven
-        // recovery can never fire. Fall back to the connection manager's
-        // reconnect backoff so the session self-heals after the user runs
-        // `tlbx auth login`, without a gateway restart. This is connection
-        // recovery, not proactive token refresh — refresh still happens lazily
-        // inside the SDK on each connect.
-        await client.disconnect().catch(() => undefined);
-        // A dispose()/restart() may have run during the disconnect await,
-        // moving us out of this attempt. Re-check before mutating shared state
-        // so a stale attempt cannot resurrect a torn-down session or clobber a
-        // newer connect attempt with an `auth_expired` phase and reconnect timer.
-        if (phase.kind !== 'starting' || phase.client !== client) {
-          return;
-        }
-        enterAuthExpired(error.message, attempt);
+        surfaceConnectAuthFailure(error, attempt, recovering);
         return;
       }
       await client.disconnect().catch(() => undefined);
@@ -469,11 +478,8 @@ export function createUpstreamSession(
       if (afterDisconnect.kind !== 'starting' || afterDisconnect.client !== client) {
         return;
       }
-      if (isAuthRequiredError(refreshError)) {
-        phase = { kind: 'auth_required' };
-        setStatus({ kind: 'auth_required', reason: refreshError.message });
-      } else if (isAuthExpiredError(refreshError)) {
-        enterAuthExpired(refreshError.message, attempt);
+      if (isAuthRequiredError(refreshError) || isAuthExpiredError(refreshError)) {
+        surfaceConnectAuthFailure(refreshError, attempt, recovering);
       }
       return;
     }
@@ -566,7 +572,7 @@ export function createUpstreamSession(
       // pending background reconnect first so this call drives the single
       // reconnect rather than racing a scheduled one.
       clearAuthRecovery();
-      await runConnectAttempt(1);
+      await runConnectAttempt(1, true);
     }
     if (phase.kind !== 'connected') {
       if (phase.kind === 'auth_expired') {

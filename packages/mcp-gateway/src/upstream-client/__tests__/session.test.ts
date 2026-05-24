@@ -529,7 +529,7 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     await session.dispose();
   });
 
-  it('throws auth_required guidance when the reconnect after auth_expired finds no stored token', async () => {
+  it('stays in auth_expired (not terminal auth_required) when a recovery reconnect finds no stored token', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {
       logger: createNoopLogger(),
@@ -537,30 +537,35 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     });
 
     const startPromise = session.start();
-    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
-    controls[0]!.setListToolsResult(tools);
-    controls[0]!.resolveConnect();
+    controls[0]!.resolveConnect(new UpstreamAuthExpiredError('fake', 'token expired'));
     await startPromise;
-
-    // Mid-session expiry keeps tools cached so the server stays callable.
-    controls[0]!.setCallToolResult(() =>
-      Promise.reject(new UpstreamAuthExpiredError('fake', 'mid-session expiry')),
-    );
-    await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
-      UpstreamAuthExpiredError,
-    );
     expect(session.status.kind).toBe('auth_expired');
 
-    // The next call drives a reconnect. The stored token has since been
-    // removed, so the upstream now reports auth_required. The caller must get
-    // re-auth guidance, not a generic not-connected error.
-    const callPromise = session.callTool('echo', undefined);
+    // The user hasn't re-authenticated yet, so the recovery reconnect finds no
+    // stored token (classified as auth_required). The session must NOT collapse
+    // into terminal auth_required — that would strand the no-restart recovery
+    // flow (SPECS §4.6.2). It stays auth_expired and rethrows re-auth guidance.
+    const firstCall = session.callTool('echo', undefined);
     await flushMicrotasks();
     expect(controls).toHaveLength(2);
     controls[1]!.resolveConnect(UpstreamAuthRequiredError.forMissingOAuthToken(undefined));
+    await expect(firstCall).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    expect(session.status.kind).toBe('auth_expired');
 
-    await expect(callPromise).rejects.toBeInstanceOf(UpstreamAuthRequiredError);
-    expect(session.status.kind).toBe('auth_required');
+    // After the user finally runs `tlbx auth login`, the next call still drives
+    // a fresh reconnect (the session is not stuck) and recovers.
+    const secondCall = session.callTool('echo', undefined);
+    await flushMicrotasks();
+    expect(controls).toHaveLength(3);
+    controls[2]!.setCallToolResult(() =>
+      Promise.resolve({
+        content: [{ type: 'text', text: 'recovered' }],
+      } as unknown as CallToolResult),
+    );
+    controls[2]!.resolveConnect();
+    const result = await secondCall;
+    expect(result.content).toEqual([{ type: 'text', text: 'recovered' }]);
+    expect(session.status.kind).toBe('connected');
     await session.dispose();
   });
 
