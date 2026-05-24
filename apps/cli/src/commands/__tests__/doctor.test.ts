@@ -1135,7 +1135,7 @@ describe('runDoctor auth section', () => {
     expect(h.stdout.value).not.toContain('auth-orphan');
   });
 
-  it('treats an unreadable (corrupt) entry as present, not missing', async () => {
+  it('fails with a re-auth hint when a stored credential is unreadable (corrupt)', async () => {
     const cfg = await makeTempConfig(oauthConfig(['acme']));
     harnesses.push(cfg);
     const h = makeHarness(cfg.target, {
@@ -1145,8 +1145,30 @@ describe('runDoctor auth section', () => {
 
     const code = await runDoctor({}, h.deps);
 
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] auth-unreadable:acme');
+    expect(h.stdout.value).toContain('corrupt entry');
+    expect(h.stdout.value).toContain('tlbx auth login acme');
+    // An unreadable entry is not "missing" — the credential exists, it just fails to read.
+    expect(h.stdout.value).not.toContain('auth-missing');
+  });
+
+  it('warns that orphan detection was skipped when list() fails for an OAuth setup', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    // 'acme' has a valid token (read succeeds), but enumeration throws — orphan
+    // detection cannot run and must be surfaced rather than reported as clean.
+    const h = makeHarness(cfg.target, {
+      ...healthy,
+      tokenStore: makeTokenStore({ names: ['acme'], listThrows: true }),
+    });
+
+    const code = await runDoctor({}, h.deps);
+
     expect(code).toBe(0);
     expect(h.stdout.value).toContain('[PASS] auth-store');
+    expect(h.stdout.value).toContain('[WARN] auth-orphans-unavailable');
+    expect(h.stdout.value).toContain('could not enumerate');
     expect(h.stdout.value).not.toContain('auth-missing');
   });
 });

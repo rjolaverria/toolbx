@@ -459,27 +459,47 @@ export interface AuthCheckResult {
 
 const NO_AUTH_SECTION: AuthCheckResult = { rows: [], orphans: [], missing: [] };
 
-/** Assemble the Auth section rows: a store-health PASS row plus drift WARNs. */
-function authRows(
-  storageType: string,
-  orphans: readonly string[],
-  missing: readonly string[],
-): CheckResult[] {
+interface AuthRowsInput {
+  orphans?: readonly string[];
+  missing?: readonly string[];
+  /** Servers whose stored credential exists but could not be read (e.g. corrupt). */
+  unreadable?: readonly { name: string; reason: string }[];
+  /** Set when `list()` failed, so orphan detection could not run. */
+  enumerationError?: string | null;
+}
+
+/** Assemble the Auth section: a store-health PASS row plus drift/health rows. */
+function authRows(storageType: string, input: AuthRowsInput): CheckResult[] {
   const rows: CheckResult[] = [
     { id: 'auth-store', severity: 'PASS', message: `Token store (${storageType}) is available` },
   ];
-  for (const name of orphans) {
+  if (input.enumerationError != null) {
+    rows.push({
+      id: 'auth-orphans-unavailable',
+      severity: 'WARN',
+      message: `Orphan-token detection skipped: could not enumerate the token store (${input.enumerationError})`,
+    });
+  }
+  for (const name of input.orphans ?? []) {
     rows.push({
       id: `auth-orphan:${name}`,
       severity: 'WARN',
       message: `Orphan token for "${name}" — server entry not in config`,
     });
   }
-  for (const name of missing) {
+  for (const name of input.missing ?? []) {
     rows.push({
       id: `auth-missing:${name}`,
       severity: 'WARN',
       message: `Missing token for "${name}" — run \`tlbx auth login ${name}\``,
+    });
+  }
+  for (const { name, reason } of input.unreadable ?? []) {
+    rows.push({
+      id: `auth-unreadable:${name}`,
+      severity: 'FAIL',
+      message: `Stored credentials for "${name}" are unreadable: ${reason}`,
+      fixHint: `Run \`tlbx auth login ${name}\` to re-authenticate and overwrite the entry`,
     });
   }
   return rows;
@@ -517,7 +537,7 @@ export async function checkAuth(
       return NO_AUTH_SECTION;
     }
     const orphans = [...stored].sort((a, b) => a.localeCompare(b));
-    return { rows: authRows(storageType, orphans, []), orphans, missing: [] };
+    return { rows: authRows(storageType, { orphans }), orphans, missing: [] };
   }
 
   // OAuth is configured, so store health genuinely matters — probe it. A
@@ -538,32 +558,34 @@ export async function checkAuth(
     };
   }
 
-  // Orphan detection needs enumeration, but `list()`'s contract allows `[]` to
-  // mean either "no records" or "enumeration unsupported" (and some backends
-  // throw). Neither is fatal: missing-token detection below uses authoritative
-  // per-server `read()`s, and orphan detection reports nothing when the backend
-  // can't enumerate.
-  let stored: readonly string[];
+  // Orphan detection needs enumeration. `list()`'s contract allows a successful
+  // `[]` to mean either "no records" or "enumeration unsupported", and the call
+  // may also throw. A successful empty result is treated as "no orphans"; a
+  // failure is surfaced as a WARN (`enumerationError`) so the user knows orphan
+  // detection was skipped rather than silently assuming there are none.
+  let stored: readonly string[] = [];
+  let enumerationError: string | null = null;
   try {
     stored = await tokenStore.list();
-  } catch {
-    stored = [];
+  } catch (error) {
+    enumerationError = error instanceof Error ? error.message : String(error);
   }
 
   // Missing-token detection reads each configured server directly rather than
   // trusting `list()`: an empty/unsupported enumeration would otherwise report
   // servers with valid stored credentials as missing. A `read()` that throws
-  // means an entry exists but is unreadable (e.g. corrupt) — that is not
-  // "missing", so we exclude it here.
+  // means an entry exists but is unreadable (e.g. corrupt); that is a real,
+  // separate problem (`auth status`, refresh, and gateway use will fail on it),
+  // so it is surfaced as a FAIL row rather than silently treated as present.
   const missing: string[] = [];
+  const unreadable: { name: string; reason: string }[] = [];
   for (const name of oauthNames) {
     try {
       if ((await tokenStore.read(name)) === null) {
         missing.push(name);
       }
-    } catch {
-      // Treat an unreadable entry as present; surfacing corruption is out of
-      // scope for the drift check.
+    } catch (error) {
+      unreadable.push({ name, reason: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -572,7 +594,11 @@ export async function checkAuth(
     .filter((name) => !configured.has(name))
     .sort((a, b) => a.localeCompare(b));
 
-  return { rows: authRows(storageType, orphans, missing), orphans, missing };
+  return {
+    rows: authRows(storageType, { orphans, missing, unreadable, enumerationError }),
+    orphans,
+    missing,
+  };
 }
 
 function tryParseJson(source: string): unknown {
