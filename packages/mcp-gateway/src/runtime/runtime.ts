@@ -1,10 +1,12 @@
 import {
   createSessionVisibility,
   createStatusRegistry,
+  createTokenStore,
   type Logger,
   type ServerConfig,
   type ServerStatus,
   type StatusRegistry,
+  type TokenStore,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
@@ -31,7 +33,7 @@ export interface CreateUpstreamSessionForRuntime {
   (
     serverName: string,
     config: ServerConfig,
-    deps: { logger: Logger; processEnv?: NodeJS.ProcessEnv },
+    deps: { logger: Logger; processEnv?: NodeJS.ProcessEnv; tokenStore?: TokenStore },
   ): UpstreamSession;
 }
 
@@ -39,6 +41,12 @@ export interface CreateGatewayRuntimeDeps {
   config: ToolBoxConfig;
   logger: Logger;
   processEnv?: NodeJS.ProcessEnv;
+  /**
+   * Token store backing OAuth upstreams. When omitted, the runtime builds one
+   * from `config.auth.storage` only if at least one enabled server uses
+   * `auth.type === 'oauth'` — non-OAuth deployments never touch the keychain.
+   */
+  tokenStore?: TokenStore;
   /** Test seam: override how upstream sessions are constructed. */
   createSession?: CreateUpstreamSessionForRuntime;
 }
@@ -73,7 +81,15 @@ const defaultCreateSession: CreateUpstreamSessionForRuntime = (name, config, dep
     logger: deps.logger,
     serverName: name,
     ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
+    ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
   });
+
+/** True when the configured (enabled) server set includes an OAuth HTTP upstream. */
+function hasOAuthUpstream(config: ToolBoxConfig): boolean {
+  return Object.values(config.servers).some(
+    (server) => server.enabled && server.type === 'http' && server.auth?.type === 'oauth',
+  );
+}
 
 export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRuntime {
   const log = deps.logger.child({ component: 'gateway-runtime' });
@@ -81,6 +97,14 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   const toolRegistry = createToolRegistry({ namespacing: deps.config.namespacing });
   const sessions = new Map<string, UpstreamSession>();
   const create = deps.createSession ?? defaultCreateSession;
+
+  // Build the token store lazily — only when an OAuth upstream is configured —
+  // so non-OAuth deployments never construct a keychain backend.
+  const tokenStore: TokenStore | undefined =
+    deps.tokenStore ??
+    (hasOAuthUpstream(deps.config)
+      ? createTokenStore(deps.config.auth.storage, { logger: deps.logger })
+      : undefined);
 
   const upstreams: UpstreamSessionLookup = {
     get: (name) => sessions.get(name),
@@ -92,8 +116,17 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   // server.onclose hook in registerHandlers.
   const downstreamNotifiers = new Set<() => void>();
 
+  // Tools stay published while a server is `auth_expired`: the connection only
+  // dropped because credentials aged out, and the cached tool set is what lets
+  // `routeToolCall` reach the session so its next call can drive recovery
+  // (re-read the token store + reconnect). Any other non-connected state clears
+  // the published tools.
+  function keepsPublishedTools(status: ServerStatus): boolean {
+    return status.kind === 'connected' || status.kind === 'auth_expired';
+  }
+
   function syncToolRegistry(name: string, session: UpstreamSession, status: ServerStatus): void {
-    const tools = status.kind === 'connected' ? (session.cachedTools()?.tools ?? []) : [];
+    const tools = keepsPublishedTools(status) ? (session.cachedTools()?.tools ?? []) : [];
     toolRegistry.setServerEntry({
       serverName: name,
       status,
@@ -103,7 +136,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   }
 
   function syncStatusRegistry(name: string, session: UpstreamSession, status: ServerStatus): void {
-    const toolCount = status.kind === 'connected' ? (session.cachedTools()?.tools.length ?? 0) : 0;
+    const toolCount = keepsPublishedTools(status) ? (session.cachedTools()?.tools.length ?? 0) : 0;
     try {
       statusRegistry.update(name, { status, toolCount });
     } catch (error) {
@@ -130,6 +163,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     const session = create(name, server, {
       logger: log,
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
+      ...(tokenStore !== undefined ? { tokenStore } : {}),
     });
     sessions.set(name, session);
 

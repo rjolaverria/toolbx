@@ -74,7 +74,6 @@ describe('createToolRegistry', () => {
   it.each<ServerStatus>([
     { kind: 'disabled' },
     { kind: 'auth_required', reason: 'oauth flow pending' },
-    { kind: 'auth_expired', reason: 'token expired' },
     { kind: 'error', error: new Error('boom'), nextRetryAt: null },
     { kind: 'starting', attempt: 1 },
     { kind: 'stopped' },
@@ -89,6 +88,23 @@ describe('createToolRegistry', () => {
     });
 
     expect(registry.list()).toEqual([]);
+  });
+
+  it('keeps contributing tools while status.kind is auth_expired so a call can drive recovery', () => {
+    // An auth_expired server stays visible: the agent can still call its tools
+    // (the call returns a structured re-auth message), and routeToolCall needs
+    // the entry to reach the session and drive the next-call recovery (F1-21).
+    const registry = createToolRegistry({ namespacing: NS });
+
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: { kind: 'auth_expired', reason: 'token expired' },
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+
+    expect(registry.list().map((t) => t.exposedName)).toEqual(['jira__search_issues']);
+    expect(registry.find('jira__search_issues')).toBeDefined();
   });
 
   it('removes a server entirely on removeServer', () => {

@@ -250,6 +250,35 @@ describe('createGatewayRuntime', () => {
     expect(runtime.statusRegistry.get('jira')?.toolCount).toBe(0);
   });
 
+  it("keeps a server's tools published while it is auth_expired so a call can drive recovery", () => {
+    const controls = new Map<string, FakeSessionControls>();
+    const runtime = createGatewayRuntime({
+      config: makeConfig({ jira: STDIO_SERVER }),
+      logger: createNoopLogger(),
+      createSession: (name) => {
+        const c = makeFakeSession(name);
+        controls.set(name, c);
+        return c.session;
+      },
+    });
+
+    const jira = controls.get('jira');
+    if (!jira) {
+      throw new Error('jira session not created');
+    }
+
+    jira.setCachedTools([tool('echo')]);
+    jira.emitStatus({ kind: 'starting', attempt: 1 });
+    jira.emitStatus({ kind: 'connected', since: new Date() });
+    expect(runtime.toolRegistry.list()).toHaveLength(1);
+
+    // auth_expired keeps the cached tools published: routeToolCall needs the
+    // registry entry to reach the session so its next call can recover.
+    jira.emitStatus({ kind: 'auth_expired', reason: 'token expired' });
+    expect(runtime.toolRegistry.list().map((t) => t.exposedName)).toEqual(['jira__echo']);
+    expect(runtime.statusRegistry.get('jira')?.toolCount).toBe(1);
+  });
+
   it('refreshes the tool registry when tools_list_changed fires while connected', () => {
     const controls = new Map<string, FakeSessionControls>();
     const runtime = createGatewayRuntime({

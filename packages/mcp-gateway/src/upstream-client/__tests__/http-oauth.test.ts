@@ -1,0 +1,185 @@
+import { createNoopLogger, InMemoryTokenStore, type StoredOAuthRecord } from '@toolbox/core';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { UpstreamAuthExpiredError, UpstreamAuthRequiredError } from '../errors.js';
+import { createHttpUpstreamClient } from '../http.js';
+import type { HttpServerConfig } from '@toolbox/core';
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — `.mjs` fixture has no .d.ts; shape is described inline below.
+import { startOAuthMcpServer } from './__fixtures__/oauth-mcp-server.mjs';
+
+interface OAuthMcpServer {
+  url: string;
+  issuer: string;
+  validTokens: Set<string>;
+  authHeaders: Array<string | null>;
+  tokenGrants: string[];
+  refreshCount: () => number;
+  close: () => Promise<void>;
+}
+
+const start = startOAuthMcpServer as (options?: {
+  validTokens?: string[];
+  rejectRefresh?: boolean;
+  refreshAccessToken?: string;
+}) => Promise<OAuthMcpServer>;
+
+const activeServers = new Set<OAuthMcpServer>();
+
+afterEach(async () => {
+  for (const server of activeServers) {
+    await server.close().catch(() => undefined);
+  }
+  activeServers.clear();
+});
+
+async function startServer(options?: {
+  validTokens?: string[];
+  rejectRefresh?: boolean;
+}): Promise<OAuthMcpServer> {
+  const server = await start(options);
+  activeServers.add(server);
+  return server;
+}
+
+function makeRecord(
+  issuer: string,
+  tokens: Partial<StoredOAuthRecord['tokens']> & { access_token: string },
+): StoredOAuthRecord {
+  return {
+    schemaVersion: 1,
+    clientInformation: { client_id: 'fake-client-id' },
+    tokens: { token_type: 'Bearer', ...tokens },
+    authorizationServer: issuer,
+    scopes: [],
+    obtainedAt: new Date().toISOString(),
+  };
+}
+
+function makeClient(url: string, tokenStore: InMemoryTokenStore) {
+  const config: HttpServerConfig = {
+    type: 'http',
+    enabled: true,
+    url,
+    auth: { type: 'oauth' },
+  };
+  return createHttpUpstreamClient(config, {
+    logger: createNoopLogger(),
+    serverName: 'demo',
+    tokenStore,
+    connectTimeoutMs: 10_000,
+  });
+}
+
+describe('createHttpUpstreamClient — OAuth', () => {
+  it('attaches the stored access token as a Bearer header on every request', async () => {
+    const upstream = await startServer({ validTokens: ['fake-access-token'] });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      makeRecord(upstream.issuer, { access_token: 'fake-access-token', refresh_token: 'r' }),
+    );
+
+    const client = makeClient(upstream.url, tokenStore);
+    await client.connect();
+    const list = await client.listTools();
+    expect(list.tools.map((t) => t.name)).toEqual(['echo']);
+    const result = await client.callTool('echo', { message: 'hi' });
+    expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
+
+    expect(upstream.authHeaders.every((h) => h === 'Bearer fake-access-token')).toBe(true);
+    expect(upstream.tokenGrants).toEqual([]);
+    await client.disconnect();
+  }, 15_000);
+
+  it('refreshes on a 401 and retries with the refreshed token', async () => {
+    // Upstream only accepts the *refreshed* token. The seeded access token is
+    // stale, so the first request 401s and the SDK refreshes via the provider.
+    const upstream = await startServer({ validTokens: ['refreshed-access-token'] });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      makeRecord(upstream.issuer, {
+        access_token: 'stale-access-token',
+        refresh_token: 'valid-refresh-token',
+      }),
+    );
+
+    const client = makeClient(upstream.url, tokenStore);
+    await client.connect();
+    const result = await client.callTool('echo', { message: 'recovered' });
+    expect(result.content).toEqual([{ type: 'text', text: 'recovered' }]);
+
+    expect(upstream.tokenGrants).toContain('refresh_token');
+    const stored = await tokenStore.read('demo');
+    expect(stored?.tokens.access_token).toBe('refreshed-access-token');
+    await client.disconnect();
+  }, 15_000);
+
+  it('throws UpstreamAuthExpiredError when refresh is rejected (revoked refresh token)', async () => {
+    const upstream = await startServer({
+      validTokens: ['refreshed-access-token'],
+      rejectRefresh: true,
+    });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      makeRecord(upstream.issuer, {
+        access_token: 'stale-access-token',
+        refresh_token: 'revoked-refresh-token',
+      }),
+    );
+
+    const client = makeClient(upstream.url, tokenStore);
+    await expect(client.connect()).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+  }, 15_000);
+
+  it('throws UpstreamAuthExpiredError when there is no refresh token to use', async () => {
+    const upstream = await startServer({ validTokens: ['refreshed-access-token'] });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      makeRecord(upstream.issuer, { access_token: 'stale-access-token' }),
+    );
+
+    const client = makeClient(upstream.url, tokenStore);
+    await expect(client.connect()).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    // No refresh_token means the SDK never hits the token endpoint with a
+    // refresh grant.
+    expect(upstream.tokenGrants).not.toContain('refresh_token');
+  }, 15_000);
+
+  it('throws UpstreamAuthRequiredError when no token is stored at all', async () => {
+    const upstream = await startServer({ validTokens: ['refreshed-access-token'] });
+    const tokenStore = new InMemoryTokenStore();
+
+    const client = makeClient(upstream.url, tokenStore);
+    await expect(client.connect()).rejects.toBeInstanceOf(UpstreamAuthRequiredError);
+  }, 15_000);
+
+  it('classifies a ping-time refresh failure as UpstreamAuthExpiredError', async () => {
+    const upstream = await startServer({
+      validTokens: ['fake-access-token'],
+      rejectRefresh: true,
+    });
+    const tokenStore = new InMemoryTokenStore();
+    await tokenStore.write(
+      'demo',
+      makeRecord(upstream.issuer, {
+        access_token: 'fake-access-token',
+        refresh_token: 'revoked-refresh-token',
+      }),
+    );
+
+    const client = makeClient(upstream.url, tokenStore);
+    await client.connect();
+
+    // The access token is revoked server-side mid-session, so the next
+    // keepalive ping 401s and the SDK's refresh attempt is rejected. The ping
+    // path must classify this the same way connect/callTool do.
+    upstream.validTokens.delete('fake-access-token');
+    await expect(client.ping()).rejects.toBeInstanceOf(UpstreamAuthExpiredError);
+    await client.disconnect();
+  }, 15_000);
+});

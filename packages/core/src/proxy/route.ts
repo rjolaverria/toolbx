@@ -49,7 +49,12 @@ export type RouteResult =
   | { readonly kind: 'unknown_tool' }
   | { readonly kind: 'server_unavailable'; readonly server: string; readonly status: ServerStatus }
   | { readonly kind: 'invalid_args'; readonly issues: readonly RouteIssue[] }
-  | { readonly kind: 'upstream_error'; readonly error: RouteUpstreamError };
+  | { readonly kind: 'upstream_error'; readonly error: RouteUpstreamError }
+  // OAuth credentials for the server aged out mid-call (or while the session was
+  // already in `auth_expired` and the recovery reconnect failed again). The
+  // downstream handler renders a structured re-auth message rather than a
+  // JSON-RPC error (SPECS §4.6.2).
+  | { readonly kind: 'auth_expired'; readonly server: string };
 
 export interface RouteToolCallParams {
   readonly exposedName: string;
@@ -84,6 +89,13 @@ function isUpstreamTimeoutError(err: unknown): boolean {
     (err.name === 'UpstreamCallToolTimeoutError' ||
       (err instanceof McpError && err.code === REQUEST_TIMEOUT_CODE))
   );
+}
+
+// `@toolbox/core` cannot import the gateway's `UpstreamAuthExpiredError`
+// (mcp-gateway depends on core, not the reverse), so match by name — the same
+// approach `isUpstreamTimeoutError` uses for the timeout error.
+function isAuthExpiredError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'UpstreamAuthExpiredError';
 }
 
 function describeUpstreamError(
@@ -182,7 +194,10 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
       status: { kind: 'stopped' },
     };
   }
-  if (session.status.kind !== 'connected') {
+  // `auth_expired` is allowed through: the session's own `callTool` re-reads
+  // the token store and attempts a reconnect, recovering once the user has run
+  // `tlbx auth login`. Every other non-connected status short-circuits.
+  if (session.status.kind !== 'connected' && session.status.kind !== 'auth_expired') {
     return { kind: 'server_unavailable', server: entry.serverName, status: session.status };
   }
 
@@ -261,6 +276,9 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
           message: `Upstream tool "${entry.upstreamName}" on server "${entry.serverName}" timed out after ${String(timeoutMs)}ms`,
         },
       };
+    }
+    if (isAuthExpiredError(outcome.err)) {
+      return { kind: 'auth_expired', server: entry.serverName };
     }
     return {
       kind: 'upstream_error',

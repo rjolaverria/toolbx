@@ -584,3 +584,51 @@ describe('routeToolCall', () => {
     ).resolves.toMatchObject({ kind: 'upstream_error' });
   });
 });
+
+describe('routeToolCall — auth_expired', () => {
+  // The session's own callTool drives recovery from auth_expired (it re-reads
+  // the token store and reconnects), so the router must forward the call rather
+  // than short-circuiting on the non-connected status the way it does for other
+  // unavailable states.
+  it('forwards the call to a registry-hit session whose status is auth_expired', async () => {
+    const jiraEntry = entry('jira', 'search');
+    const registry = makeRegistry([jiraEntry]);
+    const result: CallToolResult = { content: [{ type: 'text', text: 'recovered' }] };
+    const jira = makeSession({ status: { kind: 'auth_expired', reason: 'expired' }, result });
+
+    const routed = await routeToolCall({
+      exposedName: 'jira__search',
+      args: { jql: 'x' },
+      registry,
+      sessions: makeSessions({ jira }),
+      namespacing: NS,
+    });
+
+    expect(routed).toEqual({ kind: 'ok', result });
+    expect(jira.calls).toHaveLength(1);
+  });
+
+  it('returns an auth_expired result when the session throws UpstreamAuthExpiredError', async () => {
+    const jiraEntry = entry('jira', 'search');
+    const registry = makeRegistry([jiraEntry]);
+    // Core cannot import the gateway's error class, so the router matches by
+    // name — mirror that here with a name-tagged Error.
+    const authExpired = Object.assign(new Error('auth expired'), {
+      name: 'UpstreamAuthExpiredError',
+    });
+    const jira = makeSession({
+      status: { kind: 'auth_expired', reason: 'expired' },
+      throwValue: authExpired,
+    });
+
+    const routed = await routeToolCall({
+      exposedName: 'jira__search',
+      args: undefined,
+      registry,
+      sessions: makeSessions({ jira }),
+      namespacing: NS,
+    });
+
+    expect(routed).toEqual({ kind: 'auth_expired', server: 'jira' });
+  });
+});

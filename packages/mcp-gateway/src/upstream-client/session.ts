@@ -1,6 +1,10 @@
-import type { Logger, ServerConfig, ServerStatus } from '@toolbox/core';
+import type { Logger, ServerConfig, ServerStatus, TokenStore } from '@toolbox/core';
 
-import { UpstreamAuthRequiredError, UpstreamNotConnectedError } from './errors.js';
+import {
+  UpstreamAuthExpiredError,
+  UpstreamAuthRequiredError,
+  UpstreamNotConnectedError,
+} from './errors.js';
 import { createHttpUpstreamClient } from './http.js';
 import { createStdioUpstreamClient } from './stdio.js';
 import type {
@@ -36,6 +40,7 @@ export type UpstreamClientFactory = (
     serverName?: string | undefined;
     processEnv?: NodeJS.ProcessEnv | undefined;
     connectTimeoutMs?: number | undefined;
+    tokenStore?: TokenStore | undefined;
   },
 ) => UpstreamClient;
 
@@ -46,6 +51,12 @@ export interface CreateUpstreamSessionDeps {
   connectTimeoutMs?: number;
   pingIntervalMs?: number;
   backoff?: Partial<UpstreamSessionBackoff>;
+  /**
+   * Token store backing OAuth credentials, forwarded to the HTTP upstream
+   * client so it can build a `ToolBoxOAuthProvider`. Omitted for non-OAuth
+   * servers.
+   */
+  tokenStore?: TokenStore;
   /** Test seam: override how the underlying transport client is built. */
   createClient?: UpstreamClientFactory;
   /** Test seam: override timers and clock. Defaults to `globalThis`. */
@@ -103,11 +114,16 @@ const defaultCreateClient: UpstreamClientFactory = (config, deps) => {
     ...(deps.serverName !== undefined ? { serverName: deps.serverName } : {}),
     ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
     ...(deps.connectTimeoutMs !== undefined ? { connectTimeoutMs: deps.connectTimeoutMs } : {}),
+    ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
   });
 };
 
 function isAuthRequiredError(error: unknown): error is UpstreamAuthRequiredError {
   return error instanceof UpstreamAuthRequiredError;
+}
+
+function isAuthExpiredError(error: unknown): error is UpstreamAuthExpiredError {
+  return error instanceof UpstreamAuthExpiredError;
 }
 
 function errorMessage(error: unknown): string {
@@ -145,11 +161,13 @@ export function createUpstreamSession(
     | { kind: 'connected'; client: UpstreamClient }
     | { kind: 'waiting'; attempt: number; retryHandle: unknown }
     | { kind: 'auth_required' }
+    | { kind: 'auth_expired' }
     | { kind: 'stopped' };
 
   let phase: Phase = { kind: 'idle' };
   let status: ServerStatus = { kind: 'stopped' };
   let pingHandle: unknown = null;
+  let authRecoveryHandle: unknown = null;
   let cached: ListToolsResult | undefined;
   let activeListeners: { client: UpstreamClient; off: () => void } | null = null;
   let pendingStart: Promise<void> | null = null;
@@ -183,6 +201,13 @@ export function createUpstreamSession(
     }
   }
 
+  function clearAuthRecovery(): void {
+    if (authRecoveryHandle !== null) {
+      scheduler.clearTimeout(authRecoveryHandle);
+      authRecoveryHandle = null;
+    }
+  }
+
   function detachClientListeners(): void {
     if (activeListeners) {
       activeListeners.off();
@@ -199,15 +224,43 @@ export function createUpstreamSession(
     try {
       cached = await client.listTools();
     } catch (error) {
+      // An auth failure on tools/list (e.g. initialize succeeded but the token
+      // aged out before the list call, or refresh failed only here) must not be
+      // swallowed: it would leave the session marked `connected` with no tools
+      // and an unreachable re-auth surface. Propagate it so the caller can
+      // transition to auth_expired/auth_required. Other refresh failures are
+      // non-fatal and stay swallowed.
+      if (isAuthExpiredError(error) || isAuthRequiredError(error)) {
+        throw error;
+      }
       log.debug({ err: error }, 'failed to refresh upstream tools list');
     }
   }
 
   function attachClient(client: UpstreamClient): void {
     const onToolsListChanged = (): void => {
-      void refreshTools(client).then(() => {
-        emitToolsListChanged();
-      });
+      void refreshTools(client)
+        .then(() => {
+          emitToolsListChanged();
+        })
+        .catch((error: unknown) => {
+          // refreshTools only rejects with auth errors (others are swallowed).
+          // We were connected, so this is mid-session credential loss: surface
+          // it as auth_expired — the valid `connected ->` auth transition, and
+          // the surface that keeps tools published for call-driven recovery —
+          // matching the ping/call paths. A direct connected -> auth_required
+          // transition is rejected by the status state machine, so even a
+          // "missing token" failure here is reported as auth_expired.
+          if (phase.kind !== 'connected' || phase.client !== client) {
+            return;
+          }
+          if (isAuthExpiredError(error) || isAuthRequiredError(error)) {
+            detachClientListeners();
+            clearPing();
+            void client.disconnect().catch(() => undefined);
+            enterAuthExpired(errorMessage(error), 1);
+          }
+        });
     };
     const onExit = (info: { intentional: boolean }): void => {
       if (info.intentional) {
@@ -237,8 +290,69 @@ export function createUpstreamSession(
     scheduleRetry(1, new Error('upstream client exited'));
   }
 
+  function setAuthExpired(reason: string): void {
+    phase = { kind: 'auth_expired' };
+    setStatus({ kind: 'auth_expired', reason });
+  }
+
+  /**
+   * Transition to `auth_expired` and, when no tool list was ever cached, fall
+   * back to the connection manager's reconnect backoff. With tools cached the
+   * server stays callable and recovery is call-driven (SPECS §4.6.2); with
+   * nothing cached the runtime publishes no tools, so no downstream call can
+   * reach the session and only a reconnect can carry it back after the user
+   * re-authenticates. `recoveryAttempt` seeds the backoff sequence.
+   */
+  function enterAuthExpired(reason: string, recoveryAttempt: number): void {
+    setAuthExpired(reason);
+    if (cached === undefined) {
+      scheduleAuthRecovery(recoveryAttempt);
+    }
+  }
+
+  /**
+   * Surface an auth failure raised while connecting. A first-time connect with
+   * no stored token is terminal `auth_required` (recovery needs a gateway
+   * restart in the bearer model, and a fresh login in OAuth). But when we are
+   * already recovering an `auth_expired` session, a still-missing token must not
+   * collapse it into terminal `auth_required` — that would strand the call-driven
+   * "no restart" recovery flow (SPECS §4.6.2). In that case stay in `auth_expired`
+   * so the next attempt keeps re-reading the keychain. `auth_expired` failures
+   * always stay `auth_expired` regardless.
+   */
+  function surfaceConnectAuthFailure(
+    error: UpstreamAuthRequiredError | UpstreamAuthExpiredError,
+    attempt: number,
+    recovering: boolean,
+  ): void {
+    if (isAuthRequiredError(error) && !recovering) {
+      phase = { kind: 'auth_required' };
+      setStatus({ kind: 'auth_required', reason: error.message });
+      return;
+    }
+    enterAuthExpired(error.message, attempt);
+  }
+
+  function scheduleAuthRecovery(failedAttempt: number): void {
+    clearAuthRecovery();
+    const delayMs = backoffMs(failedAttempt);
+    const nextAttempt = failedAttempt + 1;
+    authRecoveryHandle = scheduler.setTimeout(() => {
+      authRecoveryHandle = null;
+      if (phase.kind !== 'auth_expired') {
+        return;
+      }
+      phase = { kind: 'idle' };
+      void runConnectAttempt(nextAttempt, true);
+    }, delayMs);
+  }
+
   function scheduleRetry(failedAttempt: number, lastError: Error): void {
-    if (phase.kind === 'stopped' || phase.kind === 'auth_required') {
+    if (
+      phase.kind === 'stopped' ||
+      phase.kind === 'auth_required' ||
+      phase.kind === 'auth_expired'
+    ) {
       return;
     }
     const delayMs = backoffMs(failedAttempt);
@@ -265,18 +379,29 @@ export function createUpstreamSession(
         if (phase.kind !== 'connected' || phase.client !== client) {
           return;
         }
-        log.debug({ err: error }, 'upstream ping failed; treating as transport loss');
-        // Trigger the same recovery path as an unexpected exit.
-        const failedClient = phase.client;
         detachClientListeners();
         clearPing();
-        void failedClient.disconnect().catch(() => undefined);
+        void client.disconnect().catch(() => undefined);
+        if (isAuthExpiredError(error) || isAuthRequiredError(error)) {
+          // A keepalive ping hit the SDK's refresh path and failed on auth —
+          // either the token aged out (auth_expired) or its record was removed
+          // (auth_required). This is mid-session credential loss, not transport
+          // loss: surface it as `auth_expired` (the valid connected-> transition
+          // that keeps cached tools published) so the next call drives re-auth
+          // recovery, matching the call and tools_list_changed paths (§4.6.2).
+          // If nothing was ever cached, enterAuthExpired falls back to a
+          // reconnect since no downstream call can reach this session.
+          enterAuthExpired(errorMessage(error), 1);
+          return;
+        }
+        log.debug({ err: error }, 'upstream ping failed; treating as transport loss');
+        // Trigger the same recovery path as an unexpected exit.
         scheduleRetry(1, error instanceof Error ? error : new Error(errorMessage(error)));
       });
     }, pingIntervalMs);
   }
 
-  async function runConnectAttempt(attempt: number): Promise<void> {
+  async function runConnectAttempt(attempt: number, recovering = false): Promise<void> {
     if (phase.kind === 'stopped' || phase.kind === 'auth_required') {
       return;
     }
@@ -285,6 +410,7 @@ export function createUpstreamSession(
       ...(serverName !== undefined ? { serverName } : {}),
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
       ...(deps.connectTimeoutMs !== undefined ? { connectTimeoutMs: deps.connectTimeoutMs } : {}),
+      ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
     });
     phase = { kind: 'starting', attempt, client };
     setStatus({ kind: 'starting', attempt });
@@ -296,10 +422,23 @@ export function createUpstreamSession(
         await client.disconnect().catch(() => undefined);
         return;
       }
-      if (isAuthRequiredError(error)) {
+      if (isAuthRequiredError(error) || isAuthExpiredError(error)) {
+        // Auth failed during connect. `auth_expired` (stored token aged out) is
+        // call-driven recovery: with tools cached the server stays callable and
+        // the next call retries; with nothing cached enterAuthExpired falls back
+        // to a reconnect backoff so it self-heals after `tlbx auth login`
+        // without a restart. `auth_required` (no stored token) is terminal on a
+        // first connect, but stays `auth_expired` when we are recovering an
+        // already-expired session — see surfaceConnectAuthFailure (SPECS §4.6.2).
         await client.disconnect().catch(() => undefined);
-        phase = { kind: 'auth_required' };
-        setStatus({ kind: 'auth_required', reason: error.message });
+        // A dispose()/restart() may have run during the disconnect await, moving
+        // us out of this attempt. Re-check before mutating shared state so a
+        // stale attempt cannot resurrect a torn-down session or clobber a newer
+        // connect attempt.
+        if (phase.kind !== 'starting' || phase.client !== client) {
+          return;
+        }
+        surfaceConnectAuthFailure(error, attempt, recovering);
         return;
       }
       await client.disconnect().catch(() => undefined);
@@ -307,13 +446,47 @@ export function createUpstreamSession(
       return;
     }
 
-    if ((phase as Phase).kind !== 'starting') {
+    const active = phase as Phase;
+    if (active.kind !== 'starting' || active.client !== client) {
+      // A dispose()/restart() during the connect await moved us out of this
+      // attempt (or started a newer one), so this resolved client is stale.
       await client.disconnect().catch(() => undefined);
       return;
     }
 
+    // Load the initial tool list before marking connected so an auth failure on
+    // tools/list surfaces the auth state instead of a tools-less "connected".
+    let refreshError: unknown = null;
+    try {
+      await refreshTools(client);
+    } catch (error) {
+      refreshError = error;
+    }
+
+    // The listTools await is another point where dispose()/restart() can move
+    // us out of this attempt; re-check before committing any phase change.
+    const settled = phase as Phase;
+    if (settled.kind !== 'starting' || settled.client !== client) {
+      await client.disconnect().catch(() => undefined);
+      return;
+    }
+
+    if (refreshError !== null) {
+      // tools/list reported an auth failure. Disconnect, then re-check once more
+      // — the disconnect await is itself a race window where dispose()/restart()
+      // can move us out of this attempt — before surfacing the auth state.
+      await client.disconnect().catch(() => undefined);
+      const afterDisconnect = phase as Phase;
+      if (afterDisconnect.kind !== 'starting' || afterDisconnect.client !== client) {
+        return;
+      }
+      if (isAuthRequiredError(refreshError) || isAuthExpiredError(refreshError)) {
+        surfaceConnectAuthFailure(refreshError, attempt, recovering);
+      }
+      return;
+    }
+
     attachClient(client);
-    await refreshTools(client);
     phase = { kind: 'connected', client };
     setStatus({ kind: 'connected', since: scheduler.now() });
     startPing(client);
@@ -362,6 +535,7 @@ export function createUpstreamSession(
     const previous = phase;
     phase = opts.keepStopped ? { kind: 'stopped' } : { kind: 'idle' };
     clearPing();
+    clearAuthRecovery();
     detachClientListeners();
     if (previous.kind === 'waiting') {
       scheduler.clearTimeout(previous.retryHandle);
@@ -388,6 +562,67 @@ export function createUpstreamSession(
     return phase.client;
   }
 
+  async function callToolWithAuthRecovery(
+    name: string,
+    args: Record<string, unknown> | undefined,
+    opts?: UpstreamCallToolOptions,
+  ): Promise<CallToolResult> {
+    if (phase.kind === 'auth_expired') {
+      // Recovery on next call (SPECS §4.6.2): rebuild the client so it re-reads
+      // the token store, then retry the connect. This succeeds once the user
+      // has re-authenticated out of band via `tlbx auth login`. Clear any
+      // pending background reconnect first so this call drives the single
+      // reconnect rather than racing a scheduled one.
+      clearAuthRecovery();
+      await runConnectAttempt(1, true);
+    }
+    if (phase.kind !== 'connected') {
+      if (phase.kind === 'auth_expired') {
+        throw UpstreamAuthExpiredError.forServer(serverName);
+      }
+      if (phase.kind === 'auth_required') {
+        // The reconnect found the stored token gone (e.g. revoked or logged
+        // out), so the upstream now needs a fresh login rather than a refresh.
+        // Surface the re-auth guidance instead of a generic not-connected error.
+        throw UpstreamAuthRequiredError.forMissingOAuthToken(serverName);
+      }
+      throw new UpstreamNotConnectedError(serverName);
+    }
+    const client = phase.client;
+    try {
+      return await client.callTool(name, args, opts);
+    } catch (error) {
+      // A mid-session auth failure surfaces here — either the token expired, or
+      // its record was removed and reclassified as auth_required. We were
+      // connected, so the valid transition is to `auth_expired` (the status
+      // machine rejects connected -> auth_required); this keeps tools published
+      // for the call-driven recovery surface. The next call re-reads the store
+      // and retries the connect. Rethrow the original error so the caller
+      // renders its re-auth guidance.
+      if (
+        (isAuthExpiredError(error) || isAuthRequiredError(error)) &&
+        phase.kind === 'connected' &&
+        phase.client === client
+      ) {
+        // Move out of `connected` synchronously (fire-and-forget the disconnect,
+        // as the ping/tools_list paths do) so a concurrent tool call cannot see
+        // a still-`connected` session and reuse this client while it is being
+        // torn down. The synchronous guard + mutation also leaves no await for a
+        // dispose()/restart() to interleave with.
+        detachClientListeners();
+        clearPing();
+        void client.disconnect().catch(() => undefined);
+        enterAuthExpired(errorMessage(error), 1);
+        // Throw auth_expired (even when the underlying failure was auth_required)
+        // so routeToolCall renders the structured re-auth result — it only
+        // special-cases UpstreamAuthExpiredError, and the session state is now
+        // auth_expired.
+        throw UpstreamAuthExpiredError.forServer(serverName, error);
+      }
+      throw error;
+    }
+  }
+
   return {
     serverName,
     get status(): ServerStatus {
@@ -401,7 +636,7 @@ export function createUpstreamSession(
       return requireConnectedClient().listTools();
     },
     async callTool(name, args, opts) {
-      return requireConnectedClient().callTool(name, args, opts);
+      return callToolWithAuthRecovery(name, args, opts);
     },
     async ping() {
       return requireConnectedClient().ping();
