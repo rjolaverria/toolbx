@@ -6,6 +6,8 @@ import {
   DEFAULT_CONFIG,
   type CachedTool,
   type ServerConfig,
+  type TokenStore,
+  type TokenStoreHealth,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
@@ -35,6 +37,33 @@ afterEach(async () => {
   }
 });
 
+/** Minimal in-memory token store seeded by name, no `StoredOAuthRecord` needed. */
+function makeTokenStore(
+  opts: {
+    names?: readonly string[];
+    health?: TokenStoreHealth;
+    listThrows?: boolean;
+  } = {},
+): TokenStore & { deleted: string[] } {
+  const names = new Set(opts.names ?? []);
+  const deleted: string[] = [];
+  return {
+    deleted,
+    probe: () => Promise.resolve(opts.health ?? { kind: 'ready' }),
+    list: () =>
+      opts.listThrows === true
+        ? Promise.reject(new Error('enumeration boom'))
+        : Promise.resolve([...names]),
+    delete: (name) => {
+      names.delete(name);
+      deleted.push(name);
+      return Promise.resolve();
+    },
+    read: () => Promise.resolve(null),
+    write: () => Promise.resolve(),
+  };
+}
+
 interface Stub {
   env?: Record<string, string | undefined>;
   commands?: Record<string, boolean>;
@@ -45,6 +74,10 @@ interface Stub {
   configSourceOverride?: string | null;
   /** Answer returned by the interactive confirm prompt (defaults to false). */
   confirm?: boolean;
+  /** Token store backing the Auth section (defaults to a ready, empty store). */
+  tokenStore?: TokenStore & { deleted: string[] };
+  /** Host platform reported to remediation hints (defaults to 'darwin'). */
+  platform?: NodeJS.Platform;
 }
 
 interface Harness {
@@ -53,12 +86,15 @@ interface Harness {
   stderr: { value: string };
   /** Every prompt string passed to `confirmFix`, in order. */
   confirmPrompts: string[];
+  /** The token store wired into `deps.createTokenStore`. */
+  store: TokenStore & { deleted: string[] };
 }
 
 function makeHarness(target: string, stub: Stub = {}): Harness {
   const stdout = { value: '' };
   const stderr = { value: '' };
   const confirmPrompts: string[] = [];
+  const store = stub.tokenStore ?? makeTokenStore();
   const deps: DoctorDeps = {
     resolvePath: () => target,
     cwd: () => path.dirname(target),
@@ -97,8 +133,10 @@ function makeHarness(target: string, stub: Stub = {}): Harness {
       confirmPrompts.push(prompt);
       return Promise.resolve(stub.confirm ?? false);
     },
+    createTokenStore: () => store,
+    platform: () => stub.platform ?? 'darwin',
   };
-  return { deps, stdout, stderr, confirmPrompts };
+  return { deps, stdout, stderr, confirmPrompts, store };
 }
 
 function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
@@ -873,5 +911,144 @@ describe('runDoctor --fix fixers', () => {
     expect(afterSecond).toBe(afterFirst);
     expect(code2).toBe(0);
     expect(second.stdout.value).toContain('--fix: no failing checks to fix.');
+  });
+});
+
+describe('runDoctor auth section', () => {
+  function oauthConfig(names: readonly string[]): ToolBoxConfig {
+    const servers: Record<string, ServerConfig> = {};
+    for (const name of names) {
+      servers[name] = {
+        type: 'http',
+        enabled: true,
+        url: `https://${name}.test/mcp`,
+        auth: { type: 'oauth' },
+      };
+    }
+    return configWith(servers);
+  }
+
+  const healthy = { enginesNode: '>=22', nodeVersion: 'v22.5.0' } as const;
+
+  it('omits the section when no OAuth is configured and the store is empty', async () => {
+    const cfg = await makeTempConfig(
+      configWith({ github: { type: 'stdio', enabled: true, command: 'true', args: [] } }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, { ...healthy, commands: { true: true } });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).not.toContain('auth-store');
+    expect(h.stdout.value).toMatch(/6 check\(s\):/);
+  });
+
+  it('passes with a green token-store row when there is no drift', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      ...healthy,
+      tokenStore: makeTokenStore({ names: ['acme'] }),
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('[PASS] auth-store: Token store (keychain) is available');
+    expect(h.stdout.value).not.toContain('auth-orphan');
+    expect(h.stdout.value).not.toContain('auth-missing');
+  });
+
+  it('reports an unavailable store and suppresses drift with a platform hint', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      ...healthy,
+      platform: 'linux',
+      tokenStore: makeTokenStore({ health: { kind: 'unavailable', reason: 'no secret service' } }),
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] auth-store');
+    expect(h.stdout.value).toContain('no secret service');
+    expect(h.stdout.value).toContain('gnome-keyring');
+    // Drift rows are suppressed: list() is never consulted when the store is down.
+    expect(h.stdout.value).not.toContain('auth-missing');
+  });
+
+  it('flags an orphan token, then --fix prunes it and a rerun is clean', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const store = makeTokenStore({ names: ['acme', 'ghost'] });
+    const first = makeHarness(cfg.target, { ...healthy, tokenStore: store });
+
+    const code1 = await runDoctor({}, first.deps);
+
+    expect(code1).toBe(0);
+    expect(first.stdout.value).toContain('[WARN] auth-orphan:ghost');
+    expect(first.stdout.value).toContain('server entry not in config');
+
+    const fixHarness = makeHarness(cfg.target, { ...healthy, tokenStore: store });
+    await runDoctor({ fix: true, yes: true }, fixHarness.deps);
+
+    expect(store.deleted).toEqual(['ghost']);
+    expect(fixHarness.stdout.value).toContain('deleted orphan token for "ghost" [APPLIED]');
+
+    const rerun = makeHarness(cfg.target, { ...healthy, tokenStore: store });
+    await runDoctor({}, rerun.deps);
+
+    expect(rerun.stdout.value).not.toContain('auth-orphan');
+  });
+
+  it('does not prune an orphan token when the fix is declined', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const store = makeTokenStore({ names: ['acme', 'ghost'] });
+    const h = makeHarness(cfg.target, { ...healthy, tokenStore: store, confirm: false });
+
+    await runDoctor({ fix: true }, h.deps);
+
+    expect(store.deleted).toEqual([]);
+    expect(h.stdout.value).toContain('--fix: SKIPPED (declined)');
+  });
+
+  it('reports a missing token without deleting the config entry, even under --fix', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const store = makeTokenStore({ names: [] });
+    const h = makeHarness(cfg.target, { ...healthy, tokenStore: store });
+
+    const code = await runDoctor({ fix: true, yes: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('[WARN] auth-missing:acme');
+    expect(h.stdout.value).toContain('run `tlbx auth login acme`');
+    // No browser flow and no config mutation: the entry survives and nothing is deleted.
+    expect(store.deleted).toEqual([]);
+    const fs = await import('node:fs/promises');
+    const onDisk = JSON.parse(await fs.readFile(cfg.target, 'utf8')) as ToolBoxConfig;
+    expect(onDisk.servers.acme).toBeDefined();
+
+    const rerun = makeHarness(cfg.target, { ...healthy, tokenStore: store });
+    await runDoctor({}, rerun.deps);
+    expect(rerun.stdout.value).toContain('[WARN] auth-missing:acme');
+  });
+
+  it('fails the store row when enumeration throws despite a ready probe', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      ...healthy,
+      tokenStore: makeTokenStore({ listThrows: true }),
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stdout.value).toContain('[FAIL] auth-store');
+    expect(h.stdout.value).toContain('enumeration failed');
   });
 });
