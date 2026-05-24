@@ -727,6 +727,39 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     expect(statusKinds(events)).not.toContain('auth_expired');
   });
 
+  it('surfaces a mid-call missing-token failure as auth_expired, not a stale connected', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+    const events: ServerStatus[] = [];
+    session.on('status', (s) => events.push(s));
+
+    const startPromise = session.start();
+    const tools = { tools: [{ name: 'echo' }] } as unknown as ListToolsResult;
+    controls[0]!.setListToolsResult(tools);
+    controls[0]!.resolveConnect();
+    await startPromise;
+    expect(session.status.kind).toBe('connected');
+
+    // The token record is gone, so the upstream classifies the call failure as
+    // auth_required rather than auth_expired.
+    controls[0]!.setCallToolResult(() =>
+      Promise.reject(UpstreamAuthRequiredError.forMissingOAuthToken(undefined)),
+    );
+    await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
+      UpstreamAuthRequiredError,
+    );
+
+    // The session must not stay stale-connected. Mid-session credential loss is
+    // surfaced as auth_expired (connected -> auth_required is an invalid
+    // transition), keeping tools published for call-driven recovery.
+    expect(session.status.kind).toBe('auth_expired');
+    expect(statusKinds(events)).not.toContain('auth_required');
+    await session.dispose();
+  });
+
   it('does not announce auth_expired after a dispose races a mid-call expiry', async () => {
     const { controls, factory } = fixture();
     const session = createUpstreamSession(stdioConfig, {

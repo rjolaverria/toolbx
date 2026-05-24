@@ -584,10 +584,18 @@ export function createUpstreamSession(
     try {
       return await client.callTool(name, args, opts);
     } catch (error) {
-      // A mid-session token expiry surfaces here. Drop to `auth_expired` so the
-      // next call re-reads the store and retries the connect, then rethrow so
-      // the caller renders the structured re-auth message.
-      if (isAuthExpiredError(error) && phase.kind === 'connected' && phase.client === client) {
+      // A mid-session auth failure surfaces here — either the token expired, or
+      // its record was removed and reclassified as auth_required. We were
+      // connected, so the valid transition is to `auth_expired` (the status
+      // machine rejects connected -> auth_required); this keeps tools published
+      // for the call-driven recovery surface. The next call re-reads the store
+      // and retries the connect. Rethrow the original error so the caller
+      // renders its re-auth guidance.
+      if (
+        (isAuthExpiredError(error) || isAuthRequiredError(error)) &&
+        phase.kind === 'connected' &&
+        phase.client === client
+      ) {
         detachClientListeners();
         clearPing();
         await client.disconnect().catch(() => undefined);
@@ -595,7 +603,7 @@ export function createUpstreamSession(
         // transition if we are still this connected client, so a stale call
         // cannot drag a stopped or newer-starting session back to auth_expired.
         if (phase.kind === 'connected' && phase.client === client) {
-          enterAuthExpired(error.message, 1);
+          enterAuthExpired(errorMessage(error), 1);
         }
       }
       throw error;
