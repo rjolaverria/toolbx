@@ -6,6 +6,7 @@ import {
   DEFAULT_CONFIG,
   type CachedTool,
   type ServerConfig,
+  type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
   type ToolBoxConfig,
@@ -37,15 +38,32 @@ afterEach(async () => {
   }
 });
 
-/** Minimal in-memory token store seeded by name, no `StoredOAuthRecord` needed. */
+const STORED_RECORD: StoredOAuthRecord = {
+  schemaVersion: 1,
+  clientInformation: { client_id: 'cid' },
+  tokens: { access_token: 'tok', token_type: 'Bearer' },
+  authorizationServer: 'https://auth.test',
+  scopes: [],
+  obtainedAt: '2026-05-21T00:00:00.000Z',
+};
+
+/**
+ * Token store seeded by name. `read()` is authoritative (returns a record for
+ * seeded names); `list()` enumerates unless `enumerable: false` (simulating a
+ * backend without `findCredentials`, which returns `[]`) or `listThrows: true`.
+ */
 function makeTokenStore(
   opts: {
     names?: readonly string[];
     health?: TokenStoreHealth;
     listThrows?: boolean;
+    enumerable?: boolean;
+    readThrows?: readonly string[];
   } = {},
 ): TokenStore & { deleted: string[] } {
   const names = new Set(opts.names ?? []);
+  const readThrows = new Set(opts.readThrows ?? []);
+  const enumerable = opts.enumerable ?? true;
   const deleted: string[] = [];
   return {
     deleted,
@@ -53,13 +71,16 @@ function makeTokenStore(
     list: () =>
       opts.listThrows === true
         ? Promise.reject(new Error('enumeration boom'))
-        : Promise.resolve([...names]),
+        : Promise.resolve(enumerable ? [...names] : []),
     delete: (name) => {
       names.delete(name);
       deleted.push(name);
       return Promise.resolve();
     },
-    read: () => Promise.resolve(null),
+    read: (name) =>
+      readThrows.has(name)
+        ? Promise.reject(new Error('corrupt entry'))
+        : Promise.resolve(names.has(name) ? STORED_RECORD : null),
     write: () => Promise.resolve(),
   };
 }
@@ -1037,18 +1058,54 @@ describe('runDoctor auth section', () => {
     expect(rerun.stdout.value).toContain('[WARN] auth-missing:acme');
   });
 
-  it('fails the store row when enumeration throws despite a ready probe', async () => {
-    const cfg = await makeTempConfig(oauthConfig(['acme']));
+  it('stays silent when list() throws and no OAuth is configured', async () => {
+    const cfg = await makeTempConfig(
+      configWith({ github: { type: 'stdio', enabled: true, command: 'true', args: [] } }),
+    );
     harnesses.push(cfg);
     const h = makeHarness(cfg.target, {
       ...healthy,
+      commands: { true: true },
       tokenStore: makeTokenStore({ listThrows: true }),
     });
 
     const code = await runDoctor({}, h.deps);
 
-    expect(code).toBe(1);
-    expect(h.stdout.value).toContain('[FAIL] auth-store');
-    expect(h.stdout.value).toContain('enumeration failed');
+    expect(code).toBe(0);
+    expect(h.stdout.value).not.toContain('auth-store');
+    expect(h.stdout.value).toMatch(/6 check\(s\):/);
+  });
+
+  it('does not report missing when enumeration is unsupported but read() finds the token', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    // `enumerable: false` mimics a keychain backend without findCredentials:
+    // list() returns [] even though 'acme' has a valid stored record.
+    const h = makeHarness(cfg.target, {
+      ...healthy,
+      tokenStore: makeTokenStore({ names: ['acme'], enumerable: false }),
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('[PASS] auth-store');
+    expect(h.stdout.value).not.toContain('auth-missing');
+    expect(h.stdout.value).not.toContain('auth-orphan');
+  });
+
+  it('treats an unreadable (corrupt) entry as present, not missing', async () => {
+    const cfg = await makeTempConfig(oauthConfig(['acme']));
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      ...healthy,
+      tokenStore: makeTokenStore({ names: ['acme'], readThrows: ['acme'] }),
+    });
+
+    const code = await runDoctor({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('[PASS] auth-store');
+    expect(h.stdout.value).not.toContain('auth-missing');
   });
 });

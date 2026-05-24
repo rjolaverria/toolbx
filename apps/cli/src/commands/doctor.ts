@@ -496,38 +496,47 @@ export async function checkAuth(
     };
   }
 
+  // `list()` drives orphan detection and section gating, but its contract
+  // allows `[]` to mean either "no records" or "enumeration unsupported" (and
+  // some backends throw outright). Neither is fatal: missing-token detection
+  // below uses authoritative per-server `read()`s, and orphan detection simply
+  // reports nothing when the backend can't enumerate.
   let stored: readonly string[];
   try {
     stored = await tokenStore.list();
-  } catch (error) {
-    return {
-      rows: [
-        {
-          id: 'auth-store',
-          severity: 'FAIL',
-          message: `Token store (${storageType}) enumeration failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          fixHint: tokenStoreUnavailableHint(platform),
-        },
-      ],
-      orphans: [],
-      missing: [],
-    };
+  } catch {
+    stored = [];
   }
 
   // Nothing OAuth-related to report: omit the section entirely so `tlbx doctor`
-  // is never noisy for users who don't use OAuth.
+  // is never noisy for users who don't use OAuth. This also covers a thrown or
+  // unsupported `list()` on a config with no OAuth servers — there is nothing
+  // we could render anyway.
   if (oauthNames.length === 0 && stored.length === 0) {
     return NO_AUTH_SECTION;
   }
 
+  // Missing-token detection reads each configured server directly rather than
+  // trusting `list()`: an empty/unsupported enumeration would otherwise report
+  // servers with valid stored credentials as missing. A `read()` that throws
+  // means an entry exists but is unreadable (e.g. corrupt) — that is not
+  // "missing", so we exclude it here.
+  const missing: string[] = [];
+  for (const name of oauthNames) {
+    try {
+      if ((await tokenStore.read(name)) === null) {
+        missing.push(name);
+      }
+    } catch {
+      // Treat an unreadable entry as present; surfacing corruption is out of
+      // scope for the drift check.
+    }
+  }
+
   const configured = new Set(oauthNames);
-  const present = new Set(stored);
   const orphans = [...stored]
     .filter((name) => !configured.has(name))
     .sort((a, b) => a.localeCompare(b));
-  const missing = oauthNames.filter((name) => !present.has(name));
 
   const rows: CheckResult[] = [
     { id: 'auth-store', severity: 'PASS', message: `Token store (${storageType}) is available` },
