@@ -610,6 +610,11 @@ export function createUpstreamSession(
         // cannot drag a stopped or newer-starting session back to auth_expired.
         if (phase.kind === 'connected' && phase.client === client) {
           enterAuthExpired(errorMessage(error), 1);
+          // Throw auth_expired (even when the underlying failure was
+          // auth_required) so routeToolCall renders the structured re-auth
+          // result — it only special-cases UpstreamAuthExpiredError, and the
+          // session state is now auth_expired.
+          throw UpstreamAuthExpiredError.forServer(serverName, error);
         }
       }
       throw error;

@@ -753,8 +753,12 @@ describe('createUpstreamSession — auth_expired (oauth lazy refresh)', () => {
     controls[0]!.setCallToolResult(() =>
       Promise.reject(UpstreamAuthRequiredError.forMissingOAuthToken(undefined)),
     );
+    // The session enters auth_expired, so the thrown error is an
+    // UpstreamAuthExpiredError — routeToolCall only renders that as the
+    // structured re-auth result; rethrowing the raw auth_required would collapse
+    // to a generic upstream_error.
     await expect(session.callTool('echo', undefined)).rejects.toBeInstanceOf(
-      UpstreamAuthRequiredError,
+      UpstreamAuthExpiredError,
     );
 
     // The session must not stay stale-connected. Mid-session credential loss is
