@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const roots = ['apps/cli/dist', 'packages/core/dist', 'packages/mcp-gateway/dist'];
 const runtimeLog = process.env.TOOLBOX_TOKEN_LEAK_LOG ?? 'runtime-token-leak-check.log';
-const optionalFiles = [runtimeLog];
 const patterns = [
   {
     name: 'bearer token',
@@ -49,6 +49,15 @@ async function scanFile(file, hits) {
   }
 }
 
+async function ensureFileExists(file) {
+  try {
+    await access(file, constants.R_OK);
+  } catch {
+    console.error(`Token leak check failed: expected runtime log is missing: ${file}`);
+    process.exit(1);
+  }
+}
+
 const hits = [];
 for (const root of roots) {
   for await (const file of walk(root)) {
@@ -56,9 +65,8 @@ for (const root of roots) {
   }
 }
 
-for (const file of optionalFiles) {
-  await scanFile(file, hits);
-}
+await ensureFileExists(runtimeLog);
+await scanFile(runtimeLog, hits);
 
 if (hits.length > 0) {
   console.error('Token leak check failed:');
