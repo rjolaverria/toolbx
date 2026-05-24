@@ -168,15 +168,24 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
   }
 
   const entry = registry.find(exposedName);
+  let serverName: string;
+  let upstreamName: string;
   if (entry === undefined) {
     const session = sessions.get(parsed.serverName);
     if (session === undefined) {
       return { kind: 'unknown_tool' };
     }
-    if (session.status.kind !== 'connected') {
+    if (session.status.kind === 'auth_expired') {
+      serverName = parsed.serverName;
+      upstreamName = parsed.upstreamName;
+    } else if (session.status.kind !== 'connected') {
       return { kind: 'server_unavailable', server: parsed.serverName, status: session.status };
+    } else {
+      return { kind: 'unknown_tool' };
     }
-    return { kind: 'unknown_tool' };
+  } else {
+    serverName = entry.serverName;
+    upstreamName = entry.upstreamName;
   }
 
   if (args !== undefined && !isPlainObject(args)) {
@@ -186,11 +195,11 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
     };
   }
 
-  const session = sessions.get(entry.serverName);
+  const session = sessions.get(serverName);
   if (session === undefined) {
     return {
       kind: 'server_unavailable',
-      server: entry.serverName,
+      server: serverName,
       status: { kind: 'stopped' },
     };
   }
@@ -198,7 +207,7 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
   // the token store and attempts a reconnect, recovering once the user has run
   // `tlbx auth login`. Every other non-connected status short-circuits.
   if (session.status.kind !== 'connected' && session.status.kind !== 'auth_expired') {
-    return { kind: 'server_unavailable', server: entry.serverName, status: session.status };
+    return { kind: 'server_unavailable', server: serverName, status: session.status };
   }
 
   const controller = new AbortController();
@@ -223,12 +232,10 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
   // finally errors after the timeout has already been reported) would surface
   // as an unhandled promise rejection.
   type CallOutcome = { kind: 'ok'; result: RoutedCallToolResult } | { kind: 'err'; err: unknown };
-  const callPromise: Promise<CallOutcome> = session
-    .callTool(entry.upstreamName, args, callOpts)
-    .then(
-      (result) => ({ kind: 'ok' as const, result }),
-      (err: unknown) => ({ kind: 'err' as const, err }),
-    );
+  const callPromise: Promise<CallOutcome> = session.callTool(upstreamName, args, callOpts).then(
+    (result) => ({ kind: 'ok' as const, result }),
+    (err: unknown) => ({ kind: 'err' as const, err }),
+  );
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cleanup = (): void => {
@@ -270,19 +277,19 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
         kind: 'upstream_error',
         error: {
           code: 'timeout',
-          server: entry.serverName,
-          tool: entry.upstreamName,
+          server: serverName,
+          tool: upstreamName,
           timeoutMs: timeoutMs as number,
-          message: `Upstream tool "${entry.upstreamName}" on server "${entry.serverName}" timed out after ${String(timeoutMs)}ms`,
+          message: `Upstream tool "${upstreamName}" on server "${serverName}" timed out after ${String(timeoutMs)}ms`,
         },
       };
     }
     if (isAuthExpiredError(outcome.err)) {
-      return { kind: 'auth_expired', server: entry.serverName };
+      return { kind: 'auth_expired', server: serverName };
     }
     return {
       kind: 'upstream_error',
-      error: describeUpstreamError(outcome.err, entry.serverName, entry.upstreamName, timeoutMs),
+      error: describeUpstreamError(outcome.err, serverName, upstreamName, timeoutMs),
     };
   } finally {
     cleanup();
