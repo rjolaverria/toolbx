@@ -17,16 +17,16 @@ export default defineConfig({
       reportOnFailure: true,
       thresholds: {
         'apps/cli/src/**': {
-          statements: 71,
-          branches: 70,
-          functions: 58,
-          lines: 71,
+          statements: 73,
+          branches: 72,
+          functions: 60,
+          lines: 73,
         },
         'packages/core/src/**': {
-          statements: 85,
-          branches: 84,
-          functions: 85,
-          lines: 86,
+          statements: 87,
+          branches: 85,
+          functions: 87,
+          lines: 88,
         },
         'packages/mcp-gateway/src/**': {
           statements: 87,

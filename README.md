@@ -90,6 +90,18 @@ npx tlbx client install claude
 npx tlbx client print-config claude
 ```
 
+### OAuth HTTP servers
+
+For HTTP MCP servers that advertise OAuth, `server add-http` opens the browser and stores tokens
+before writing the server entry:
+
+```bash
+npx tlbx server add-http github --url https://api.githubcopilot.com/mcp/
+# Browser opens; authenticate; ToolBox stores the OAuth tokens.
+npx tlbx auth status
+npx tlbx auth login github
+```
+
 ## Configuration
 
 Config lives at `~/.config/toolbox/config.json` by default. The location respects `XDG_CONFIG_HOME` and can be overridden with the `TOOLBOX_CONFIG` environment variable.
