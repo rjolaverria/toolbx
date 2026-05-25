@@ -10,6 +10,7 @@ import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { CONTROL_PLANE_HEADER, isControlPlaneConnection } from '@toolbox/core';
 
 import { buildToolBoxMcpServer } from './server.js';
 import type {
@@ -178,7 +179,10 @@ export function createDownstreamHttpServer(
     }
   }
 
-  function createHttpSession(handlers: RegisterDownstreamHandlers | undefined): HttpSessionEntry {
+  function createHttpSession(
+    handlers: RegisterDownstreamHandlers | undefined,
+    controlPlane: boolean,
+  ): HttpSessionEntry {
     // Pre-generate the session id so it can be threaded into both the SDK
     // transport (which expects a `sessionIdGenerator`) and the per-session
     // `DownstreamSession` state created by `buildToolBoxMcpServer`. This
@@ -196,6 +200,7 @@ export function createDownstreamHttpServer(
     const { server } = buildToolBoxMcpServer({
       logger: log,
       sessionId,
+      controlPlane,
       registerHandlers: handlers,
     });
     const session: HttpSessionEntry = { server, transport };
@@ -263,7 +268,14 @@ export function createDownstreamHttpServer(
         return;
       }
 
-      const session = createHttpSession(registerHandlers);
+      // The control-plane marker (§5.3) is read off the initialize request and
+      // honored only on loopback connections, so a real MCP client on the same
+      // loopback daemon keeps disclosure unless it explicitly opts in.
+      const controlPlane = isControlPlaneConnection(
+        req.socket.remoteAddress,
+        req.headers[CONTROL_PLANE_HEADER],
+      );
+      const session = createHttpSession(registerHandlers, controlPlane);
       try {
         // The SDK declares `StreamableHTTPServerTransport.onclose` as a
         // getter/setter typed `(() => void) | undefined`, which under

@@ -109,12 +109,14 @@ async function connect(opts: {
   visibility?: SessionVisibility;
   isDisclosureEnabled?: () => boolean;
   isToolEnabled?: (exposedName: string) => boolean;
+  controlPlane?: boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
   const built = buildToolBoxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-call-test',
+    ...(opts.controlPlane !== undefined ? { controlPlane: opts.controlPlane } : {}),
     registerHandlers: (server, session) => {
       registerToolsCallHandler(server, session, opts.registry, opts.upstreams, {
         namespacing: NS,
@@ -729,6 +731,39 @@ function bootstrapWithRevealAndSearch(): BootstrapToolRegistry {
 }
 
 describe('tools/call handler — progressive disclosure mode', () => {
+  it('calls an unrevealed upstream tool for a control-plane session even with disclosure on', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({
+      serverName: 'jira',
+      result: { content: [{ type: 'text', text: 'hits' }] },
+    });
+    const bootstrap = bootstrapWithRevealAndSearch();
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => true,
+      controlPlane: true,
+    });
+
+    const result = await client.callTool({ name: 'jira__search_issues' });
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'hits' }] });
+    expect(jira.callTool).toHaveBeenCalledOnce();
+    await closeAll();
+  });
+
   it('refuses calls to non-revealed upstream tools with InvalidRequest pointing at reveal_tools', async () => {
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({

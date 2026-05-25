@@ -103,7 +103,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 ## Phase 2 — CLI Tool Execution
 
 - [x] **P2-01** — [`tlbx run` daemon auto-start and readiness](tasks/P2-01-run-daemon-autostart.md) — closed by PR #70 (branch `p2-01-run-daemon-autostart`)
-- [ ] **P2-02** — [`tlbx run` command and JSON input modes](tasks/P2-02-run-command-inputs.md)
+- [x] **P2-02** — [`tlbx run` command and JSON input modes](tasks/P2-02-run-command-inputs.md) — closed by branch `p2-02-run-command-inputs`
 - [ ] **P2-03** — [`tlbx run` output modes and exit contract](tasks/P2-03-run-output-contract.md)
 - [ ] **P2-04** — [`tlbx run` discovery commands](tasks/P2-04-run-discovery.md)
 - [ ] **P2-05** — [`tlbx run` auth, errors, and remediation](tasks/P2-05-run-errors-auth.md)

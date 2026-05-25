@@ -70,7 +70,9 @@ export function registerToolsListHandler(
     requireReady(session);
     const bootstrapTools = bootstrap.list();
     const reserved = new Set(bootstrapTools.map((tool) => tool.name));
-    const disclosureOn = isDisclosureEnabled?.() === true;
+    // Control-plane sessions (`tlbx run`, §5.3) are exempt from disclosure:
+    // every enabled tool is listed regardless of the revealed set.
+    const disclosureOn = isDisclosureEnabled?.() === true && !session.controlPlane;
     const upstreamTools = registry
       .list()
       .filter((entry) => !reserved.has(entry.exposedName))

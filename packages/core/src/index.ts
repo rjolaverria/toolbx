@@ -148,7 +148,11 @@ export {
 
 export {
   clearServeState,
+  CONTROL_PLANE_HEADER,
+  CONTROL_PLANE_MARKER,
   defaultProbeDeps,
+  isControlPlaneConnection,
+  isLoopbackAddress,
   isProcessAlive,
   probeDaemonEndpoint,
   readServeState,
@@ -164,6 +168,17 @@ export {
   type WaitForDaemonReadyDeps,
   type WaitForDaemonReadyOptions,
 } from './serve-daemon/index.js';
+
+export {
+  connectDaemonClient,
+  defaultConnectDaemonClientDeps,
+  type ConnectDaemonClientDeps,
+  type DaemonCallToolParams,
+  type DaemonCallToolResult,
+  type DaemonClient,
+  type DaemonListToolsResult,
+  type DaemonMcpClient,
+} from './daemon-client/index.js';
 
 export {
   claudeAdapter,

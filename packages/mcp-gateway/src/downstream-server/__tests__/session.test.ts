@@ -11,6 +11,12 @@ describe('createDownstreamSession', () => {
     expect(session.ready).toBe(true);
   });
 
+  it('defaults to a non-control-plane session and records an explicit control-plane flag', () => {
+    expect(createDownstreamSession('s1').controlPlane).toBe(false);
+    expect(createDownstreamSession('s2', false).controlPlane).toBe(false);
+    expect(createDownstreamSession('s3', true).controlPlane).toBe(true);
+  });
+
   it('fans runCloseCallbacks() to every registered onClose listener', () => {
     const session = createDownstreamSession('s2');
     const a = vi.fn();

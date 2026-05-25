@@ -5,10 +5,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger } from '@toolbox/core';
+import { CONTROL_PLANE_HEADER, CONTROL_PLANE_MARKER, createNoopLogger } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDownstreamHttpServer } from '../http.js';
+import type { DownstreamSession } from '../session.js';
 import type { DownstreamHttpServer } from '../types.js';
 
 const activeServers = new Set<DownstreamHttpServer>();
@@ -56,13 +57,17 @@ function makeServer(opts: MakeServerOpts = {}): DownstreamHttpServer {
   );
 }
 
-async function connectClient(url: URL): Promise<Client> {
+async function connectClient(url: URL, headers?: Record<string, string>): Promise<Client> {
   const client = trackClient(
     new Client({ name: 'toolbox-http-test-client', version: '0.0.0' }, { capabilities: {} }),
   );
+  const transport =
+    headers !== undefined
+      ? new StreamableHTTPClientTransport(url, { requestInit: { headers } })
+      : new StreamableHTTPClientTransport(url);
   // Cast bridges the SDK's getter/setter-typed optional fields to the
   // strictly-optional Transport interface under exactOptionalPropertyTypes.
-  await client.connect(new StreamableHTTPClientTransport(url) as Transport);
+  await client.connect(transport as Transport);
   return client;
 }
 
@@ -170,6 +175,23 @@ describe('createDownstreamHttpServer — protocol surface', () => {
     const result = await client.listTools();
     expect(result.tools).toHaveLength(1);
     expect(result.tools[0]?.name).toBe('placeholder__noop');
+  });
+
+  it('marks a loopback session as control-plane only when the marker header is present', async () => {
+    const sessions: DownstreamSession[] = [];
+    const server = makeServer({
+      registerHandlers: (_mcpServer, session) => {
+        sessions.push(session);
+      },
+    });
+    await server.start();
+
+    await connectClient(server.url, { [CONTROL_PLANE_HEADER]: CONTROL_PLANE_MARKER });
+    await connectClient(server.url);
+
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]?.controlPlane).toBe(true);
+    expect(sessions[1]?.controlPlane).toBe(false);
   });
 
   it('returns 404 JSON for requests outside the configured MCP path', async () => {
