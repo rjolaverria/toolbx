@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { Command, Option } from '@commander-js/extra-typings';
@@ -41,20 +42,45 @@ const LOG_FORMATS = ['pretty', 'json'] as const satisfies readonly LogFormat[];
 
 /**
  * Env marker pointing the managed daemon at the state file it must publish
- * once its HTTP listener has bound. Set only by `tlbx serve --detach` /
- * `tlbx run`'s spawner; absent for a foreground `tlbx serve`, which never
- * touches the daemon state file.
+ * once its HTTP listener has bound. Carries the *path* (which a file
+ * descriptor cannot), but is honored only when the {@link MANAGED_CHILD_FD}
+ * handshake also proves this process was spawned by the daemon manager.
  */
 export const SERVE_STATE_PATH_ENV = 'TOOLBOX_SERVE_STATE_PATH';
 /** Companion marker recording the log path inside the published state. */
 export const SERVE_LOG_PATH_ENV = 'TOOLBOX_SERVE_LOG_PATH';
 /**
- * Private marker the `tlbx run` spawner sets so the managed child binds HTTP
- * even when `server.http.enabled` is `false`. It is intentionally not a CLI
- * flag: an operator-facing `tlbx serve` must never be able to bypass the
- * config gate, so the override is reachable only from the internal spawn path.
+ * Marker the `tlbx run` spawner sets so the managed child binds HTTP even when
+ * `server.http.enabled` is `false`. Honored only alongside the
+ * {@link MANAGED_CHILD_FD} handshake — env alone is user-forgeable, so it never
+ * grants the override on a plain `tlbx serve`.
  */
 export const SERVE_FORCE_HTTP_ENV = 'TOOLBOX_SERVE_FORCE_HTTP';
+
+/**
+ * File descriptor the spawner wires to an inherited pipe when it launches a
+ * managed daemon. A plain shell `tlbx serve` has no open fd here, so probing it
+ * is what actually proves managed-child context — unlike env vars, a child
+ * cannot fabricate an inherited descriptor for itself. The env markers above
+ * only carry data; this handshake carries authority.
+ */
+export const MANAGED_CHILD_FD = 3;
+
+/**
+ * Returns `true` when {@link MANAGED_CHILD_FD} is an inherited pipe/socket,
+ * i.e. this process was spawned as a managed daemon. `statFd` is injectable for
+ * tests; production stats the real descriptor.
+ */
+export function hasManagedChildHandle(
+  statFd: (fd: number) => { isFIFO: () => boolean; isSocket: () => boolean } = fs.fstatSync,
+): boolean {
+  try {
+    const stat = statFd(MANAGED_CHILD_FD);
+    return stat.isFIFO() || stat.isSocket();
+  } catch {
+    return false;
+  }
+}
 
 export interface ServeOptions {
   stdio?: boolean;
@@ -130,6 +156,13 @@ export interface ServeDeps {
   now?: () => Date;
   /** Pid recorded in the published state; defaults to `process.pid`. */
   pid?: () => number;
+  /**
+   * Reports whether this process was spawned as a managed daemon (the
+   * {@link MANAGED_CHILD_FD} handshake). Gates all daemon-state behavior so a
+   * forged env cannot opt a plain `tlbx serve` into managed mode. Defaults to
+   * the real fd probe.
+   */
+  isManagedChild?: () => boolean;
 }
 
 export function defaultServeDeps(): ServeDeps {
@@ -156,6 +189,7 @@ export function defaultServeDeps(): ServeDeps {
     readServeState: (filePath) => readServeState(filePath),
     now: () => new Date(),
     pid: () => process.pid,
+    isManagedChild: () => hasManagedChildHandle(),
   };
 }
 
@@ -166,23 +200,30 @@ interface ManagedDaemon {
 
 /**
  * Decides whether this `serve` invocation may bind HTTP past the
- * `server.http.enabled` gate. The override is honored only for a managed child
- * — identified by the spawner-set state-path marker — so a bare
- * `TOOLBOX_SERVE_FORCE_HTTP=1 tlbx serve` from a user shell cannot bypass the
- * gate. The explicit `tlbx serve --detach` path never calls this.
+ * `server.http.enabled` gate. Requires both the {@link SERVE_FORCE_HTTP_ENV}
+ * marker *and* the unforgeable managed-child handshake, so a user shell — which
+ * can set any env var but cannot hand itself an inherited pipe — never bypasses
+ * the gate on a plain `tlbx serve`. The explicit `--detach` path never forces.
  */
-export function resolveForceHttpFromEnv(env: NodeJS.ProcessEnv): boolean {
-  const stateMarker = env[SERVE_STATE_PATH_ENV];
-  return env[SERVE_FORCE_HTTP_ENV] === '1' && stateMarker !== undefined && stateMarker.length > 0;
+export function resolveForceHttp(env: NodeJS.ProcessEnv, isManagedChild: boolean): boolean {
+  return isManagedChild && env[SERVE_FORCE_HTTP_ENV] === '1';
 }
 
 /**
- * Resolves the managed-daemon markers from the environment. Returns `null` for
- * a foreground `tlbx serve`, which must never read or write the daemon state
- * file. When the state path is set, the log path defaults to its sibling
- * `serve.log` so the published record always carries a non-empty `logPath`.
+ * Resolves the managed-daemon markers from the environment. Returns `null`
+ * unless the unforgeable managed-child handshake holds, so a foreground
+ * `tlbx serve` (even one with the env markers set) never reads or writes the
+ * daemon state file. When active, the log path defaults to the state file's
+ * sibling `serve.log` so the published record always carries a non-empty
+ * `logPath`.
  */
-function resolveManagedDaemon(env: NodeJS.ProcessEnv): ManagedDaemon | null {
+function resolveManagedDaemon(
+  env: NodeJS.ProcessEnv,
+  isManagedChild: boolean,
+): ManagedDaemon | null {
+  if (!isManagedChild) {
+    return null;
+  }
   const statePath = env[SERVE_STATE_PATH_ENV];
   if (statePath === undefined || statePath.length === 0) {
     return null;
@@ -287,7 +328,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   // after the bind, never before — so a concurrent starter that loses the
   // port race can't observe a half-started daemon, and `tlbx stop` / `tlbx
   // run` only ever see a record backed by a live HTTP endpoint.
-  const managed = resolveManagedDaemon(deps.processEnv);
+  const managed = resolveManagedDaemon(deps.processEnv, deps.isManagedChild?.() ?? false);
   if (managed !== null) {
     const published = await publishManagedState(managed, downstream.url, deps);
     if (!published) {
@@ -436,9 +477,10 @@ export function serveCommand(): Command {
         }
         return;
       }
-      // The HTTP-force override is honored only for a managed child spawned by
-      // the `tlbx run` path, never from ambient user env on a plain `tlbx serve`.
-      const forceHttp = resolveForceHttpFromEnv(process.env);
+      // The HTTP-force override is honored only for a managed child — proven by
+      // the inherited-fd handshake, not the (forgeable) env marker alone — so a
+      // plain `tlbx serve` can never bypass the config gate.
+      const forceHttp = resolveForceHttp(process.env, hasManagedChildHandle());
       const code = await runServe({ ...opts, forceHttp }, defaultServeDeps());
       if (code !== 0) {
         process.exit(code);

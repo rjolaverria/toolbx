@@ -16,7 +16,7 @@ import type {
 } from '@toolbox/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
-import { resolveForceHttpFromEnv, runServe, type ServeDeps } from '../serve.js';
+import { hasManagedChildHandle, resolveForceHttp, runServe, type ServeDeps } from '../serve.js';
 
 interface FakeStdioControls {
   server: DownstreamStdioServer;
@@ -149,6 +149,7 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     readServeState: readStateSpy,
     now: () => new Date('2026-05-25T12:00:00.000Z'),
     pid: () => 4242,
+    isManagedChild: () => false,
   };
 
   return {
@@ -371,6 +372,7 @@ describe('runServe', () => {
       TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json',
       TOOLBOX_SERVE_LOG_PATH: '/state/serve.log',
     };
+    h.deps.isManagedChild = () => true;
     const onStarted = vi.fn();
     h.deps.onStarted = onStarted;
 
@@ -398,6 +400,7 @@ describe('runServe', () => {
   it('defaults the recorded log path to a sibling serve.log when unset', async () => {
     const h = makeHarness();
     h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.deps.isManagedChild = () => true;
 
     const promise = runServe({ http: true, forceHttp: true }, h.deps);
     await Promise.resolve();
@@ -414,6 +417,7 @@ describe('runServe', () => {
   it('tears down the listener and returns 1 when publishing state fails', async () => {
     const h = makeHarness();
     h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.deps.isManagedChild = () => true;
     h.writeStateSpy.mockRejectedValueOnce(new Error('ENOSPC'));
 
     const code = await runServe({ http: true, forceHttp: true }, h.deps);
@@ -428,6 +432,7 @@ describe('runServe', () => {
   it('does not clear a successor daemon that bound the freed port', async () => {
     const h = makeHarness();
     h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.deps.isManagedChild = () => true;
     // On shutdown the state now names a different pid — a successor took over.
     h.readStateSpy.mockResolvedValueOnce({
       version: 1,
@@ -448,27 +453,50 @@ describe('runServe', () => {
   });
 });
 
-describe('resolveForceHttpFromEnv', () => {
-  it('honors the force marker only when the managed state marker is also present', () => {
-    expect(
-      resolveForceHttpFromEnv({
-        TOOLBOX_SERVE_FORCE_HTTP: '1',
-        TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json',
-      }),
-    ).toBe(true);
+describe('resolveForceHttp', () => {
+  it('forces HTTP only when the marker is set AND the managed-child handshake holds', () => {
+    expect(resolveForceHttp({ TOOLBOX_SERVE_FORCE_HTTP: '1' }, true)).toBe(true);
   });
 
-  it('rejects a bare force marker with no managed state marker (ambient user env)', () => {
-    expect(resolveForceHttpFromEnv({ TOOLBOX_SERVE_FORCE_HTTP: '1' })).toBe(false);
-    expect(
-      resolveForceHttpFromEnv({ TOOLBOX_SERVE_FORCE_HTTP: '1', TOOLBOX_SERVE_STATE_PATH: '' }),
-    ).toBe(false);
+  it('rejects the marker without the unforgeable handshake (forged ambient env)', () => {
+    expect(resolveForceHttp({ TOOLBOX_SERVE_FORCE_HTTP: '1' }, false)).toBe(false);
   });
 
-  it('returns false when the force marker is absent', () => {
-    expect(resolveForceHttpFromEnv({ TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' })).toBe(
-      false,
-    );
-    expect(resolveForceHttpFromEnv({})).toBe(false);
+  it('returns false when the marker is absent even for a managed child', () => {
+    expect(resolveForceHttp({}, true)).toBe(false);
+    expect(resolveForceHttp({ TOOLBOX_SERVE_FORCE_HTTP: '0' }, true)).toBe(false);
+  });
+});
+
+describe('hasManagedChildHandle', () => {
+  it('reports true when the handshake fd is an inherited pipe', () => {
+    const statFd = (): { isFIFO: () => boolean; isSocket: () => boolean } => ({
+      isFIFO: () => true,
+      isSocket: () => false,
+    });
+    expect(hasManagedChildHandle(statFd)).toBe(true);
+  });
+
+  it('reports true for an inherited socket', () => {
+    const statFd = (): { isFIFO: () => boolean; isSocket: () => boolean } => ({
+      isFIFO: () => false,
+      isSocket: () => true,
+    });
+    expect(hasManagedChildHandle(statFd)).toBe(true);
+  });
+
+  it('reports false when the fd is a regular file or terminal', () => {
+    const statFd = (): { isFIFO: () => boolean; isSocket: () => boolean } => ({
+      isFIFO: () => false,
+      isSocket: () => false,
+    });
+    expect(hasManagedChildHandle(statFd)).toBe(false);
+  });
+
+  it('reports false when the fd is not open (EBADF)', () => {
+    const statFd = (): { isFIFO: () => boolean; isSocket: () => boolean } => {
+      throw Object.assign(new Error('EBADF'), { code: 'EBADF' });
+    };
+    expect(hasManagedChildHandle(statFd)).toBe(false);
   });
 });

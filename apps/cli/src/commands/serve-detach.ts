@@ -107,6 +107,16 @@ export function defaultServeDetachDeps(): ServeDetachDeps {
     },
     spawn: (command, args, options) => {
       const child = spawn(command, [...args], options);
+      // Release the parent end of the managed-child handshake pipe (fd 3) so it
+      // can't keep the parent's event loop alive; the child only fstat's its end.
+      const handshake: unknown = child.stdio[3];
+      if (
+        handshake !== null &&
+        handshake !== undefined &&
+        typeof (handshake as { unref?: unknown }).unref === 'function'
+      ) {
+        (handshake as { unref: () => void }).unref();
+      }
       const handle: SpawnedChildHandle = {
         pid: child.pid,
         unref: () => {
@@ -334,7 +344,9 @@ export async function runServeDetached(
   try {
     child = deps.spawn(deps.nodeExecPath(), [entry, ...childArgs], {
       detached: true,
-      stdio: ['ignore', logFd, logFd],
+      // fd 3 is an inherited pipe: the managed-child handshake the daemon probes
+      // to prove it was spawned here rather than launched directly by a user.
+      stdio: ['ignore', logFd, logFd, 'pipe'],
       env: childEnv,
     });
   } catch (error) {

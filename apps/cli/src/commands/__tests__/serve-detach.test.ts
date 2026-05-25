@@ -288,7 +288,7 @@ describe('runServeDetached', () => {
       'json',
     ]);
     expect(call?.options.detached).toBe(true);
-    expect(call?.options.stdio).toEqual(['ignore', 42, 42]);
+    expect(call?.options.stdio).toEqual(['ignore', 42, 42, 'pipe']);
     expect(call?.options.env).toMatchObject({
       TOOLBOX_SERVE_STATE_PATH: '/resolved/config.json.state',
       TOOLBOX_SERVE_LOG_PATH: '/resolved/config.json.log',
