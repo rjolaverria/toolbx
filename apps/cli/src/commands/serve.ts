@@ -165,6 +165,18 @@ interface ManagedDaemon {
 }
 
 /**
+ * Decides whether this `serve` invocation may bind HTTP past the
+ * `server.http.enabled` gate. The override is honored only for a managed child
+ * — identified by the spawner-set state-path marker — so a bare
+ * `TOOLBOX_SERVE_FORCE_HTTP=1 tlbx serve` from a user shell cannot bypass the
+ * gate. The explicit `tlbx serve --detach` path never calls this.
+ */
+export function resolveForceHttpFromEnv(env: NodeJS.ProcessEnv): boolean {
+  const stateMarker = env[SERVE_STATE_PATH_ENV];
+  return env[SERVE_FORCE_HTTP_ENV] === '1' && stateMarker !== undefined && stateMarker.length > 0;
+}
+
+/**
  * Resolves the managed-daemon markers from the environment. Returns `null` for
  * a foreground `tlbx serve`, which must never read or write the daemon state
  * file. When the state path is set, the log path defaults to its sibling
@@ -415,17 +427,18 @@ export function serveCommand(): Command {
     .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))
     .addOption(new Option('--log-format <format>', 'logger output format').choices(LOG_FORMATS))
     .action(async (opts) => {
-      // `forceHttp` is reachable only through the private spawn-path marker,
-      // never a user-supplied flag, so an explicit `tlbx serve` cannot bypass
-      // `server.http.enabled`.
-      const forceHttp = process.env[SERVE_FORCE_HTTP_ENV] === '1';
       if (opts.detach === true) {
-        const code = await runServeDetached({ ...opts, forceHttp }, defaultServeDetachDeps());
+        // Explicit `tlbx serve --detach` never forces HTTP — the
+        // `server.http.enabled` gate applies to operator-facing commands.
+        const code = await runServeDetached(opts, defaultServeDetachDeps());
         if (code !== 0) {
           process.exit(code);
         }
         return;
       }
+      // The HTTP-force override is honored only for a managed child spawned by
+      // the `tlbx run` path, never from ambient user env on a plain `tlbx serve`.
+      const forceHttp = resolveForceHttpFromEnv(process.env);
       const code = await runServe({ ...opts, forceHttp }, defaultServeDeps());
       if (code !== 0) {
         process.exit(code);

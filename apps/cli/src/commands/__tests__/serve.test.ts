@@ -16,7 +16,7 @@ import type {
 } from '@toolbox/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
-import { runServe, type ServeDeps } from '../serve.js';
+import { resolveForceHttpFromEnv, runServe, type ServeDeps } from '../serve.js';
 
 interface FakeStdioControls {
   server: DownstreamStdioServer;
@@ -445,5 +445,30 @@ describe('runServe', () => {
     await promise;
 
     expect(h.clearStateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveForceHttpFromEnv', () => {
+  it('honors the force marker only when the managed state marker is also present', () => {
+    expect(
+      resolveForceHttpFromEnv({
+        TOOLBOX_SERVE_FORCE_HTTP: '1',
+        TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json',
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects a bare force marker with no managed state marker (ambient user env)', () => {
+    expect(resolveForceHttpFromEnv({ TOOLBOX_SERVE_FORCE_HTTP: '1' })).toBe(false);
+    expect(
+      resolveForceHttpFromEnv({ TOOLBOX_SERVE_FORCE_HTTP: '1', TOOLBOX_SERVE_STATE_PATH: '' }),
+    ).toBe(false);
+  });
+
+  it('returns false when the force marker is absent', () => {
+    expect(resolveForceHttpFromEnv({ TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' })).toBe(
+      false,
+    );
+    expect(resolveForceHttpFromEnv({})).toBe(false);
   });
 });
