@@ -273,57 +273,60 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // staying stuck returning undefined from tokens() for its lifetime.
     this.suppressTokensRead = false;
     this.suppressClientRead = false;
-    const existing = await this.load();
-    const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
-    if (!clientInformation) {
-      throw new Error(
-        `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
-          'the SDK should call saveClientInformation first.',
-      );
+    try {
+      const existing = await this.load();
+      const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
+      if (!clientInformation) {
+        throw new Error(
+          `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
+            'the SDK should call saveClientInformation first.',
+        );
+      }
+      const authorizationServer =
+        this.resolvedAuthorizationServer ??
+        this.opts.authorizationServer ??
+        existing?.authorizationServer;
+      if (!authorizationServer) {
+        // We refuse to persist with an empty authorizationServer — refresh would
+        // have no endpoint to call against. F1-18 must either set it via
+        // setAuthorizationServer or pass it in opts before the SDK calls
+        // saveTokens.
+        throw new Error(
+          `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
+            'Call provider.setAuthorizationServer(...) before the token exchange completes.',
+        );
+      }
+      // The RFC 8707 resource indicator to persist. On a fresh authorization-code
+      // exchange (interactive login/reauth) the SDK's selection is authoritative:
+      // the `resource` advertised in RFC 9728 protected-resource metadata, or none
+      // when the server advertises none. We take it verbatim — including "none" —
+      // so a reauth against a server that dropped (or never had) a resource cannot
+      // inherit a stale indicator and replay the wrong audience on later refreshes.
+      // A refresh grant (no code exchange) keeps the most recent stored resource:
+      // the long-lived gateway provider holds discovery from the initial connect,
+      // so an external `tlbx auth login` may have rebound the resource since.
+      const resource = this.authorizationCodeExchangeInFlight
+        ? this.discoveryStateCache?.resourceMetadata?.resource
+        : existing?.resource;
+      const next: StoredOAuthRecord = {
+        schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
+        clientInformation,
+        tokens,
+        authorizationServer,
+        scopes: existing?.scopes ?? this.opts.scopes ?? [],
+        ...(resource !== undefined ? { resource } : {}),
+        obtainedAt: new Date().toISOString(),
+      };
+      await this.opts.tokenStore.write(this.opts.serverName, next);
+      this.pendingClientInformation = undefined;
+    } finally {
+      // Consume the authorization-code marker even when persistence fails: a
+      // later refresh save on this long-lived provider must fall back to the
+      // current stored resource instead of this failed flow's discovery.
+      this.authorizationCodeExchangeInFlight = false;
+      this.useDiscoveredResourceForCodeExchange = false;
+      this.latestDiscoveredResourceSelection = { kind: 'none' };
     }
-    const authorizationServer =
-      this.resolvedAuthorizationServer ??
-      this.opts.authorizationServer ??
-      existing?.authorizationServer;
-    if (!authorizationServer) {
-      // We refuse to persist with an empty authorizationServer — refresh would
-      // have no endpoint to call against. F1-18 must either set it via
-      // setAuthorizationServer or pass it in opts before the SDK calls
-      // saveTokens.
-      throw new Error(
-        `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
-          'Call provider.setAuthorizationServer(...) before the token exchange completes.',
-      );
-    }
-    // The RFC 8707 resource indicator to persist. On a fresh authorization-code
-    // exchange (interactive login/reauth) the SDK's selection is authoritative:
-    // the `resource` advertised in RFC 9728 protected-resource metadata, or none
-    // when the server advertises none. We take it verbatim — including "none" —
-    // so a reauth against a server that dropped (or never had) a resource cannot
-    // inherit a stale indicator and replay the wrong audience on later refreshes.
-    // A refresh grant (no code exchange) keeps the most recent stored resource:
-    // the long-lived gateway provider holds discovery from the initial connect,
-    // so an external `tlbx auth login` may have rebound the resource since.
-    const resource = this.authorizationCodeExchangeInFlight
-      ? this.discoveryStateCache?.resourceMetadata?.resource
-      : existing?.resource;
-    const next: StoredOAuthRecord = {
-      schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
-      clientInformation,
-      tokens,
-      authorizationServer,
-      scopes: existing?.scopes ?? this.opts.scopes ?? [],
-      ...(resource !== undefined ? { resource } : {}),
-      obtainedAt: new Date().toISOString(),
-    };
-    await this.opts.tokenStore.write(this.opts.serverName, next);
-    this.pendingClientInformation = undefined;
-    // Consume the authorization-code marker: a later refresh save on this
-    // (possibly long-lived) provider must fall back to the stored resource
-    // instead of this flow's selection.
-    this.authorizationCodeExchangeInFlight = false;
-    this.useDiscoveredResourceForCodeExchange = false;
-    this.latestDiscoveredResourceSelection = { kind: 'none' };
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {

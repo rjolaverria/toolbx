@@ -201,6 +201,51 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
     expect(obtainedAt).toBeGreaterThanOrEqual(before);
     expect(obtainedAt).toBeLessThanOrEqual(after);
   });
+
+  it('clears the authorization-code resource marker when a token write fails', async () => {
+    const backing = new InMemoryTokenStore();
+    await backing.write(
+      'jira',
+      makeRecord({
+        resource: 'https://current.example/mcp',
+        tokens: makeTokens({ access_token: 'external', refresh_token: 'rt' }),
+      }),
+    );
+    let rejectNextWrite = true;
+    const flakyStore: TokenStore = {
+      read: (name) => backing.read(name),
+      write: (name, record) => {
+        if (rejectNextWrite) {
+          rejectNextWrite = false;
+          return Promise.reject(new Error('keychain unavailable'));
+        }
+        return backing.write(name, record);
+      },
+      delete: (name) => backing.delete(name),
+      list: () => backing.list(),
+      probe: () => backing.probe(),
+    };
+    const { provider } = makeProvider({ tokenStore: flakyStore });
+    provider.saveDiscoveryState({
+      authorizationServerUrl: 'https://issuer.example/',
+      resourceMetadata: {
+        resource: 'https://stale.example/mcp',
+        authorization_servers: ['https://issuer.example/'],
+      },
+    });
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveCodeVerifier('verifier');
+    await provider.codeVerifier();
+
+    await expect(provider.saveTokens(makeTokens({ access_token: 'reauth' }))).rejects.toThrow(
+      /keychain unavailable/,
+    );
+    await provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+
+    const record = await backing.read('jira');
+    expect(record?.tokens.access_token).toBe('refreshed');
+    expect(record?.resource).toBe('https://current.example/mcp');
+  });
 });
 
 describe('ToolBoxOAuthProvider.tokens (no cache)', () => {
