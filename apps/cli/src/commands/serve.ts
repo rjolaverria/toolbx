@@ -477,14 +477,46 @@ export function serveCommand(): Command {
         }
         return;
       }
-      // The HTTP-force override is honored only for a managed child — proven by
-      // the inherited-fd handshake, not the (forgeable) env marker alone — so a
-      // plain `tlbx serve` can never bypass the config gate.
-      const forceHttp = resolveForceHttp(process.env, hasManagedChildHandle());
-      const code = await runServe({ ...opts, forceHttp }, defaultServeDeps());
+      // The public `serve` command has no HTTP-force path at all: it can never
+      // bypass `server.http.enabled` and never publishes daemon state.
+      const code = await runServe(
+        { ...opts },
+        { ...defaultServeDeps(), isManagedChild: () => false },
+      );
       if (code !== 0) {
         process.exit(code);
       }
     });
   return cmd;
+}
+
+/**
+ * Internal command the daemon manager spawns for a managed child. It is not
+ * part of the operator-facing surface: it refuses to run unless it can prove —
+ * via the inherited-fd handshake — that it was spawned by the manager, and it
+ * is the *only* path that may force HTTP past `server.http.enabled`. Register
+ * it hidden so it never appears in help or competes with `serve`.
+ */
+export function serveManagedCommand(): Command {
+  return new Command('serve-managed')
+    .description('(internal) run a managed ToolBox daemon spawned by tlbx run / serve --detach')
+    .option('-H, --http', 'serve over Streamable HTTP using config.server.http')
+    .option('-c, --config <path>', 'override the resolved config path for this run')
+    .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))
+    .addOption(new Option('--log-format <format>', 'logger output format').choices(LOG_FORMATS))
+    .action(async (opts) => {
+      if (!hasManagedChildHandle()) {
+        process.stderr.write(
+          'tlbx serve-managed: internal command — it must be spawned by `tlbx run` or `tlbx serve --detach`, not invoked directly\n',
+        );
+        process.exit(2);
+        return;
+      }
+      // Authenticated as a managed child: the force marker is now trustworthy.
+      const forceHttp = resolveForceHttp(process.env, true);
+      const code = await runServe({ ...opts, http: true, forceHttp }, defaultServeDeps());
+      if (code !== 0) {
+        process.exit(code);
+      }
+    });
 }

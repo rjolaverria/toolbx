@@ -278,7 +278,7 @@ describe('runServeDetached', () => {
     expect(call?.command).toBe('/path/to/node');
     expect(call?.args).toEqual([
       '/path/to/cli/dist/index.js',
-      'serve',
+      'serve-managed',
       '--http',
       '--config',
       '/resolved/config.json',

@@ -163,7 +163,9 @@ function errorMessage(error: unknown): string {
 }
 
 function buildChildArgs(options: ServeDetachOptions, configPath: string): string[] {
-  const args: string[] = ['serve', '--http', '--config', configPath];
+  // Spawn the internal `serve-managed` command, never the public `serve`: the
+  // HTTP-force capability lives only there, behind the fd handshake.
+  const args: string[] = ['serve-managed', '--http', '--config', configPath];
   if (options.logLevel !== undefined) {
     args.push('--log-level', options.logLevel);
   }
