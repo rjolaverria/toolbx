@@ -553,6 +553,41 @@ describe('ToolBoxOAuthProvider.validateResourceURL', () => {
     expect(result).toBeUndefined();
   });
 
+  it('replays the stored resource on refresh, ignoring a stale SDK-supplied (cached-discovery) resource', async () => {
+    // The long-lived gateway provider can be handed a resource derived from
+    // discovery cached in an earlier flow. After `tlbx auth login` rebinds the
+    // stored resource, a refresh must send the current stored value, not the
+    // stale cached one the SDK passes in.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://b.example/mcp',
+        tokens: makeTokens({ refresh_token: 'rt' }),
+      }),
+    );
+
+    // Server-compatible but stale cached-discovery resource supplied by the SDK.
+    const result = await provider.validateResourceURL(
+      'https://b.example/mcp',
+      'https://b.example/',
+    );
+    expect(result?.toString()).toBe('https://b.example/mcp');
+  });
+
+  it('omits the resource on refresh when the stored record no longer has one, despite a stale supplied value', async () => {
+    // `tlbx auth login` removed the resource; a refresh must honor that and send
+    // none rather than the resource the SDK derived from cached discovery.
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
+
+    const result = await provider.validateResourceURL(
+      'https://b.example/mcp',
+      'https://b.example/',
+    );
+    expect(result).toBeUndefined();
+  });
+
   it('sends no resource during suppressed reauth even if one is stored', async () => {
     // Interactive reauth suppresses stored tokens; the persisted resource must
     // not be replayed, so a server that dropped its resource is honored.

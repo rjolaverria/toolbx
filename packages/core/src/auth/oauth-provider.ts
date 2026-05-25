@@ -173,45 +173,42 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   /**
    * Overrides the SDK's RFC 8707 resource-indicator selection. The SDK calls
    * this for every token request (authorize, code exchange, and refresh) with
-   * the resource it discovered from RFC 9728 protected-resource metadata, if
-   * any. We extend the default behavior only to replay a persisted resource on
-   * refresh:
+   * the `resource` it derived from RFC 9728 protected-resource metadata, if any.
    *
-   * - When metadata was discovered (`resource` present), it is authoritative —
-   *   the same as the SDK default, including its server-compatibility check — so
-   *   a fresh login/reauth always uses the current metadata.
-   * - When no metadata was discovered, a refresh of stored credentials replays
-   *   the resource login persisted, so a resource-bound server (e.g. one reached
-   *   through the gateway, whose metadata is not rediscoverable on a 401) still
-   *   receives the correct audience. This never fires during interactive reauth,
-   *   when stored tokens are suppressed — so a server that legitimately dropped
-   *   its resource is honored rather than re-sent a stale one.
+   * A usable stored refresh token means the SDK will refresh rather than run an
+   * interactive authorization-code exchange. On that refresh path the resource
+   * the stored record was minted for is authoritative — so we replay it (kept
+   * current by the read-through store) and ignore the SDK-supplied value, which
+   * on the long-lived gateway provider can come from discovery cached in an
+   * earlier flow and go stale after an external `tlbx auth login`. We re-validate
+   * it against the current server (this method overrides the SDK's default
+   * validation entirely) and omit it when none is stored or it no longer matches.
+   *
+   * Otherwise this is an interactive authorization (a new login, or a reauth that
+   * suppressed the stored token): the freshly discovered metadata is
+   * authoritative, validated the same way the SDK default does so advertised
+   * metadata cannot redirect the audience away from the server.
    */
   async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL | undefined> {
+    const record = this.suppressTokensRead ? null : await this.load();
+    if (record?.tokens.refresh_token !== undefined) {
+      const stored = record.resource;
+      if (
+        stored !== undefined &&
+        checkResourceAllowed({ requestedResource: serverUrl, configuredResource: stored })
+      ) {
+        return new URL(stored);
+      }
+      return undefined;
+    }
     if (resource !== undefined) {
       // `serverUrl` is the SDK's default resource (resourceUrlFromServerUrl).
-      // Mirror the default validation so a metadata-advertised resource cannot
-      // redirect the audience away from the server we are talking to.
       if (!checkResourceAllowed({ requestedResource: serverUrl, configuredResource: resource })) {
         throw new Error(
           `Protected resource ${resource} does not match expected ${serverUrl.toString()} (or origin)`,
         );
       }
       return new URL(resource);
-    }
-    if (!this.suppressTokensRead) {
-      const record = await this.load();
-      const stored = record?.resource;
-      if (record?.tokens.refresh_token !== undefined && stored !== undefined) {
-        // The persisted resource bypasses the SDK's default validation (we
-        // override it entirely), so re-check it against the current server. If
-        // the server URL was retargeted under this name, a stale resource must
-        // not be replayed as the audience — omit it so the refresh sends no
-        // indicator rather than the wrong one.
-        if (checkResourceAllowed({ requestedResource: serverUrl, configuredResource: stored })) {
-          return new URL(stored);
-        }
-      }
     }
     return undefined;
   }
