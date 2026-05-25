@@ -13,7 +13,7 @@ Make imported, enabled custom tools first-class citizens of `tools/list`, `tools
 - Extend the routing engine (M3-02) to dispatch `source: 'custom'` calls to the custom tool runtime (P3-03) instead of an upstream session.
 - Honor namespacing rules from M3-01 — the custom tool's `namespace` is treated like a server name and goes through the same collision detector.
 - Surface custom tools in the CLI's `tlbx tools list` (M5-02) and `tlbx run` discovery with a "custom" source indicator.
-- Custom tools participate in progressive disclosure exactly like proxied tools.
+- Custom tools participate in progressive disclosure exactly like proxied tools for MCP-client sessions. The `tlbx run` control-marker exemption applies to custom and proxied tools equally.
 - Keep `tlbx run` source-agnostic: it must not add a direct custom-tool execution branch. Custom tools become runnable only because they appear in gateway `tools/list` and are callable through gateway `tools/call`.
 
 ## Acceptance criteria
