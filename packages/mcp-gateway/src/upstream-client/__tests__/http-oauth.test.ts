@@ -48,7 +48,7 @@ function makeRecord(
   tokens: Partial<StoredOAuthRecord['tokens']> & { access_token: string },
 ): StoredOAuthRecord {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: { client_id: 'fake-client-id' },
     tokens: { token_type: 'Bearer', ...tokens },
     authorizationServer: issuer,

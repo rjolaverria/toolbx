@@ -19,12 +19,29 @@ export interface FakeOAuthServerOptions {
   onRegister?: () => void;
   /** `/token` rejects the `refresh_token` grant with `invalid_grant`. */
   rejectRefresh?: boolean;
+  /** `/token` rejects the `refresh_token` grant with a generic server error. */
+  rejectRefreshWithServerError?: boolean;
+  /**
+   * Serve RFC 9728 protected-resource metadata at the well-known path,
+   * advertising this server as its own authorization server and its origin as
+   * the `resource`. With this on, the SDK selects an RFC 8707 resource
+   * indicator during login, so a resource value is persisted into the record.
+   */
+  serveResourceMetadata?: boolean;
+  /**
+   * Models a resource-bound authorization server: the `refresh_token` grant is
+   * rejected with `invalid_target` unless the request carries a `resource`
+   * parameter.
+   */
+  requireResourceOnRefresh?: boolean;
   /**
    * `/token` rejects the `authorization_code` grant with a server error whose
    * description contains the word "cancelled" — a genuine failure that must NOT
    * be misread as a user cancellation.
    */
   rejectCodeExchange?: boolean;
+  /** `/token` rejects the `authorization_code` grant unless it carries `resource`. */
+  requireResourceOnCodeExchange?: boolean;
 }
 
 export interface FakeOAuthServer {
@@ -32,12 +49,22 @@ export interface FakeOAuthServer {
   readonly url: URL;
   /** Count of token-endpoint hits, split by grant type, for assertions. */
   readonly tokenGrants: string[];
+  /**
+   * The `resource` form parameter seen at the token endpoint, one entry per
+   * `/token` call (parallel to `tokenGrants`); `null` when the request sent no
+   * resource indicator. Lets tests assert the RFC 8707 round-trip.
+   */
+  readonly tokenResources: Array<string | null>;
   /** Number of DCR (`/register`) calls — lets tests assert client reuse. */
   readonly registrationCount: () => number;
   /** Hits to the authorization-server metadata endpoint — asserts discovery caching. */
   readonly discoveryCount: () => number;
-  /** `{ client_id, redirect_uri }` seen at each `/authorize` request. */
-  readonly authorizeParams: () => Array<{ clientId: string | null; redirectUri: string | null }>;
+  /** `{ client_id, redirect_uri, resource }` seen at each `/authorize` request. */
+  readonly authorizeParams: () => Array<{
+    clientId: string | null;
+    redirectUri: string | null;
+    resource: string | null;
+  }>;
   close(): Promise<void>;
 }
 
@@ -63,9 +90,14 @@ export async function startFakeOAuthServer(
 ): Promise<FakeOAuthServer> {
   const controls: FakeOAuthServerOptions = { ...options };
   const tokenGrants: string[] = [];
+  const tokenResources: Array<string | null> = [];
   let registrations = 0;
   let discoveries = 0;
-  const authorizeParams: Array<{ clientId: string | null; redirectUri: string | null }> = [];
+  const authorizeParams: Array<{
+    clientId: string | null;
+    redirectUri: string | null;
+    resource: string | null;
+  }> = [];
   // code -> the PKCE code_challenge presented at /authorize, so /token can
   // verify the matching code_verifier (proves the SDK round-tripped PKCE).
   const issuedCodes = new Map<string, string>();
@@ -95,10 +127,19 @@ export async function startFakeOAuthServer(
       res.end(JSON.stringify(body));
     };
 
-    // RFC 9728 protected-resource metadata is intentionally unimplemented:
+    // RFC 9728 protected-resource metadata is unimplemented by default:
     // discovery falls back to treating the MCP server origin as the
-    // authorization server (the legacy MCP behaviour).
+    // authorization server (the legacy MCP behaviour). When
+    // `serveResourceMetadata` is on, we advertise ourselves so the SDK selects
+    // an RFC 8707 resource indicator.
     if (url.pathname === '/.well-known/oauth-protected-resource') {
+      if (controls.serveResourceMetadata) {
+        json(200, {
+          resource: base.origin,
+          authorization_servers: [base.origin],
+        });
+        return;
+      }
       res.statusCode = 404;
       res.end('not found');
       return;
@@ -119,7 +160,11 @@ export async function startFakeOAuthServer(
       const redirectUri = url.searchParams.get('redirect_uri');
       const state = url.searchParams.get('state');
       const codeChallenge = url.searchParams.get('code_challenge');
-      authorizeParams.push({ clientId: url.searchParams.get('client_id'), redirectUri });
+      authorizeParams.push({
+        clientId: url.searchParams.get('client_id'),
+        redirectUri,
+        resource: url.searchParams.get('resource'),
+      });
       if (!redirectUri || !state || !codeChallenge) {
         res.statusCode = 400;
         res.end('missing authorize params');
@@ -144,9 +189,17 @@ export async function startFakeOAuthServer(
       const params = new URLSearchParams(await readBody(req));
       const grantType = params.get('grant_type') ?? '';
       tokenGrants.push(grantType);
+      tokenResources.push(params.get('resource'));
       if (grantType === 'authorization_code') {
         if (controls.rejectCodeExchange) {
           json(500, { error: 'server_error', error_description: 'upstream request was cancelled' });
+          return;
+        }
+        if (controls.requireResourceOnCodeExchange && !params.get('resource')) {
+          json(400, {
+            error: 'invalid_target',
+            error_description: 'resource indicator required on code exchange',
+          });
           return;
         }
         const code = params.get('code') ?? '';
@@ -166,8 +219,19 @@ export async function startFakeOAuthServer(
         return;
       }
       if (grantType === 'refresh_token') {
+        if (controls.rejectRefreshWithServerError) {
+          json(500, { error: 'server_error', error_description: 'refresh temporarily failed' });
+          return;
+        }
         if (controls.rejectRefresh) {
           json(400, { error: 'invalid_grant', error_description: 'refresh token expired' });
+          return;
+        }
+        if (controls.requireResourceOnRefresh && !params.get('resource')) {
+          json(400, {
+            error: 'invalid_target',
+            error_description: 'resource indicator required on refresh',
+          });
           return;
         }
         json(200, {
@@ -195,6 +259,7 @@ export async function startFakeOAuthServer(
   return {
     url: base,
     tokenGrants,
+    tokenResources,
     registrationCount: () => registrations,
     discoveryCount: () => discoveries,
     authorizeParams: () => authorizeParams,

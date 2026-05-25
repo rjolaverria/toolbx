@@ -39,7 +39,7 @@ afterEach(async () => {
 });
 
 const STORED_RECORD: StoredOAuthRecord = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   clientInformation: { client_id: 'cid' },
   tokens: { access_token: 'tok', token_type: 'Bearer' },
   authorizationServer: 'https://auth.test',

@@ -194,6 +194,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     // the metadata URL it would fall back to origin-based discovery and could
     // target the wrong token endpoint for servers whose authorization server is
     // only advertised through the resource metadata.
+    provider.useDiscoveredResourceForAuthorizationCodeExchange();
     await auth(provider, {
       serverUrl: input.serverUrl.toString(),
       authorizationCode: code,

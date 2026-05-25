@@ -4,6 +4,7 @@ import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
 } from '@modelcontextprotocol/sdk/client/auth.js';
+import { checkResourceAllowed } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -11,7 +12,11 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import type { Logger } from '../logging/logger.js';
-import type { StoredOAuthRecord, TokenStore } from './token-store.js';
+import {
+  CURRENT_OAUTH_SCHEMA_VERSION,
+  type StoredOAuthRecord,
+  type TokenStore,
+} from './token-store.js';
 
 export interface ToolBoxOAuthProviderOpts {
   serverName: string;
@@ -45,6 +50,11 @@ export class SuppressedRedirectError extends Error {
   }
 }
 
+type DiscoveredResourceSelection =
+  | { kind: 'resource'; resource: URL }
+  | { kind: 'none' }
+  | { kind: 'invalid'; error: Error };
+
 /**
  * Implements the SDK's OAuthClientProvider against a ToolBox TokenStore.
  *
@@ -73,6 +83,19 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // rediscovering. Without this, DCR/authorize, the exchange, and the persisted
   // issuer could diverge if the server's metadata changes between calls.
   private discoveryStateCache: OAuthDiscoveryState | undefined;
+  // Whether this flow performed an authorization-code exchange (interactive
+  // login/reauth) whose result has not yet been consumed by a token save. Only
+  // that path freshly selects the RFC 8707 resource, so only then is the
+  // discovered resource authoritative; a refresh grant never reaches here with
+  // this set. Keying off the code-exchange path — not off saveDiscoveryState —
+  // matters because the long-lived gateway provider runs discovery on connect
+  // and may then be satisfied by a stored token (no save to consume a
+  // discovery-based marker), after which a later refresh must keep the most
+  // recent stored resource rather than a stale session-cached one. Set when the
+  // SDK saves the PKCE verifier (authorization-code path only).
+  private authorizationCodeExchangeInFlight = false;
+  private useDiscoveredResourceForCodeExchange = false;
+  private latestDiscoveredResourceSelection: DiscoveredResourceSelection = { kind: 'none' };
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -117,6 +140,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   }
 
   /**
+   * Called by the browser login orchestration immediately before feeding the
+   * callback code back into the SDK. At that point the SDK is no longer
+   * refreshing stored credentials: it is exchanging an authorization code, so
+   * the freshly discovered resource selection must win over any old refreshable
+   * record still on disk.
+   */
+  useDiscoveredResourceForAuthorizationCodeExchange(): void {
+    this.useDiscoveredResourceForCodeExchange = true;
+  }
+
+  /**
    * SDK recovery hook. After a recoverable token error (e.g. `invalid_grant`
    * from a refresh against an expired/revoked token), the SDK calls this and
    * retries `auth()`; we hide the offending credential in-memory so the retry
@@ -136,6 +170,10 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     }
     if (scope === 'all' || scope === 'verifier') {
       this.savedCodeVerifier = undefined;
+      // The pending authorization-code flow is being torn down; drop its marker
+      // so a later refresh save does not treat its discovery as authoritative.
+      this.authorizationCodeExchangeInFlight = false;
+      this.useDiscoveredResourceForCodeExchange = false;
     }
     if (scope === 'all' || scope === 'discovery') {
       this.discoveryStateCache = undefined;
@@ -149,6 +187,49 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
    */
   discoveryState(): OAuthDiscoveryState | undefined {
     return this.discoveryStateCache;
+  }
+
+  /**
+   * Overrides the SDK's RFC 8707 resource-indicator selection. The SDK calls
+   * this for every token request (authorize, code exchange, and refresh) with
+   * the `resource` it derived from RFC 9728 protected-resource metadata, if any.
+   *
+   * A usable stored refresh token means the SDK will refresh rather than run an
+   * interactive authorization-code exchange. On that refresh path the resource
+   * the stored record was minted for is authoritative — so we replay it (kept
+   * current by the read-through store) and ignore the SDK-supplied value, which
+   * on the long-lived gateway provider can come from discovery cached in an
+   * earlier flow and go stale after an external `tlbx auth login`. We re-validate
+   * it against the current server (this method overrides the SDK's default
+   * validation entirely) and omit it when none is stored or it no longer matches.
+   *
+   * Otherwise this is an interactive authorization (a new login, or a reauth that
+   * suppressed the stored token): the freshly discovered metadata is
+   * authoritative, validated the same way the SDK default does so advertised
+   * metadata cannot redirect the audience away from the server.
+   */
+  async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL | undefined> {
+    const discovered = this.selectDiscoveredResource(serverUrl, resource);
+    this.latestDiscoveredResourceSelection = discovered;
+    if (this.suppressTokensRead || this.useDiscoveredResourceForCodeExchange) {
+      return this.unwrapDiscoveredResource(discovered);
+    }
+
+    const record = await this.load();
+    if (record?.tokens.refresh_token !== undefined) {
+      const stored = record.resource;
+      if (
+        stored !== undefined &&
+        checkResourceAllowed({ requestedResource: serverUrl, configuredResource: stored })
+      ) {
+        return new URL(stored);
+      }
+      return undefined;
+    }
+    if (resource !== undefined) {
+      return this.unwrapDiscoveredResource(discovered);
+    }
+    return undefined;
   }
 
   saveDiscoveryState(state: OAuthDiscoveryState): void {
@@ -192,41 +273,64 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // staying stuck returning undefined from tokens() for its lifetime.
     this.suppressTokensRead = false;
     this.suppressClientRead = false;
-    const existing = await this.load();
-    const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
-    if (!clientInformation) {
-      throw new Error(
-        `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
-          'the SDK should call saveClientInformation first.',
-      );
+    try {
+      const existing = await this.load();
+      const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
+      if (!clientInformation) {
+        throw new Error(
+          `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
+            'the SDK should call saveClientInformation first.',
+        );
+      }
+      const authorizationServer =
+        this.resolvedAuthorizationServer ??
+        this.opts.authorizationServer ??
+        existing?.authorizationServer;
+      if (!authorizationServer) {
+        // We refuse to persist with an empty authorizationServer — refresh would
+        // have no endpoint to call against. F1-18 must either set it via
+        // setAuthorizationServer or pass it in opts before the SDK calls
+        // saveTokens.
+        throw new Error(
+          `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
+            'Call provider.setAuthorizationServer(...) before the token exchange completes.',
+        );
+      }
+      // The RFC 8707 resource indicator to persist. On a fresh authorization-code
+      // exchange (interactive login/reauth) the SDK's selection is authoritative:
+      // the `resource` advertised in RFC 9728 protected-resource metadata, or none
+      // when the server advertises none. We take it verbatim — including "none" —
+      // so a reauth against a server that dropped (or never had) a resource cannot
+      // inherit a stale indicator and replay the wrong audience on later refreshes.
+      // A refresh grant (no code exchange) keeps the most recent stored resource:
+      // the long-lived gateway provider holds discovery from the initial connect,
+      // so an external `tlbx auth login` may have rebound the resource since.
+      const resource = this.authorizationCodeExchangeInFlight
+        ? this.discoveryStateCache?.resourceMetadata?.resource
+        : existing?.resource;
+      const next: StoredOAuthRecord = {
+        schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
+        clientInformation,
+        tokens,
+        authorizationServer,
+        scopes: existing?.scopes ?? this.opts.scopes ?? [],
+        ...(resource !== undefined ? { resource } : {}),
+        obtainedAt: new Date().toISOString(),
+      };
+      await this.opts.tokenStore.write(this.opts.serverName, next);
+      this.pendingClientInformation = undefined;
+    } finally {
+      // Consume the authorization-code marker even when persistence fails: a
+      // later refresh save on this long-lived provider must fall back to the
+      // current stored resource instead of this failed flow's discovery.
+      this.authorizationCodeExchangeInFlight = false;
+      this.useDiscoveredResourceForCodeExchange = false;
+      this.latestDiscoveredResourceSelection = { kind: 'none' };
     }
-    const authorizationServer =
-      this.resolvedAuthorizationServer ??
-      this.opts.authorizationServer ??
-      existing?.authorizationServer;
-    if (!authorizationServer) {
-      // We refuse to persist with an empty authorizationServer — refresh would
-      // have no endpoint to call against. F1-18 must either set it via
-      // setAuthorizationServer or pass it in opts before the SDK calls
-      // saveTokens.
-      throw new Error(
-        `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
-          'Call provider.setAuthorizationServer(...) before the token exchange completes.',
-      );
-    }
-    const next: StoredOAuthRecord = {
-      schemaVersion: 1,
-      clientInformation,
-      tokens,
-      authorizationServer,
-      scopes: existing?.scopes ?? this.opts.scopes ?? [],
-      obtainedAt: new Date().toISOString(),
-    };
-    await this.opts.tokenStore.write(this.opts.serverName, next);
-    this.pendingClientInformation = undefined;
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+    this.applyDiscoveredResourceToAuthorizationUrl(authorizationUrl);
     // The SDK calls this to *display* the URL. We don't open the browser here —
     // the CLI does that, because only the CLI has user consent. Surface the URL
     // via the SuppressedRedirectError seam for the login flow to handle.
@@ -243,6 +347,13 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     if (this.savedCodeVerifier === undefined) {
       return Promise.reject(new Error('codeVerifier requested before saveCodeVerifier'));
     }
+    // The SDK reads the PKCE verifier only when it actually exchanges an
+    // authorization code (immediately before the token request that saveTokens
+    // persists), never on a refresh grant or an abandoned authorize that built a
+    // URL but never returned. So consuming it here — not saving it earlier —
+    // marks the upcoming token save as a fresh authorization whose selected
+    // resource is authoritative.
+    this.authorizationCodeExchangeInFlight = true;
     return Promise.resolve(this.savedCodeVerifier);
   }
 
@@ -251,5 +362,42 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // (via `tlbx auth login`) are picked up automatically. See class-level
     // comment above for the rationale.
     return this.opts.tokenStore.read(this.opts.serverName);
+  }
+
+  private selectDiscoveredResource(
+    serverUrl: string | URL,
+    resource: string | undefined,
+  ): DiscoveredResourceSelection {
+    if (resource === undefined) {
+      return { kind: 'none' };
+    }
+    if (!checkResourceAllowed({ requestedResource: serverUrl, configuredResource: resource })) {
+      return {
+        kind: 'invalid',
+        error: new Error(
+          `Protected resource ${resource} does not match expected ${serverUrl.toString()} (or origin)`,
+        ),
+      };
+    }
+    return { kind: 'resource', resource: new URL(resource) };
+  }
+
+  private unwrapDiscoveredResource(selection: DiscoveredResourceSelection): URL | undefined {
+    if (selection.kind === 'invalid') {
+      throw selection.error;
+    }
+    if (selection.kind === 'resource') {
+      return selection.resource;
+    }
+    return undefined;
+  }
+
+  private applyDiscoveredResourceToAuthorizationUrl(authorizationUrl: URL): void {
+    const resource = this.unwrapDiscoveredResource(this.latestDiscoveredResourceSelection);
+    if (resource === undefined) {
+      authorizationUrl.searchParams.delete('resource');
+      return;
+    }
+    authorizationUrl.searchParams.set('resource', resource.href);
   }
 }

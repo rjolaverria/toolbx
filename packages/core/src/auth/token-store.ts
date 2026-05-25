@@ -10,21 +10,51 @@ const OAuthClientInformationMixedSchema = z.union([
   OAuthClientInformationSchema,
 ]);
 
+/** Current on-disk record shape. Bump when the persisted fields change. */
+export const CURRENT_OAUTH_SCHEMA_VERSION = 2;
+
 export const StoredOAuthRecordSchema = z
   .object({
-    /** Bump when the on-disk shape changes. Currently 1. */
-    schemaVersion: z.literal(1),
+    /** Bump when the on-disk shape changes. v1 predates `resource` (F1-13..F1-19). */
+    schemaVersion: z.literal(CURRENT_OAUTH_SCHEMA_VERSION),
     clientInformation: OAuthClientInformationMixedSchema,
     tokens: OAuthTokensSchema,
     /** Authorization server URL or issuer identifier from discovery. */
     authorizationServer: z.string().min(1),
     scopes: z.array(z.string()),
+    /**
+     * RFC 8707 resource indicator the SDK selected at login (from RFC 9728
+     * protected-resource metadata). Absent means login used no resource
+     * indicator; refresh must then send none either. Replayed on refresh so a
+     * resource-bound authorization server issues a token for the right audience.
+     */
+    resource: z.url().optional(),
     /** ISO timestamp; obtained-at, not expires-at. */
     obtainedAt: z.iso.datetime(),
   })
   .strict();
 
 export type StoredOAuthRecord = z.infer<typeof StoredOAuthRecordSchema>;
+
+/**
+ * Upgrades a parsed-but-unvalidated stored record from an older on-disk schema
+ * version to the current one, so records written before a field was added keep
+ * loading. v1 records (F1-13..F1-19) predate the optional `resource` indicator;
+ * its absence is meaningful ("login used no RFC 8707 resource"), so the upgrade
+ * only rewrites the version stamp and leaves `resource` unset. Anything that is
+ * not a recognized older record passes through untouched for schema validation
+ * to reject.
+ */
+export function migrateStoredOAuthRecord(value: unknown): unknown {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { schemaVersion?: unknown }).schemaVersion === 1
+  ) {
+    return { ...(value as Record<string, unknown>), schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION };
+  }
+  return value;
+}
 
 export type TokenStoreHealth = { kind: 'ready' } | { kind: 'unavailable'; reason: string };
 

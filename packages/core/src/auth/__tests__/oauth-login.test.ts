@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createNoopLogger } from '../../logging/logger.js';
 import { startCallbackServer } from '../oauth-callback-server.js';
 import { runOAuthLogin, type RunOAuthLoginInput } from '../oauth-login.js';
+import { runOAuthRefresh } from '../oauth-refresh.js';
 import { InMemoryTokenStore, type StoredOAuthRecord } from '../token-store.js';
 import {
   startFakeOAuthServer,
@@ -60,9 +61,13 @@ function baseInput(
   };
 }
 
-function seedToken(store: InMemoryTokenStore, authorizationServer: string): Promise<void> {
+function seedToken(
+  store: InMemoryTokenStore,
+  authorizationServer: string,
+  resource?: string,
+): Promise<void> {
   const record: StoredOAuthRecord = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     clientInformation: { client_id: 'preexisting-client' },
     tokens: {
       access_token: 'old-access-token',
@@ -71,6 +76,7 @@ function seedToken(store: InMemoryTokenStore, authorizationServer: string): Prom
     },
     authorizationServer,
     scopes: [],
+    ...(resource !== undefined ? { resource } : {}),
     obtainedAt: new Date().toISOString(),
   };
   return store.write(SERVER_NAME, record);
@@ -196,6 +202,27 @@ describe('runOAuthLogin', () => {
     expect(record?.tokens.access_token).toBe('fake-access-token');
   });
 
+  it('uses freshly discovered resource metadata when refresh falls back to browser auth', async () => {
+    const server = await fakeServer({
+      serveResourceMetadata: true,
+      rejectRefreshWithServerError: true,
+      requireResourceOnCodeExchange: true,
+    });
+    const store = new InMemoryTokenStore();
+    await seedToken(store, server.url.origin);
+    const openBrowser = fetchingBrowser();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store, openBrowser }));
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    expect(server.tokenGrants).toEqual(['refresh_token', 'authorization_code']);
+    const wireResource = server.url.toString();
+    expect(server.authorizeParams()[0]?.resource).toBe(wireResource);
+    expect(server.tokenResources).toEqual([null, wireResource]);
+    expect((await store.read(SERVER_NAME))?.resource).toBe(server.url.origin);
+  });
+
   it('forces the browser handshake when forceReauth is set despite a stored token', async () => {
     const server = await fakeServer();
     const store = new InMemoryTokenStore();
@@ -235,6 +262,64 @@ describe('runOAuthLogin', () => {
     expect(result).toEqual({ kind: 'success' });
     expect(authServer.tokenGrants).toEqual(['authorization_code']);
     expect((await store.read(SERVER_NAME))?.tokens.access_token).toBe('fake-access-token');
+  });
+
+  it('replays the persisted resource on an SDK-driven refresh when the metadata is no longer discoverable', async () => {
+    // Mirrors the gateway 401-refresh: the SDK drives the refresh through the
+    // provider and selects the resource itself. The server requires a resource
+    // on refresh but no longer advertises protected-resource metadata, so the
+    // only way the refresh succeeds is for the provider to replay the resource
+    // login persisted. Without that, the refresh is rejected and the flow falls
+    // back to the browser.
+    const server = await fakeServer({ requireResourceOnRefresh: true });
+    const store = new InMemoryTokenStore();
+    // The persisted resource must be compatible with the MCP server URL — the
+    // provider re-validates it before replaying — so use the server's own URL.
+    const resource = server.url.toString();
+    await seedToken(store, server.url.toString(), resource);
+    const openBrowser = fetchingBrowser();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store, openBrowser }));
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(server.tokenGrants).toEqual(['refresh_token']);
+    expect(server.tokenResources).toEqual([resource]);
+    const record = await store.read(SERVER_NAME);
+    expect(record?.tokens.access_token).toBe('refreshed-access-token');
+    expect(record?.resource).toBe(resource);
+  });
+
+  it('persists the selected resource indicator and replays it on a later refresh', async () => {
+    // The server advertises RFC 9728 protected-resource metadata, so the SDK
+    // selects an RFC 8707 resource during login. That value must be persisted
+    // and then replayed on refresh, which this server requires.
+    const server = await fakeServer({
+      serveResourceMetadata: true,
+      requireResourceOnRefresh: true,
+    });
+    const store = new InMemoryTokenStore();
+
+    const login = await runOAuthLogin(baseInput(server, { tokenStore: store }));
+    expect(login).toEqual({ kind: 'success' });
+
+    const afterLogin = await store.read(SERVER_NAME);
+    // Persisted as advertised by the protected-resource metadata (bare origin).
+    expect(afterLogin?.resource).toBe(server.url.origin);
+    // On the wire the SDK normalizes it through `new URL(...)`, so the resource
+    // form parameter carries the trailing-slash href. The authorization-code
+    // exchange already carried it.
+    const wireResource = server.url.toString();
+    expect(server.tokenResources).toEqual([wireResource]);
+
+    const refresh = await runOAuthRefresh({
+      serverName: SERVER_NAME,
+      tokenStore: store,
+      logger: createNoopLogger(),
+    });
+    expect(refresh).toEqual({ kind: 'success' });
+    expect(server.tokenResources).toEqual([wireResource, wireResource]);
+    expect((await store.read(SERVER_NAME))?.resource).toBe(server.url.origin);
   });
 
   it('does not leak abort listeners across logins that reuse one signal', async () => {

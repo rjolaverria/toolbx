@@ -7,7 +7,10 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   js.configs.recommended,
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.d.ts'],
+    // `.claude/` holds local tooling state (worktrees, memory, settings); it is
+    // untracked and must never be linted — a checked-out worktree there would
+    // otherwise drag a second copy of the source tree into every lint run.
+    ignores: ['**/dist/**', '**/node_modules/**', '**/*.d.ts', '**/.claude/**'],
   },
   {
     files: ['**/*.ts', '**/*.tsx'],
