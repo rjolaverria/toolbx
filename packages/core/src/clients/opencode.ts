@@ -16,12 +16,12 @@ import type {
   InstallOpts,
   InstallResult,
 } from './types.js';
+import { TOOLBOX_STDIO_COMMAND } from './toolbox-command.js';
 
 const OPENCODE_CONFIG_REL = path.join('.config', 'opencode', 'opencode.json');
 const OPENCODE_CONFIG_ENV = 'OPENCODE_CONFIG';
 const MCP_KEY = 'mcp';
 const TOOLBOX_KEY = 'toolbox';
-const BASE_TOOLBOX_COMMAND: readonly string[] = ['npx', '-y', 'tlbx', 'serve', '--stdio'];
 
 interface ToolboxEntry {
   type: 'local';
@@ -32,14 +32,14 @@ interface ToolboxEntry {
 function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
   return {
     type: 'local',
-    command: [...BASE_TOOLBOX_COMMAND, ...extraArgs],
+    command: [...TOOLBOX_STDIO_COMMAND, ...extraArgs],
     enabled: true,
   };
 }
 
 export interface CreateOpencodeAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y tlbx serve --stdio` in the wired
+   * Extra args to append after `npx -y @toolbox/cli serve --stdio` in the wired
    * `mcp.toolbox.command` array. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.

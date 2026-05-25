@@ -46,10 +46,10 @@ Per-task tests verify each module in isolation. This task ties them together: `t
 
 - **`README.md`** or a new `docs/oauth.md` (one of them, depending on existing doc structure): a short user-facing section showing the happy path:
   ```text
-  npx tlbx server add-http github --url https://api.githubcopilot.com/mcp/
+  npx -y @toolbox/cli server add-http github --url https://api.githubcopilot.com/mcp/
   # Browser opens; you authenticate; the entry is registered.
-  npx tlbx auth status               # see which servers have stored tokens
-  npx tlbx auth login github         # re-authenticate when prompted
+  npx -y @toolbox/cli auth status               # see which servers have stored tokens
+  npx -y @toolbox/cli auth login github         # re-authenticate when prompted
   ```
 
 ## Acceptance criteria

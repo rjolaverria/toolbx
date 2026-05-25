@@ -9,6 +9,7 @@ import {
   createClaudeAdapterInternal,
   type InternalInstallHooks,
 } from '../claude.js';
+import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from '../toolbox-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -40,8 +41,8 @@ async function readToolboxEntry(home: string): Promise<unknown> {
 
 const TOOLBOX_ENTRY = {
   type: 'stdio',
-  command: 'npx',
-  args: ['-y', 'tlbx', 'serve', '--stdio'],
+  command: TOOLBOX_NPX_COMMAND,
+  args: [...TOOLBOX_STDIO_ARGS],
   env: {},
 };
 

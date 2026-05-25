@@ -10,6 +10,7 @@ import {
   createCodexAdapterInternal,
   type InternalInstallHooks,
 } from '../codex.js';
+import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from '../toolbox-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -75,8 +76,8 @@ describe('createCodexAdapter — install()', () => {
     const parsed = parseToml(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const servers = parsed.mcp_servers as Record<string, unknown>;
     expect(servers.toolbox).toEqual({
-      command: 'npx',
-      args: ['-y', 'tlbx', 'serve', '--stdio'],
+      command: TOOLBOX_NPX_COMMAND,
+      args: [...TOOLBOX_STDIO_ARGS],
     });
   });
 
@@ -110,7 +111,10 @@ describe('createCodexAdapter — install()', () => {
     const servers = parsed.mcp_servers as Record<string, unknown>;
     expect(servers.github).toEqual({ command: 'npx', args: ['-y', 'github-mcp'] });
     expect(servers.linear).toEqual({ command: 'linear-mcp', args: [] });
-    expect(servers.toolbox).toEqual({ command: 'npx', args: ['-y', 'tlbx', 'serve', '--stdio'] });
+    expect(servers.toolbox).toEqual({
+      command: TOOLBOX_NPX_COMMAND,
+      args: [...TOOLBOX_STDIO_ARGS],
+    });
     const other = parsed.other_section as Record<string, unknown>;
     expect(other.key).toBe('value');
   });
@@ -120,8 +124,8 @@ describe('createCodexAdapter — install()', () => {
     const configPath = await ensureCodexDir(home);
     const initial = [
       '[mcp_servers.toolbox]',
-      'command = "npx"',
-      'args = ["-y", "tlbx", "serve", "--stdio"]',
+      `command = "${TOOLBOX_NPX_COMMAND}"`,
+      'args = ["-y", "@toolbox/cli", "serve", "--stdio"]',
       '',
     ].join('\n');
     await fs.writeFile(configPath, initial);
@@ -178,8 +182,8 @@ describe('createCodexAdapter — install()', () => {
     const parsed = parseToml(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const servers = parsed.mcp_servers as Record<string, unknown>;
     expect(servers.toolbox).toEqual({
-      command: 'npx',
-      args: ['-y', 'tlbx', 'serve', '--stdio'],
+      command: TOOLBOX_NPX_COMMAND,
+      args: [...TOOLBOX_STDIO_ARGS],
     });
   });
 
@@ -209,7 +213,7 @@ describe('createCodexAdapter — install()', () => {
     expect(result.diff).toContain('-   command = "old-binary"');
     expect(result.diff).toContain('-   args = ["legacy"]');
     expect(result.diff).toContain('+ [mcp_servers.toolbox]');
-    expect(result.diff).toContain('+   command = "npx"');
+    expect(result.diff).toContain(`+   command = "${TOOLBOX_NPX_COMMAND}"`);
   });
 
   it('returns ok:false when the file is malformed TOML', async () => {
@@ -269,8 +273,8 @@ describe('createCodexAdapter — install()', () => {
       return;
     }
     expect(result.diff).toContain('+ [mcp_servers.toolbox]');
-    expect(result.diff).toContain('+   command = "npx"');
-    expect(result.diff).toContain('+   args = ["-y", "tlbx", "serve", "--stdio"]');
+    expect(result.diff).toContain(`+   command = "${TOOLBOX_NPX_COMMAND}"`);
+    expect(result.diff).toContain('+   args = ["-y", "@toolbox/cli", "serve", "--stdio"]');
   });
 
   it('dryRun returns the diff without touching disk', async () => {

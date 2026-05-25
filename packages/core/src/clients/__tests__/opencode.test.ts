@@ -9,6 +9,7 @@ import {
   createOpencodeAdapterInternal,
   type InternalInstallHooks,
 } from '../opencode.js';
+import { TOOLBOX_STDIO_COMMAND } from '../toolbox-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -39,7 +40,7 @@ async function ensureOpencodeDir(home: string): Promise<string> {
 
 const TOOLBOX_ENTRY = {
   type: 'local',
-  command: ['npx', '-y', 'tlbx', 'serve', '--stdio'],
+  command: [...TOOLBOX_STDIO_COMMAND],
   enabled: true,
 };
 

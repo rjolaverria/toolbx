@@ -12,7 +12,7 @@ ToolBox  ← this repo
 Jira / GitHub / Linear / custom MCP servers
 ```
 
-ToolBox acts as both an **MCP server** to downstream clients and an **MCP client** to upstream servers. The CLI binary is `tlbx`.
+ToolBox acts as both an **MCP server** to downstream clients and an **MCP client** to upstream servers. The CLI binary is `tlbx`; zero-install `npx` examples use the package target `@toolbox/cli`.
 
 ## Features
 
@@ -30,13 +30,13 @@ ToolBox acts as both an **MCP server** to downstream clients and an **MCP client
 One command, run anywhere:
 
 ```bash
-npx tlbx setup
+npx -y @toolbox/cli setup
 ```
 
 `tlbx setup` is the happy path. It creates `~/.config/toolbox/config.json` if it's missing, walks you through adding one upstream MCP server (optional), detects every installed MCP client on your machine — Claude Code, Codex, OpenCode — and writes a `toolbox` entry into each one's config file with a timestamped backup. You confirm once, the diffs are previewed before any write, and the next launch of those clients spawns the gateway on demand over stdio.
 
 ```text
-$ npx tlbx setup
+$ npx -y @toolbox/cli setup
 ✓ Created config at ~/.config/toolbox/config.json
 Detected MCP clients:
   • Claude Code  (~/.claude.json)
@@ -45,12 +45,12 @@ Detected MCP clients:
 Add an upstream MCP server now? [Y/n] n
 
 Claude Code:
-  + mcpServers.toolbox = {"type":"stdio","command":"npx","args":["-y","tlbx","serve","--stdio"],"env":{}}
+  + mcpServers.toolbox = {"type":"stdio","command":"npx","args":["-y","@toolbox/cli","serve","--stdio"],"env":{}}
 
 Codex:
   + [mcp_servers.toolbox]
   +   command = "npx"
-  +   args = ["-y", "tlbx", "serve", "--stdio"]
+  +   args = ["-y", "@toolbox/cli", "serve", "--stdio"]
 
 Wire ToolBox into Claude Code, Codex? [Y/n] y
   ✓ Claude Code: wrote ~/.claude.json (backup ~/.claude.json.bak.…)
@@ -68,26 +68,26 @@ For CI, agent loops, or anyone who wants to drive each step manually, the origin
 
 ```bash
 # Initialize the global config
-npx tlbx init
+npx -y @toolbox/cli init
 
 # Add an upstream MCP server
-npx tlbx server add-stdio github -- npx -y @modelcontextprotocol/server-github
-npx tlbx server add-http jira --url https://jira.example.com/mcp
+npx -y @toolbox/cli server add-stdio github -- npx -y @modelcontextprotocol/server-github
+npx -y @toolbox/cli server add-http jira --url https://jira.example.com/mcp
 
 # Start ToolBox as an MCP server (foreground)
-npx tlbx serve
+npx -y @toolbox/cli serve
 
 # Or fork the HTTP gateway into the background and return to the shell prompt
-npx tlbx serve --detach
+npx -y @toolbox/cli serve --detach
 
 # Stop a background gateway
-npx tlbx stop
+npx -y @toolbox/cli stop
 
 # Install the ToolBox entry into one client's config file
-npx tlbx client install claude
+npx -y @toolbox/cli client install claude
 
 # Or print a config snippet to paste into ~/.claude.json yourself
-npx tlbx client print-config claude
+npx -y @toolbox/cli client print-config claude
 ```
 
 ### OAuth HTTP servers
@@ -96,15 +96,15 @@ For HTTP MCP servers that advertise OAuth, `server add-http` opens the browser a
 before writing the server entry:
 
 ```bash
-npx tlbx server add-http github --url https://api.githubcopilot.com/mcp/
+npx -y @toolbox/cli server add-http github --url https://api.githubcopilot.com/mcp/
 # Browser opens; authenticate; ToolBox stores the OAuth tokens.
-npx tlbx auth status
+npx -y @toolbox/cli auth status
 ```
 
 When a server later reports expired credentials, re-authenticate with:
 
 ```bash
-npx tlbx auth login github
+npx -y @toolbox/cli auth login github
 ```
 
 ## Configuration

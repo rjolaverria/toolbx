@@ -6,11 +6,11 @@
 
 ## Goal
 
-Collapse the four-step first-run flow into a single command. `npx tlbx setup` creates the config if missing, optionally takes one upstream server entry, detects every installed MCP client, and wires ToolBox into each — idempotently, with backups, atomic writes, and a diff preview the user confirms once. The README quickstart leads with this command.
+Collapse the four-step first-run flow into a single command. `npx -y @toolbox/cli setup` creates the config if missing, optionally takes one upstream server entry, detects every installed MCP client, and wires ToolBox into each — idempotently, with backups, atomic writes, and a diff preview the user confirms once. The README quickstart leads with this command.
 
 ## Motivation
 
-The friction we're fixing is "I just heard about ToolBox, what do I run?". Today the answer is `init` → `server add-*` → `serve` → `client print-config` → paste-into-Claude-config-by-hand. After this task, the answer is `npx tlbx setup`. Defaulting to stdio transport means the MCP client itself spawns the gateway on demand — the user never types `tlbx serve` for the happy path.
+The friction we're fixing is "I just heard about ToolBox, what do I run?". Today the answer is `init` → `server add-*` → `serve` → `client print-config` → paste-into-Claude-config-by-hand. After this task, the answer is `npx -y @toolbox/cli setup`. Defaulting to stdio transport means the MCP client itself spawns the gateway on demand — the user never types `tlbx serve` for the happy path.
 
 ## Deliverables
 
@@ -56,7 +56,7 @@ The friction we're fixing is "I just heard about ToolBox, what do I run?". Today
 - **README rewrite** at `README.md`:
   - Quickstart section becomes:
     ```bash
-    npx tlbx setup
+    npx -y @toolbox/cli setup
     ```
     followed by a 2-3-sentence description and a screenshot-style code block showing typical output.
   - Move the current four-step flow into an "Advanced / scripting" subsection — still documented for CI and power users.
@@ -71,11 +71,11 @@ The friction we're fixing is "I just heard about ToolBox, what do I run?". Today
 
 ## Acceptance criteria
 
-- On a clean machine with Claude Code (and only Claude Code) installed, `npx tlbx setup --yes` creates the config, adds the `toolbox` entry to `~/.claude.json` with a backup, prints the summary, exits 0.
+- On a clean machine with Claude Code (and only Claude Code) installed, `npx -y @toolbox/cli setup --yes` creates the config, adds the `toolbox` entry to `~/.claude.json` with a backup, prints the summary, exits 0.
 - A second run prints "already wired" for Claude Code and does not produce a second backup file.
-- `npx tlbx setup --transport http` exits non-zero with the unsupported message and does **not** modify any files.
-- `npx tlbx setup --client codex` skips Claude Code even if both are installed.
-- The README quickstart at HEAD is the single command `npx tlbx setup` followed by a brief description.
+- `npx -y @toolbox/cli setup --transport http` exits non-zero with the unsupported message and does **not** modify any files.
+- `npx -y @toolbox/cli setup --client codex` skips Claude Code even if both are installed.
+- The README quickstart at HEAD is the single command `npx -y @toolbox/cli setup` followed by a brief description.
 
 ## Out of scope
 

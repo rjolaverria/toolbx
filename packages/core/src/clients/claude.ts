@@ -14,10 +14,10 @@ import type {
   InstallOpts,
   InstallResult,
 } from './types.js';
+import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from './toolbox-command.js';
 
 const CLAUDE_CONFIG_FILENAME = '.claude.json';
 const TOOLBOX_KEY = 'toolbox';
-const BASE_TOOLBOX_ARGS: readonly string[] = ['-y', 'tlbx', 'serve', '--stdio'];
 
 interface ToolboxEntry {
   type: 'stdio';
@@ -29,15 +29,15 @@ interface ToolboxEntry {
 function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
   return {
     type: 'stdio',
-    command: 'npx',
-    args: [...BASE_TOOLBOX_ARGS, ...extraArgs],
+    command: TOOLBOX_NPX_COMMAND,
+    args: [...TOOLBOX_STDIO_ARGS, ...extraArgs],
     env: {},
   };
 }
 
 export interface CreateClaudeAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y tlbx serve --stdio` in the wired
+   * Extra args to append after `npx -y @toolbox/cli serve --stdio` in the wired
    * `mcpServers.toolbox` entry. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.

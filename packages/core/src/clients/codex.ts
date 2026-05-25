@@ -16,11 +16,11 @@ import type {
   InstallOpts,
   InstallResult,
 } from './types.js';
+import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from './toolbox-command.js';
 
 const CODEX_CONFIG_REL = path.join('.codex', 'config.toml');
 const MCP_SERVERS_KEY = 'mcp_servers';
 const TOOLBOX_KEY = 'toolbox';
-const BASE_TOOLBOX_ARGS: readonly string[] = ['-y', 'tlbx', 'serve', '--stdio'];
 
 interface ToolboxEntry {
   command: string;
@@ -29,14 +29,14 @@ interface ToolboxEntry {
 
 function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
   return {
-    command: 'npx',
-    args: [...BASE_TOOLBOX_ARGS, ...extraArgs],
+    command: TOOLBOX_NPX_COMMAND,
+    args: [...TOOLBOX_STDIO_ARGS, ...extraArgs],
   };
 }
 
 export interface CreateCodexAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y tlbx serve --stdio` in the wired
+   * Extra args to append after `npx -y @toolbox/cli serve --stdio` in the wired
    * `[mcp_servers.toolbox]` table. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@toolbox/core';
+import {
+  DEFAULT_CONFIG,
+  TOOLBOX_NPX_COMMAND,
+  TOOLBOX_STDIO_ARGS,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 
 import {
   runClientPrintConfig,
@@ -97,8 +102,8 @@ describe('runClientPrintConfig', () => {
       mcpServers: {
         toolbox: {
           type: 'stdio',
-          command: 'npx',
-          args: ['-y', 'tlbx', 'serve', '--stdio'],
+          command: TOOLBOX_NPX_COMMAND,
+          args: [...TOOLBOX_STDIO_ARGS],
           env: {},
         },
       },
@@ -207,8 +212,8 @@ describe('runClientPrintConfig', () => {
     expect(h.stdout.value).toContain('~/.codex/config.toml');
     expect(h.stdout.value).toContain('```toml');
     expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
-    expect(h.stdout.value).toContain('command = "npx"');
-    expect(h.stdout.value).toContain('args = ["-y", "tlbx", "serve", "--stdio"]');
+    expect(h.stdout.value).toContain(`command = "${TOOLBOX_NPX_COMMAND}"`);
+    expect(h.stdout.value).toContain('args = ["-y", "@toolbox/cli", "serve", "--stdio"]');
   });
 
   it('codex http friendly output emits the configured URL inside the TOML table', async () => {
@@ -272,8 +277,8 @@ describe('runClientPrintConfig', () => {
       mcpServers: {
         toolbox: {
           type: 'stdio',
-          command: 'npx',
-          args: ['-y', 'tlbx', 'serve', '--stdio'],
+          command: TOOLBOX_NPX_COMMAND,
+          args: [...TOOLBOX_STDIO_ARGS],
           env: {},
         },
       },
