@@ -84,7 +84,9 @@ describe('defaultServeDetachDeps', () => {
 
     expect(typeof deps.nodeExecPath()).toBe('string');
     expect(deps.processEnv).toBe(process.env);
-    expect(typeof deps.now().toISOString()).toBe('string');
+    expect(typeof deps.now()).toBe('number');
+    // The endpoint is closed, so the readiness probe resolves false rather than throwing.
+    expect(await deps.probeReady('http://127.0.0.1:1/mcp')).toBe(false);
 
     // Verify the default kill arrow forwards to process.kill without actually
     // signaling anything — spy and assert.
@@ -97,19 +99,6 @@ describe('defaultServeDetachDeps', () => {
     // to be a non-empty string in any normal Node run (vitest passes its own
     // CLI entry), so the function should not throw.
     expect(typeof deps.resolveEntryScript()).toBe('string');
-
-    const state = {
-      version: 1 as const,
-      pid: process.pid,
-      mode: 'http' as const,
-      url: 'http://127.0.0.1:7331/mcp',
-      logPath: logFile,
-      startedAt: new Date().toISOString(),
-    };
-    await deps.writeState(stateFile, state);
-    const roundtrip = await deps.readState(stateFile);
-    expect(roundtrip?.pid).toBe(process.pid);
-    await deps.clearState(stateFile);
 
     await deps.sleep(1);
 

@@ -148,14 +148,21 @@ export {
 
 export {
   clearServeState,
+  defaultProbeDeps,
   isProcessAlive,
+  probeDaemonEndpoint,
   readServeState,
   resolveServeDaemonPaths,
   ServeDaemonStateSchema,
   serveDaemonPathsForConfig,
+  waitForDaemonReady,
   writeServeState,
+  type DaemonProbeOutcome,
+  type ProbeDeps,
   type ServeDaemonPaths,
   type ServeDaemonState,
+  type WaitForDaemonReadyDeps,
+  type WaitForDaemonReadyOptions,
 } from './serve-daemon/index.js';
 
 export {

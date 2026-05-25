@@ -11,7 +11,6 @@ import {
 } from '../serve-detach.js';
 
 interface FakeChildOptions {
-  /** Pid returned from `spawn`. */
   pid?: number;
 }
 
@@ -39,25 +38,32 @@ function makeFakeChild(opts: FakeChildOptions = {}): FakeChildHandle {
   return handle;
 }
 
+function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState {
+  return {
+    version: 1,
+    pid: 9999,
+    mode: 'http',
+    url: 'http://127.0.0.1:7331/mcp',
+    logPath: '/resolved/config.json.log',
+    startedAt: '2026-05-25T12:00:00.000Z',
+    ...overrides,
+  };
+}
+
 interface Stub {
   config?: ToolBoxConfig;
   loadConfigError?: Error;
-  existingState?: ServeDaemonState | null;
-  existingStateAlive?: boolean;
+  /** Sequence of readState responses, consumed in order (defaults to null). */
+  readStateResponses?: Array<ServeDaemonState | null>;
+  probeReady?: boolean;
   spawnHandle?: FakeChildHandle;
   spawnError?: Error;
   isAliveOverride?: (pid: number) => boolean;
-  writeStateError?: Error;
   clearStateError?: Error;
   openLogFdError?: Error;
-  resolvedConfigPath?: string;
   entryScript?: string;
   killError?: Error;
-}
-
-interface KillCall {
-  pid: number;
-  signal: NodeJS.Signals;
+  readinessTimeoutMs?: number;
 }
 
 interface SpawnCall {
@@ -71,23 +77,25 @@ interface Harness {
   stdout: { value: string };
   stderr: { value: string };
   spawnCalls: SpawnCall[];
-  writeStateCalls: Array<{ path: string; state: ServeDaemonState }>;
   clearStateCalls: string[];
-  killCalls: KillCall[];
+  killCalls: Array<{ pid: number; signal: NodeJS.Signals }>;
   closedFds: number[];
   childHandle: FakeChildHandle;
+  readStateCalls: number;
 }
 
 function makeHarness(stub: Stub = {}): Harness {
   const stdout = { value: '' };
   const stderr = { value: '' };
   const spawnCalls: SpawnCall[] = [];
-  const writeStateCalls: Array<{ path: string; state: ServeDaemonState }> = [];
   const clearStateCalls: string[] = [];
-  const killCalls: KillCall[] = [];
+  const killCalls: Array<{ pid: number; signal: NodeJS.Signals }> = [];
   const closedFds: number[] = [];
   const childHandle = stub.spawnHandle ?? makeFakeChild();
   const config: ToolBoxConfig = stub.config ?? DEFAULT_CONFIG;
+  const readStateResponses = stub.readStateResponses ?? [];
+  let readStateCalls = 0;
+  let clock = 0;
 
   const deps: ServeDetachDeps = {
     resolvePath: () => '/resolved/config.json',
@@ -97,13 +105,10 @@ function makeHarness(stub: Stub = {}): Harness {
       statePath: `${configPath}.state`,
       logPath: `${configPath}.log`,
     }),
-    readState: () => Promise.resolve(stub.existingState ?? null),
-    writeState: (p, state) => {
-      writeStateCalls.push({ path: p, state });
-      if (stub.writeStateError) {
-        return Promise.reject(stub.writeStateError);
-      }
-      return Promise.resolve();
+    readState: () => {
+      const response = readStateResponses[readStateCalls] ?? null;
+      readStateCalls += 1;
+      return Promise.resolve(response);
     },
     clearState: (p) => {
       clearStateCalls.push(p);
@@ -113,6 +118,7 @@ function makeHarness(stub: Stub = {}): Harness {
       return Promise.resolve();
     },
     isProcessAlive: stub.isAliveOverride ?? (() => true),
+    probeReady: () => Promise.resolve(stub.probeReady ?? false),
     openLogFd: () => {
       if (stub.openLogFdError) {
         return Promise.reject(stub.openLogFdError);
@@ -139,9 +145,13 @@ function makeHarness(stub: Stub = {}): Harness {
     resolveEntryScript: () => stub.entryScript ?? '/path/to/cli/dist/index.js',
     nodeExecPath: () => '/path/to/node',
     processEnv: { TOOLBOX_TEST: '1' },
-    startupGraceMs: 1,
-    sleep: () => Promise.resolve(),
-    now: () => new Date('2026-05-13T12:00:00.000Z'),
+    readinessTimeoutMs: stub.readinessTimeoutMs ?? 1_000,
+    pollIntervalMs: 100,
+    sleep: (ms) => {
+      clock += ms;
+      return Promise.resolve();
+    },
+    now: () => clock,
     stdout: (msg) => {
       stdout.value += msg;
     },
@@ -155,11 +165,23 @@ function makeHarness(stub: Stub = {}): Harness {
     stdout,
     stderr,
     spawnCalls,
-    writeStateCalls,
     clearStateCalls,
     killCalls,
     closedFds,
     childHandle,
+    get readStateCalls() {
+      return readStateCalls;
+    },
+  };
+}
+
+function httpDisabledConfig(): ToolBoxConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    server: {
+      ...DEFAULT_CONFIG.server,
+      http: { ...DEFAULT_CONFIG.server.http, enabled: false },
+    },
   };
 }
 
@@ -174,16 +196,41 @@ describe('runServeDetached', () => {
     expect(h.spawnCalls).toHaveLength(0);
   });
 
+  it('refuses to fork when server.http.enabled is false (explicit serve --detach)', async () => {
+    const h = makeHarness({ config: httpDisabledConfig() });
+
+    const code = await runServeDetached({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/http\.enabled/);
+    expect(h.spawnCalls).toHaveLength(0);
+  });
+
+  it('forces HTTP past the enabled gate via a private env marker, not a CLI flag', async () => {
+    const h = makeHarness({
+      config: httpDisabledConfig(),
+      readStateResponses: [null, makeState()],
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.spawnCalls).toHaveLength(1);
+    expect(h.spawnCalls[0]?.args).not.toContain('--force-http');
+    expect(h.spawnCalls[0]?.options.env).toMatchObject({ TOOLBOX_SERVE_FORCE_HTTP: '1' });
+  });
+
+  it('does not set the force-http env marker on the explicit serve --detach path', async () => {
+    const h = makeHarness({ readStateResponses: [null, makeState()] });
+
+    await runServeDetached({}, h.deps);
+
+    expect(h.spawnCalls[0]?.options.env).not.toHaveProperty('TOOLBOX_SERVE_FORCE_HTTP');
+  });
+
   it('refuses when an alive daemon is already recorded', async () => {
     const h = makeHarness({
-      existingState: {
-        version: 1,
-        pid: 4242,
-        mode: 'http',
-        url: 'http://127.0.0.1:7331/mcp',
-        logPath: '/tmp/serve.log',
-        startedAt: '2026-05-12T00:00:00.000Z',
-      },
+      readStateResponses: [makeState({ pid: 4242 })],
       isAliveOverride: (pid) => pid === 4242,
     });
 
@@ -195,17 +242,23 @@ describe('runServeDetached', () => {
     expect(h.spawnCalls).toHaveLength(0);
   });
 
+  it('reuses an alive daemon instead of erroring on the forceHttp path', async () => {
+    const h = makeHarness({
+      readStateResponses: [makeState({ pid: 4242 })],
+      isAliveOverride: (pid) => pid === 4242,
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toMatch(/reusing running daemon \(pid 4242\)/);
+    expect(h.spawnCalls).toHaveLength(0);
+  });
+
   it('clears stale state when the recorded pid is dead and proceeds to spawn', async () => {
     const h = makeHarness({
-      existingState: {
-        version: 1,
-        pid: 4242,
-        mode: 'http',
-        url: 'http://127.0.0.1:7331/mcp',
-        logPath: '/tmp/serve.log',
-        startedAt: '2026-05-12T00:00:00.000Z',
-      },
-      isAliveOverride: (pid) => pid !== 4242, // only the stale pid is dead
+      readStateResponses: [makeState({ pid: 4242 }), makeState({ pid: 9999 })],
+      isAliveOverride: (pid) => pid !== 4242,
     });
 
     const code = await runServeDetached({}, h.deps);
@@ -213,21 +266,19 @@ describe('runServeDetached', () => {
     expect(code).toBe(0);
     expect(h.clearStateCalls).toContain('/resolved/config.json.state');
     expect(h.spawnCalls).toHaveLength(1);
-    expect(h.writeStateCalls).toHaveLength(1);
   });
 
-  it('builds the correct spawn argv (entry, --http, --config, log/format passthrough)', async () => {
-    const h = makeHarness();
+  it('builds the correct spawn argv and managed-daemon env', async () => {
+    const h = makeHarness({ readStateResponses: [null, makeState()] });
 
     const code = await runServeDetached({ logLevel: 'debug', logFormat: 'json' }, h.deps);
 
     expect(code).toBe(0);
     const call = h.spawnCalls[0];
-    expect(call).toBeDefined();
     expect(call?.command).toBe('/path/to/node');
     expect(call?.args).toEqual([
       '/path/to/cli/dist/index.js',
-      'serve',
+      'serve-managed',
       '--http',
       '--config',
       '/resolved/config.json',
@@ -237,24 +288,115 @@ describe('runServeDetached', () => {
       'json',
     ]);
     expect(call?.options.detached).toBe(true);
-    expect(call?.options.stdio).toEqual(['ignore', 42, 42]);
+    expect(call?.options.stdio).toEqual(['ignore', 42, 42, 'pipe']);
+    expect(call?.options.env).toMatchObject({
+      TOOLBOX_SERVE_STATE_PATH: '/resolved/config.json.state',
+      TOOLBOX_SERVE_LOG_PATH: '/resolved/config.json.log',
+    });
   });
 
-  it('passes through --config to the child', async () => {
-    const h = makeHarness();
+  it('reports started, logs, state, and stop hint once the child publishes state', async () => {
+    const h = makeHarness({
+      readStateResponses: [null, makeState({ pid: 9999, url: 'http://127.0.0.1:7331/mcp' })],
+    });
+
+    const code = await runServeDetached({}, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toMatch(/started \(pid 9999\)/);
+    expect(h.stdout.value).toMatch(/http:\/\/127\.0\.0\.1:7331\/mcp/);
+    expect(h.stdout.value).toMatch(/\/resolved\/config\.json\.log/);
+    expect(h.stdout.value).toMatch(/\/resolved\/config\.json\.state/);
+    expect(h.stdout.value).toMatch(/tlbx stop/);
+  });
+
+  it('includes --config in the stop hint and spawn args when one was used', async () => {
+    const h = makeHarness({ readStateResponses: [null, makeState()] });
 
     await runServeDetached({ config: '/custom/cfg.json' }, h.deps);
 
-    const call = h.spawnCalls[0];
-    expect(call?.args).toContain('/custom/cfg.json');
-  });
-
-  it('includes --config in the suggested stop hint when one was used', async () => {
-    const h = makeHarness();
-
-    await runServeDetached({ config: '/custom/cfg.json' }, h.deps);
-
+    expect(h.spawnCalls[0]?.args).toContain('/custom/cfg.json');
     expect(h.stdout.value).toMatch(/tlbx stop --config \/custom\/cfg\.json/);
+  });
+
+  it('reuses a sibling that won the port race and tears down our child', async () => {
+    const child = makeFakeChild({ pid: 9999 });
+    const h = makeHarness({
+      spawnHandle: child,
+      // existing check → null; first poll → sibling (pid 5555) published.
+      readStateResponses: [null, makeState({ pid: 5555 })],
+      isAliveOverride: () => true,
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toMatch(/reusing running daemon \(pid 5555\)/);
+    expect(h.killCalls).toEqual([{ pid: 9999, signal: 'SIGTERM' }]);
+  });
+
+  it('reuses a sibling discovered after our child loses the bind', async () => {
+    const child = makeFakeChild({ pid: 9999 });
+    const h = makeHarness({
+      spawnHandle: child,
+      // existing → null; poll → null (not published yet); after death recheck → sibling.
+      readStateResponses: [null, null, makeState({ pid: 5555 })],
+      isAliveOverride: (pid) => pid !== 9999, // our child is dead, sibling alive
+      probeReady: true,
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(0);
+    expect(h.stdout.value).toMatch(/reusing running daemon \(pid 5555\)/);
+  });
+
+  it('reports a collision when the child cannot bind a foreign-held port', async () => {
+    const child = makeFakeChild({ pid: 9999 });
+    const h = makeHarness({
+      spawnHandle: child,
+      readStateResponses: [null, null, null],
+      isAliveOverride: (pid) => pid !== 9999, // our child died, nothing else recorded
+      probeReady: true, // but the port answers — a foreign process
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/cannot bind/);
+    expect(h.stderr.value).toMatch(/different config, or a foreign process/);
+  });
+
+  it('reports a died child when nothing answers the port', async () => {
+    const child = makeFakeChild({ pid: 9999 });
+    const h = makeHarness({
+      spawnHandle: child,
+      readStateResponses: [null],
+      isAliveOverride: (pid) => pid !== 9999, // our child died
+      probeReady: false, // port closed
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/background process died/);
+  });
+
+  it('times out and kills the child when state is never published', async () => {
+    const child = makeFakeChild({ pid: 9999 });
+    const h = makeHarness({
+      spawnHandle: child,
+      readStateResponses: [null], // existing check; all later polls default to null
+      isAliveOverride: () => true, // child stays alive but never publishes
+      readinessTimeoutMs: 300,
+    });
+
+    const code = await runServeDetached({ forceHttp: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toMatch(/did not become ready within 300ms/);
+    expect(h.stderr.value).toMatch(/\/resolved\/config\.json\.log/);
+    expect(h.killCalls).toEqual([{ pid: 9999, signal: 'SIGTERM' }]);
   });
 
   it('returns 1 without opening the log fd when resolveEntryScript throws', async () => {
@@ -276,49 +418,6 @@ describe('runServeDetached', () => {
     expect(h.spawnCalls).toHaveLength(0);
   });
 
-  it('writes the state file with pid, url, logPath, startedAt', async () => {
-    const h = makeHarness();
-
-    await runServeDetached({}, h.deps);
-
-    expect(h.writeStateCalls).toHaveLength(1);
-    const written = h.writeStateCalls[0];
-    expect(written?.path).toBe('/resolved/config.json.state');
-    expect(written?.state).toEqual({
-      version: 1,
-      pid: 9999,
-      mode: 'http',
-      url: 'http://127.0.0.1:7331/mcp',
-      logPath: '/resolved/config.json.log',
-      startedAt: '2026-05-13T12:00:00.000Z',
-    });
-  });
-
-  it('reports the pid, endpoint, and log path on stdout', async () => {
-    const h = makeHarness();
-
-    await runServeDetached({}, h.deps);
-
-    expect(h.stdout.value).toMatch(/pid 9999/);
-    expect(h.stdout.value).toMatch(/http:\/\/127\.0\.0\.1:7331\/mcp/);
-    expect(h.stdout.value).toMatch(/\/resolved\/config\.json\.log/);
-    expect(h.stdout.value).toMatch(/tlbx stop/);
-  });
-
-  it('refuses to fork when server.http.enabled is false', async () => {
-    const config: ToolBoxConfig = {
-      ...DEFAULT_CONFIG,
-      server: { ...DEFAULT_CONFIG.server, http: { ...DEFAULT_CONFIG.server.http, enabled: false } },
-    };
-    const h = makeHarness({ config });
-
-    const code = await runServeDetached({}, h.deps);
-
-    expect(code).toBe(1);
-    expect(h.stderr.value).toMatch(/http\.enabled/);
-    expect(h.spawnCalls).toHaveLength(0);
-  });
-
   it('returns 1 and surfaces the config error when loadConfig rejects', async () => {
     const h = makeHarness({ loadConfigError: new Error('not json') });
 
@@ -329,78 +428,16 @@ describe('runServeDetached', () => {
     expect(h.stderr.value).toMatch(/not json/);
   });
 
-  it('reports failure and clears state when the child exits immediately', async () => {
-    const fakeChild = makeFakeChild({ pid: 5555 });
+  it('unrefs the child and closes the parent copy of the log fd', async () => {
+    const child = makeFakeChild({ pid: 7777 });
     const h = makeHarness({
-      spawnHandle: fakeChild,
-      // The child is reported alive at the initial existence check (none),
-      // then `isAliveOverride` returns false after the grace window.
-      isAliveOverride: () => false,
+      spawnHandle: child,
+      readStateResponses: [null, makeState({ pid: 7777 })],
     });
 
-    const code = await runServeDetached({}, h.deps);
-
-    expect(code).toBe(1);
-    expect(h.stderr.value).toMatch(/background process died/);
-    expect(h.clearStateCalls).toEqual(['/resolved/config.json.state']);
-    expect(h.writeStateCalls).toHaveLength(0);
-  });
-
-  it('unrefs the child so the parent can exit independently', async () => {
-    const fakeChild = makeFakeChild({ pid: 7777 });
-    const h = makeHarness({ spawnHandle: fakeChild });
-
     await runServeDetached({}, h.deps);
 
-    expect(fakeChild.unrefCalls).toBe(1);
-  });
-
-  it('closes the parent copy of the log fd after spawn', async () => {
-    const h = makeHarness();
-
-    await runServeDetached({}, h.deps);
-
+    expect(child.unrefCalls).toBe(1);
     expect(h.closedFds).toContain(42);
-  });
-
-  it('kills the orphaned child when writeState fails so it is not leaked', async () => {
-    const h = makeHarness({ writeStateError: new Error('ENOSPC') });
-
-    const code = await runServeDetached({}, h.deps);
-
-    expect(code).toBe(1);
-    expect(h.stderr.value).toMatch(/failed to write state file/);
-    expect(h.killCalls).toEqual([{ pid: 9999, signal: 'SIGTERM' }]);
-  });
-
-  it('swallows kill failures during orphan cleanup (best-effort)', async () => {
-    const err = new Error('no such process') as NodeJS.ErrnoException;
-    err.code = 'ESRCH';
-    const h = makeHarness({
-      writeStateError: new Error('ENOSPC'),
-      killError: err,
-    });
-
-    const code = await runServeDetached({}, h.deps);
-
-    expect(code).toBe(1);
-    expect(h.killCalls).toHaveLength(1);
-    expect(h.stderr.value).toMatch(/failed to write state file/);
-  });
-
-  it('formats IPv6 loopback host as [::1] in the recorded URL', async () => {
-    const config: ToolBoxConfig = {
-      ...DEFAULT_CONFIG,
-      server: {
-        ...DEFAULT_CONFIG.server,
-        http: { ...DEFAULT_CONFIG.server.http, host: '::1' },
-      },
-    };
-    const h = makeHarness({ config });
-
-    await runServeDetached({}, h.deps);
-
-    const url = h.writeStateCalls[0]?.state.url ?? '';
-    expect(url).toMatch(/\[::1\]/);
   });
 });
