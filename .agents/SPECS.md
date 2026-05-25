@@ -219,6 +219,9 @@ the visibility state is bound to the transport, not the `initialize` exchange. W
 `progressiveDisclosure.mode = "global"`, all transports in the same ToolBox process share one
 revealed set.
 
+Progressive disclosure applies only to MCP-client transport sessions. The `tlbx run` control
+surface is exempt and always sees the full enabled tool set — see §5.3.
+
 **Alternatives considered.**
 
 - _Per-`initialize`-call scope:_ rejected because MCP clients re-initialize during reconnect,
@@ -288,30 +291,30 @@ Reasoning:
 
 - The user already knows TypeScript, Express, FastMCP, and the TypeScript MCP SDK.
 - The MCP proxy problem is mostly orchestration, configuration, auth, process management, and protocol routing.
-- TypeScript is fastest for building both the CLI and future Electron UI.
+- TypeScript is fastest for building both the CLI and the daemon-backed `tlbx run` surface.
 - A separate Go/Rust/Python backend is unnecessary for the MVP.
 
 ## 3.2 Phase 2 Stack
 
-Use Electron for the desktop UI.
+Use TypeScript for a daemon-backed CLI tool execution surface.
 
 Recommended stack:
 
 ```txt
-Electron
-React
-shadcn/ui
-Tailwind CSS
 TypeScript
-TanStack Router
-TanStack Query
+Node.js
+Commander or Clipanion for CLI commands
+@modelcontextprotocol/sdk MCP client over local Streamable HTTP
+Shared ToolBox daemon/runtime
+JSON input/output renderers
 ```
 
 Reasoning:
 
-- Electron gives the most predictable cross-platform desktop UI.
-- React and shadcn/ui are fast for building a polished management interface.
-- The Electron app can reuse the same TypeScript core package as the CLI.
+- `tlbx run` gives users, scripts, and agents a stable shell interface for invoking configured tools.
+- Daemon-backed execution reuses warm upstream sessions and the same routing behavior as MCP clients.
+- JSON is the natural input format for agents and maps directly to MCP `tools/call` arguments.
+- A separate UI layer is unnecessary until the CLI execution and daemon lifecycle are proven.
 
 ## 3.3 Phase 3 Stack
 
@@ -406,6 +409,19 @@ npx tlbx auth refresh <server>
 ```
 
 These manage OAuth credentials for upstream HTTP MCP servers (see §4.6.2). `add-http` invokes the same login flow automatically when a probe detects an OAuth challenge, so `auth login` is primarily used for re-authentication after expiry or for switching identities.
+
+Phase 2 adds daemon-backed tool execution:
+
+```bash
+npx tlbx run <server> <tool> --json '{...}'
+npx tlbx run <server> <tool> --file input.json
+npx tlbx run <server> <tool> --stdin
+npx tlbx run <server> --list
+npx tlbx run --search <query>
+npx tlbx run <server> <tool> --describe
+npx tlbx run <server> <tool> --schema
+npx tlbx run <server> <tool> --example
+```
 
 ### 4.2.1 Scope of `tlbx tools enable / disable`
 
@@ -654,7 +670,7 @@ remote multi-user auth
 
 ToolBox surfaces two auth-related server states (§2.5): `auth_required` and `auth_expired`.
 This subsection specifies how a user moves a server out of those states in Phase 1 and how
-Phase 2's UI bridges to that.
+Phase 2's `tlbx run` command reports those states.
 
 **Decision (Phase 1).**
 
@@ -682,10 +698,13 @@ Phase 2's UI bridges to that.
   back on between runs. There is intentionally no in-process "retry now" command in Phase 1 —
   the gateway has no way to learn that the env var changed without being restarted.
 
-- **Phase 2 UI bridge.** P2-03 surfaces the missing `tokenEnv` name and a "How to fix"
-  explanation that mirrors the CLI flow above. The UI's "Restart server" action calls into
-  `@toolbox/core` to drive the same dispose-and-restart sequence; it does not introduce a
-  separate credential store.
+- **Phase 2 `tlbx run` bridge.** A daemon-backed `tlbx run` call surfaces the same
+  remediation text as the MCP tool-call error. For bearer auth, missing `tokenEnv` errors
+  explain that the user must export the variable in the environment that starts the daemon,
+  then run `tlbx stop` so the next `tlbx run` auto-starts a fresh daemon with the new
+  environment. For OAuth, `tlbx run` reports `tlbx auth login <server>` and exits nonzero.
+  It never launches a browser implicitly; browser flows remain explicit foreground auth
+  commands.
 
 **OAuth auth recovery.** OAuth-based upstream servers follow §4.6.2's flow instead: the user
 runs `npx tlbx auth login <server>` and the gateway picks up the new token on the next
@@ -825,10 +844,6 @@ toolbox/
         loader/
         manifest/
         sandbox/
-    ui-shared/
-      src/
-        types/
-        schemas/
   examples/
   docs/
 ```
@@ -860,196 +875,208 @@ Phase 1 is complete when:
 
 ---
 
-# 5. Phase 2: Electron UI
+# 5. Phase 2: CLI Tool Execution
 
 ## 5.1 Phase 2 Objective
 
-Build a desktop UI that does everything the CLI does, but with a better user experience.
+Expose configured ToolBox tools as CLI commands so users, scripts, and MCP clients with shell
+access can invoke tools without speaking MCP directly.
 
-The UI should use the same underlying ToolBox core package as the CLI. The Electron app should not reimplement the proxy logic.
+The primary command is `tlbx run`. In Phase 2 it supports proxied upstream MCP tools. The
+human-facing CLI remains the configuration and debugging surface; `tlbx run` is optimized for
+deterministic agent and script execution.
 
-## 5.2 Desktop Architecture
+## 5.2 `tlbx run` Command Surface
 
-```txt
-Electron Main Process
-  ├─ imports @toolbox/core
-  ├─ manages config
-  ├─ starts/stops ToolBox proxy
-  ├─ monitors server status
-  └─ exposes IPC API to renderer
+Canonical execution uses JSON input:
 
-React Renderer
-  ├─ dashboard
-  ├─ server manager
-  ├─ tool inventory
-  ├─ auth/status screens
-  ├─ progressive disclosure settings
-  ├─ client setup snippets
-  └─ logs
+```bash
+npx tlbx run <server> <tool> --json '{...}'
+npx tlbx run <server> <tool> --file input.json
+npx tlbx run <server> <tool> --stdin
 ```
 
-## 5.3 UI Screens
+`<server> <tool>` resolves to the exposed MCP name `<server>__<tool>`. For scripting, the fully
+exposed name is also accepted:
 
-### Dashboard
-
-Show:
-
-```txt
-ToolBox status
-Local endpoint
-Connected clients
-Enabled upstream servers
-Total tool count
-Warnings/errors
-Recent activity
+```bash
+npx tlbx run github create_issue --json '{"title":"Bug"}'
+npx tlbx run github__create_issue --json '{"title":"Bug"}'
 ```
 
-### MCP Servers
+The three input modes are mutually exclusive. Tools with an empty input schema may omit all
+three input modes; otherwise `tlbx run` requires one of them. JSON is parsed once at the CLI
+boundary and forwarded as the `arguments` object for MCP `tools/call`.
 
-For each server, show:
+Discovery commands:
 
-```txt
-name
-type: stdio/http
-enabled/disabled
-connection status
-auth status
-tool count
-last connected
-last error
+```bash
+npx tlbx run --search issue
+npx tlbx run github --list
+npx tlbx run github --search issue
+npx tlbx run github create_issue --describe
+npx tlbx run github create_issue --schema
+npx tlbx run github create_issue --example
 ```
 
-Actions:
+Discovery must work without requiring the user to manually start `tlbx serve`. Because
+disclosure does not apply to `tlbx run` (§5.3), `--list` and `--search` operate over all
+**enabled** tools for the selected scope regardless of the revealed set — they never collapse to
+just the bootstrap tools. `--list` prints the tools exposed for the selected server. `--search`
+uses the same ranking as `toolbox__search_tools`. `--describe` prints the title, description, required fields, optional
+fields, and an example command. `--schema` prints the raw input schema as JSON. `--example`
+prints a generated JSON input skeleton that can be redirected to a file and edited.
+
+## 5.3 Daemon-Backed Runtime
+
+`tlbx run` always executes through the ToolBox daemon, not through a separate direct-to-upstream
+code path.
 
 ```txt
-Add server
-Edit server
-Disable server
-Remove server
-Restart server
-Inspect tools
-Test connection
+tlbx run
+  ├─ resolve config path
+  ├─ check the config-specific serve-daemon state file (clean up if stale)
+  ├─ probe the endpoint; if a healthy daemon answers, reuse it
+  ├─ else start `tlbx serve --detach` with HTTP forced on (loopback)
+  │    (a concurrent starter that loses the bind reuses the winner)
+  ├─ poll the MCP endpoint until ready
+  ├─ connect to the daemon's local Streamable HTTP MCP endpoint
+  ├─ resolve/list/describe tools through MCP
+  ├─ call tools/call with the parsed JSON arguments
+  └─ render the result for stdout
 ```
 
-### Add Server Wizard
+An auto-started daemon stays running until `tlbx stop`. There is no idle timeout in Phase 2.
+This is intentional: `tlbx run` is expected to be called repeatedly by agents and scripts, so
+warm upstream sessions are part of the product behavior.
 
-Two primary flows:
+The daemon state is config-specific. A `tlbx run --config <path>` invocation only reuses a
+daemon started for that same resolved config path. Stale state files are cleaned up before a new
+daemon is started. Config isolation is bounded by the daemon endpoint: if a healthy ToolBox daemon
+for a different resolved config is already bound to the same host and port, `tlbx run` fails with a
+clear config/port collision message rather than reusing it. A second config gets its own daemon
+only when it resolves to a different endpoint.
 
-```txt
-Add local stdio server
-Add remote Streamable HTTP server
+The daemon's HTTP endpoint is local-only. `tlbx run` does not expose a remote execution surface
+and does not bypass the existing server/tool enablement, auth, timeout, or namespacing rules.
+There is no separate downstream daemon-auth mechanism in Phase 2: the daemon endpoint remains
+loopback-only, and `tlbx run` authenticates to ToolBox by being a local control-plane caller with
+the §5.3 marker. Upstream bearer/OAuth credentials are still enforced by the gateway when the
+target tool reaches its upstream server.
+
+**`tlbx run` always uses an HTTP endpoint, regardless of `server.http.enabled`.** `tlbx run`
+reaches the daemon over the local Streamable HTTP MCP transport, so it needs an HTTP listener
+even for configs whose owner only wired up stdio. When `tlbx run` auto-starts a daemon it
+therefore forces a loopback HTTP listener on the configured (or default) host and port, even if
+`server.http.enabled` is `false`. `server.http.enabled` governs only whether an explicitly
+invoked `tlbx serve` exposes HTTP to external MCP clients; it never blocks `tlbx run`'s own
+transport. Because the listener is loopback-only (§4 binds HTTP to `127.0.0.1`/`::1`/`localhost`)
+and lives only because the user invoked `tlbx run`, this exposes nothing beyond localhost, and
+`tlbx stop` ends it.
+
+**Concurrent cold-start is serialized by the socket bind, not a lock file.** Agents fan out
+parallel `tlbx run` calls, so two invocations can both observe "no daemon" and both try to start
+one. ToolBox resolves this with the OS socket bind rather than a separate lock file:
+
+- The OS listener bind is the mutual-exclusion primitive. Only one process can bind the
+  configured loopback port; the kernel enforces single-ownership.
+- Before binding, the starter cleans up stale/zombie state — a `serve` state file whose recorded
+  pid is no longer alive is removed.
+- Before deciding to spawn, and again when a bind loses the race (port already in use), the
+  helper probes the endpoint: if a healthy ToolBox daemon for this config is already answering,
+  it is reused; if the port is held by a ToolBox daemon for another config or by a foreign process,
+  `tlbx run` fails with a clear message.
+- The daemon binds its listener before publishing its state file, so a concurrent invocation
+  cannot observe a half-started daemon and tear it down as a zombie.
+- Readiness is confirmed with a real HTTP probe against the MCP endpoint, not a fixed startup
+  delay.
+
+ToolBox keeps the daemon on the configured fixed port rather than an OS-assigned one: real MCP
+clients (Claude, Codex, OpenCode) are configured with a fixed endpoint URL and must be able to
+find the shared daemon. The race is therefore resolved by probe-and-reuse on the fixed port
+rather than by per-daemon port discovery.
+
+**Progressive disclosure does not apply to `tlbx run`.** Disclosure exists to protect the
+context window of an MCP client that is browsing `tools/list`; `tlbx run` is a local control
+surface whose caller has already named an exact tool, so there is nothing to protect. `tlbx run`
+sees and can call every **enabled** tool regardless of the revealed set, even when
+`progressiveDisclosure.enabled=true` in config.
+
+This is achieved with a local control-plane marker rather than a daemon-wide flag: `tlbx run`
+connects to the loopback endpoint with a control marker (a header/token the daemon only honors
+on loopback). For marked sessions the daemon skips disclosure entirely — `tools/list` returns
+all enabled tools and `tools/call` skips the revealed-set check. Unmarked sessions (real MCP
+clients such as Claude, Codex, OpenCode) keep disclosure exactly as configured. Disclosure
+behavior therefore never depends on who started the daemon. Global `tlbx tools enable / disable`
+still applies to both kinds of session: a disabled tool is not callable from `tlbx run`.
+
+## 5.4 Output and Exit Contract
+
+`tlbx run` supports explicit output modes:
+
+```bash
+npx tlbx run github create_issue --json '{...}' --output text
+npx tlbx run github create_issue --json '{...}' --output json
+npx tlbx run github create_issue --json '{...}' --output mcp
 ```
 
-For stdio:
+Defaults:
 
-```txt
-Name
-Command
-Arguments
-Environment variables
-Working directory
-Timeout
+- TTY stdout defaults to `text`.
+- Non-TTY stdout defaults to `json`.
+- `stdout` contains only the tool result.
+- `stderr` contains diagnostics, daemon startup messages, warnings, and remediation hints.
+- Exit code `0` means the tool call completed successfully.
+- Nonzero exit codes cover usage errors, invalid JSON, config errors, daemon startup/readiness
+  failures, unknown tools, disabled tools, auth failures, timeouts, and tool-result errors.
+
+`json` output is a stable wrapper for agents:
+
+```json
+{
+  "ok": true,
+  "server": "github",
+  "tool": "create_issue",
+  "exposedName": "github__create_issue",
+  "result": {
+    "content": [{ "type": "text", "text": "Created issue #123" }]
+  }
+}
 ```
 
-For HTTP:
+`mcp` output prints the raw MCP `CallToolResult` JSON. `text` output extracts text content where
+possible and falls back to a compact JSON rendering for non-text content.
 
-```txt
-Name
-URL
-Auth type: none / bearer / OAuth
-Headers
-Timeout
-```
+## 5.5 Error and Auth Behavior
 
-### Tools
+`tlbx run` should fail loudly and give actionable remediation:
 
-Table columns:
+- Unknown server or tool: show nearby matches from `tlbx run --search`.
+- Invalid JSON: point to the parse error and recommend `--example > input.json`.
+- Schema/argument rejection from upstream: print the upstream error without hiding details.
+- Disabled server or tool: name the command that re-enables it.
+- Missing bearer env var: explain that the variable must be present when the daemon starts,
+  then recommend exporting the variable and running `tlbx stop` before retrying.
+- OAuth required or expired: recommend `tlbx auth login <server>`.
+- Daemon startup failure: point to `tlbx doctor` and the daemon log path.
 
-```txt
-ToolBox name
-Original server
-Original upstream tool name
-Description
-Input schema preview
-Enabled status
-Revealed status
-```
+`tlbx run` never launches a browser implicitly. Browser-based OAuth remains owned by explicit
+foreground commands such as `tlbx auth login <server>` and `tlbx server add-http`.
 
-Actions:
+## 5.6 Phase 2 Acceptance Criteria
 
-```txt
-Search
-Reveal
-Hide
-Pin always visible
-Disable globally
-Copy tool name
-```
+Phase 2 is complete when:
 
-### Progressive Disclosure
-
-Settings:
-
-```txt
-Enabled / disabled
-Session-based / global
-Bootstrap tools visible
-Max search results
-Always reveal tools from selected servers
-Pinned tools
-```
-
-### Client Setup
-
-Generate setup snippets for:
-
-```txt
-Claude
-Codex
-OpenCode
-Generic MCP client
-```
-
-Each setup page should provide copy-paste snippets and explain whether the setup uses stdio or HTTP.
-
-### Logs
-
-Show:
-
-```txt
-Connection logs
-Tool calls
-Auth events
-Upstream errors
-Client sessions
-Progressive disclosure reveal/hide events
-```
-
-Filters:
-
-```txt
-server
-client
-tool
-status
-time range
-```
-
-## 5.4 Phase 2 Acceptance Criteria
-
-Phase 2 is complete when the desktop app can:
-
-1. Add, edit, remove, enable, and disable stdio servers.
-2. Add, edit, remove, enable, and disable HTTP servers.
-3. Start, stop, and restart ToolBox.
-4. Show server status.
-5. Show auth status.
-6. Show all discovered tools.
-7. Toggle progressive disclosure.
-8. Search and reveal tools.
-9. Generate client setup snippets.
-10. Show logs and recent tool calls.
-11. Use the same global config file as the CLI.
+1. `npx tlbx run <server> <tool> --json '{...}'` starts the daemon when needed and calls a tool.
+2. Repeated `tlbx run` calls reuse the same config-specific daemon until `tlbx stop`.
+3. `--json`, `--file`, and `--stdin` input modes work and are mutually exclusive.
+4. Fully exposed names like `github__create_issue` work in addition to `<server> <tool>`.
+5. `--output text`, `--output json`, and `--output mcp` are implemented with the stdout/stderr contract above.
+6. `--list`, `--search`, `--describe`, `--schema`, and `--example` support tool discovery.
+7. `tlbx run` honors disabled servers/tools, namespacing, auth states, and timeouts consistently with MCP `tools/call`, while applying the §5.3 progressive-disclosure exemption only to marked `tlbx run` sessions.
+8. Auth failures produce actionable remediation and never open a browser implicitly.
+9. The daemon startup path handles stale state files, readiness timeouts, HTTP-disabled configs, same-config concurrent cold-starts, and same-port different-config collisions without orphaning processes.
+10. Integration tests cover at least one real stdio upstream fixture, one HTTP upstream fixture, HTTP-disabled config startup, and same-config concurrent cold-start through the daemon-backed `tlbx run` path.
 
 ---
 
@@ -1145,16 +1172,18 @@ npx tlbx tool disable personal__my_tool
 npx tlbx tool remove personal__my_tool
 ```
 
-## 6.5 Custom Tool UI Flow
+## 6.5 Custom Tool CLI Flow
 
 ```txt
 Custom Tools
   → Import Tool
-  → Select .ts or .js file
+  → Select .ts or .js file via `tlbx tool import`
   → Preview metadata
   → Preview permissions
   → Import
   → Enable
+  → Discover with `tlbx run <namespace> --list`
+  → Execute with `tlbx run <namespace> <tool> --json ...`
 ```
 
 ## 6.6 Custom Tool Security Requirements
@@ -1180,10 +1209,11 @@ Phase 3 is complete when:
 3. ToolBox validates the exported handler.
 4. ToolBox exposes the custom tool as a namespaced MCP tool.
 5. The custom tool works in Claude, Codex, OpenCode, or another MCP client through ToolBox.
-6. The custom tool appears in both CLI and UI.
-7. The custom tool can be enabled and disabled.
-8. Tool execution is logged.
-9. Tool execution has timeout and error handling.
+6. The custom tool is callable through `tlbx run <namespace> <tool> --json ...`.
+7. The custom tool appears in `tlbx tool list`, `tlbx tools list`, and `tlbx run` discovery.
+8. The custom tool can be enabled and disabled.
+9. Tool execution is logged.
+10. Tool execution has timeout and error handling.
 
 ---
 
@@ -1253,15 +1283,15 @@ doctor command
 integration tests
 ```
 
-## Milestone 6: Desktop Shell
+## Milestone 6: CLI Tool Execution
 
 ```txt
-Electron app
-Shared config
-Server manager UI
-Tool inventory UI
-Progressive disclosure UI
-Logs UI
+tlbx run command
+Daemon auto-start and reuse
+JSON/file/stdin input modes
+Text/JSON/MCP output modes
+List/search/describe/schema/example discovery
+Daemon-backed integration tests
 ```
 
 ## Milestone 7: Custom Tools
@@ -1273,6 +1303,7 @@ Tool runtime
 Permission preview
 Custom tool registry
 Expose custom tools through MCP
+Expose custom tools through tlbx run
 ```
 
 ---
@@ -1298,7 +1329,7 @@ client setup snippets
 ## Delay Until Later
 
 ```txt
-Electron UI
+interactive UI/TUI
 custom tools
 full OAuth polish
 resources/prompts proxying
@@ -1308,7 +1339,7 @@ team sync
 marketplace
 ```
 
-The most important early risk is not the UI. The most important risk is getting MCP proxy semantics, client compatibility, tool discovery, auth state, and process management right. Once the CLI proxy is reliable, the Electron app becomes a polished control panel over a proven core.
+The most important early risk is not an interactive UI. The most important risk is getting MCP proxy semantics, client compatibility, tool discovery, auth state, and process management right. Once the CLI proxy is reliable, `tlbx run` becomes the bridge that lets agents and scripts use the configured tool surface without speaking MCP directly.
 
 ---
 
@@ -1319,6 +1350,6 @@ The most important early risk is not the UI. The most important risk is getting 
 3. **Prefer predictable behavior over clever behavior.**
 4. **Namespacing is mandatory.** Tool collisions should be impossible or explicit.
 5. **Progressive disclosure should be optional.** Power users may prefer all tools visible.
-6. **CLI first, UI second.** Build the reliable core before the desktop shell.
+6. **CLI first, UI later.** Build reliable command and agent workflows before any interactive UI layer.
 7. **Everything should be inspectable.** Users should be able to see server status, tool mappings, auth state, and logs.
 8. **Custom tools should be easy but explicit.** Importing arbitrary code should require review and enablement.

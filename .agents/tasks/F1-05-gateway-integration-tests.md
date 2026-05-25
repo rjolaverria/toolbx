@@ -28,7 +28,7 @@ Direct gateway integration tests already exist at `packages/mcp-gateway/src/runt
 ## Out of scope
 
 - Performance / load testing.
-- Cross-process integration with the future Electron app (Phase 2 territory).
+- Cross-process integration with daemon-backed `tlbx run` (Phase 2 territory).
 - Replacing the CLI integration suite — that suite tests CLI plumbing on top of the runtime, which is still valuable.
 
 ## Definition of done

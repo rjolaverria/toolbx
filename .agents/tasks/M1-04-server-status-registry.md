@@ -5,7 +5,7 @@
 
 ## Goal
 
-A single in-memory registry that tracks one `ServerStatus` per configured upstream server, plus the metadata listed in SPECS §2.5 (transport type, enabled state, tool count, last connected, last error, recent log lines). The registry is the source of truth for `tlbx status` and any future UI.
+A single in-memory registry that tracks one `ServerStatus` per configured upstream server, plus the metadata listed in SPECS §2.5 (transport type, enabled state, tool count, last connected, last error, recent log lines). The registry is the source of truth for `tlbx status` and future daemon-backed CLI surfaces.
 
 ## Deliverables
 

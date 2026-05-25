@@ -25,6 +25,7 @@ The CLI surface for custom tools, mirroring `tlbx server` for upstream MCP serve
 
 - Re-importing as an update operation (Phase 1: remove + import).
 - Importing from a URL (Phase 1: local files only).
+- Executing custom tools directly from `tlbx tool`; execution goes through gateway exposure and `tlbx run` per P3-05.
 
 ## Definition of done
 

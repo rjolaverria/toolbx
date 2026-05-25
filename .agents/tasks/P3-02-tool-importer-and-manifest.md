@@ -26,7 +26,7 @@ Take a path to a `.ts` / `.js` file, validate its metadata and shape, copy it in
 ## Out of scope
 
 - Bundling / transpiling the imported file (Phase 1+ pulls it in via a runtime loader).
-- Permission inference — defaults are minimal; the user reviews them in P2 / CLI.
+- Permission inference — defaults are minimal; the user reviews them in the CLI import flow.
 
 ## Definition of done
 

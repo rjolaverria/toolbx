@@ -14,13 +14,13 @@ Edit `.agents/SPECS.md` to lock down each of the following. Where a decision is 
 1. **Progressive-disclosure session lifetime (§2.4).** Define what bounds a "session." Candidates: per-MCP-`initialize` call, per-downstream-transport-connection, per-client-process. The current implementation appears to bind it to the downstream session — write that down (or override it).
 2. **`tlbx tools enable / disable` scope (§4.2).** Specify whether the flip is global (persisted in config), per-session (in-memory), or both with explicit precedence. Specify how the flip interacts with progressive disclosure (a disabled-but-revealed tool is what?).
 3. **Config schema versioning + migration policy (§4.4).** The example shows `"version": 1`. Decide: how does ToolBox handle a config with an older `version` than the current binary expects? An unknown newer version? Define a one-paragraph migration story (forward-compat / hard-fail / migration helpers) and commit to it.
-4. **Auth recovery flow (§4.6).** Today the gateway surfaces `auth_required` and `auth_expired` states. Specify how a user moves a server out of those states — what command, what UX, where credentials get persisted (config? keychain? env var only?). This is the bridge between Phase 1's polling and Phase 2's UI flow; without it, P2-03 is under-specified.
+4. **Auth recovery flow (§4.6).** Today the gateway surfaces `auth_required` and `auth_expired` states. Specify how a user moves a server out of those states — what command, what UX, where credentials get persisted (config? keychain? env var only?). This is the bridge between Phase 1's polling and later CLI tool execution flows; without it, daemon-backed calls are under-specified.
 5. **Custom-tool ↔ proxied-tool namespace collision rule (§2.3 / §6.2).** P3-02 says custom-tool collisions with proxied tools are errors, but §2.3 doesn't currently restrict this. Add the rule explicitly to §2.3 so it isn't first encountered as a P3 surprise.
 
 ## Acceptance criteria
 
 - Each of the five subsections in SPECS contains a definite answer (not "TBD" or "to be decided"). If the answer is "we punt this to Phase 2 with the following constraint," that itself is a definite answer.
-- Every Phase 2 task file (`P2-01` through `P2-07`) is re-read after the SPECS edit, and any task that contradicts the new clarifications is updated in the same commit. (Expected diff: small or zero.)
+- Every Phase 2 task file is re-read after the SPECS edit, and any task that contradicts the new clarifications is updated in the same commit. (Expected diff: small or zero.)
 - No code changes — SPECS edits and at most light task-file edits only.
 
 ## Out of scope

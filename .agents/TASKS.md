@@ -100,15 +100,14 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-23** — [End-to-end OAuth integration tests + CI security gates](tasks/F1-23-oauth-integration-tests.md) — closed by 4ac57f6; CLI snapshots manually reviewed for token-byte leakage
 - [x] **F1-24** — [Persist and replay the OAuth resource indicator on refresh](tasks/F1-24-oauth-refresh-resource-indicator.md) — closed by PR #67 (branch `f1-24-oauth-refresh-resource-indicator`)
 
-## Phase 2 — Electron Desktop UI
+## Phase 2 — CLI Tool Execution
 
-- [ ] **P2-01** — [Electron app shell wired to `@toolbox/core`](tasks/P2-01-electron-app-shell.md)
-- [ ] **P2-02** — [Dashboard screen](tasks/P2-02-ui-dashboard.md)
-- [ ] **P2-03** — [MCP Servers manager screen + Add Server wizards](tasks/P2-03-ui-server-manager.md)
-- [ ] **P2-04** — [Tool inventory screen](tasks/P2-04-ui-tool-inventory.md)
-- [ ] **P2-05** — [Progressive disclosure settings screen](tasks/P2-05-ui-progressive-disclosure.md)
-- [ ] **P2-06** — [Client setup snippet screen](tasks/P2-06-ui-client-setup.md)
-- [ ] **P2-07** — [Logs screen with filters](tasks/P2-07-ui-logs.md)
+- [ ] **P2-01** — [`tlbx run` daemon auto-start and readiness](tasks/P2-01-run-daemon-autostart.md)
+- [ ] **P2-02** — [`tlbx run` command and JSON input modes](tasks/P2-02-run-command-inputs.md)
+- [ ] **P2-03** — [`tlbx run` output modes and exit contract](tasks/P2-03-run-output-contract.md)
+- [ ] **P2-04** — [`tlbx run` discovery commands](tasks/P2-04-run-discovery.md)
+- [ ] **P2-05** — [`tlbx run` auth, errors, and remediation](tasks/P2-05-run-errors-auth.md)
+- [ ] **P2-06** — [`tlbx run` daemon-backed integration tests](tasks/P2-06-run-integration-tests.md)
 
 ## Phase 3 — Custom JS/TS Tools
 
@@ -116,4 +115,4 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [ ] **P3-02** — [Custom tool importer + manifest generator](tasks/P3-02-tool-importer-and-manifest.md)
 - [ ] **P3-03** — [Custom tool runtime with timeouts and permissions](tasks/P3-03-tool-runtime.md)
 - [ ] **P3-04** — [`tlbx tool` CLI commands (import/list/inspect/enable/disable/remove)](tasks/P3-04-cli-tool-commands.md)
-- [ ] **P3-05** — [Expose custom tools through the MCP gateway](tasks/P3-05-expose-custom-tools.md)
+- [ ] **P3-05** — [Expose custom tools through the MCP gateway and `tlbx run`](tasks/P3-05-expose-custom-tools.md)
