@@ -935,9 +935,11 @@ code path.
 ```txt
 tlbx run
   ├─ resolve config path
-  ├─ check the config-specific serve-daemon state file
-  ├─ if no daemon is running, start `tlbx serve --detach --http`
-  ├─ wait for daemon readiness
+  ├─ check the config-specific serve-daemon state file (clean up if stale)
+  ├─ probe the endpoint; if a healthy daemon answers, reuse it
+  ├─ else start `tlbx serve --detach` with HTTP forced on (loopback)
+  │    (a concurrent starter that loses the bind reuses the winner)
+  ├─ poll the MCP endpoint until ready
   ├─ connect to the daemon's local Streamable HTTP MCP endpoint
   ├─ resolve/list/describe tools through MCP
   ├─ call tools/call with the parsed JSON arguments
@@ -950,10 +952,45 @@ warm upstream sessions are part of the product behavior.
 
 The daemon state is config-specific. A `tlbx run --config <path>` invocation only reuses a
 daemon started for that same resolved config path. Stale state files are cleaned up before a new
-daemon is started.
+daemon is started. Config isolation is bounded by the daemon endpoint: if a healthy ToolBox daemon
+for a different resolved config is already bound to the same host and port, `tlbx run` fails with a
+clear config/port collision message rather than reusing it. A second config gets its own daemon
+only when it resolves to a different endpoint.
 
 The daemon's HTTP endpoint is local-only. `tlbx run` does not expose a remote execution surface
 and does not bypass the existing server/tool enablement, auth, timeout, or namespacing rules.
+
+**`tlbx run` always uses an HTTP endpoint, regardless of `server.http.enabled`.** `tlbx run`
+reaches the daemon over the local Streamable HTTP MCP transport, so it needs an HTTP listener
+even for configs whose owner only wired up stdio. When `tlbx run` auto-starts a daemon it
+therefore forces a loopback HTTP listener on the configured (or default) host and port, even if
+`server.http.enabled` is `false`. `server.http.enabled` governs only whether an explicitly
+invoked `tlbx serve` exposes HTTP to external MCP clients; it never blocks `tlbx run`'s own
+transport. Because the listener is loopback-only (§4 binds HTTP to `127.0.0.1`/`::1`/`localhost`)
+and lives only because the user invoked `tlbx run`, this exposes nothing beyond localhost, and
+`tlbx stop` ends it.
+
+**Concurrent cold-start is serialized by the socket bind, not a lock file.** Agents fan out
+parallel `tlbx run` calls, so two invocations can both observe "no daemon" and both try to start
+one. ToolBox resolves this with the OS socket bind rather than a separate lock file:
+
+- The OS listener bind is the mutual-exclusion primitive. Only one process can bind the
+  configured loopback port; the kernel enforces single-ownership.
+- Before binding, the starter cleans up stale/zombie state — a `serve` state file whose recorded
+  pid is no longer alive is removed.
+- Before deciding to spawn, and again when a bind loses the race (port already in use), the
+  helper probes the endpoint: if a healthy ToolBox daemon for this config is already answering,
+  it is reused; if the port is held by a ToolBox daemon for another config or by a foreign process,
+  `tlbx run` fails with a clear message.
+- The daemon binds its listener before publishing its state file, so a concurrent invocation
+  cannot observe a half-started daemon and tear it down as a zombie.
+- Readiness is confirmed with a real HTTP probe against the MCP endpoint, not a fixed startup
+  delay.
+
+ToolBox keeps the daemon on the configured fixed port rather than an OS-assigned one: real MCP
+clients (Claude, Codex, OpenCode) are configured with a fixed endpoint URL and must be able to
+find the shared daemon. The race is therefore resolved by probe-and-reuse on the fixed port
+rather than by per-daemon port discovery.
 
 **Progressive disclosure does not apply to `tlbx run`.** Disclosure exists to protect the
 context window of an MCP client that is browsing `tools/list`; `tlbx run` is a local control
@@ -1032,10 +1069,10 @@ Phase 2 is complete when:
 4. Fully exposed names like `github__create_issue` work in addition to `<server> <tool>`.
 5. `--output text`, `--output json`, and `--output mcp` are implemented with the stdout/stderr contract above.
 6. `--list`, `--search`, `--describe`, `--schema`, and `--example` support tool discovery.
-7. `tlbx run` honors disabled servers/tools, namespacing, auth states, timeouts, and progressive disclosure consistently with MCP `tools/call`.
+7. `tlbx run` honors disabled servers/tools, namespacing, auth states, and timeouts consistently with MCP `tools/call`, while applying the §5.3 progressive-disclosure exemption only to marked `tlbx run` sessions.
 8. Auth failures produce actionable remediation and never open a browser implicitly.
-9. The daemon startup path handles stale state files and readiness timeouts.
-10. Integration tests cover at least one real stdio upstream fixture and one HTTP upstream fixture through the daemon-backed `tlbx run` path.
+9. The daemon startup path handles stale state files, readiness timeouts, HTTP-disabled configs, same-config concurrent cold-starts, and same-port different-config collisions without orphaning processes.
+10. Integration tests cover at least one real stdio upstream fixture, one HTTP upstream fixture, HTTP-disabled config startup, and same-config concurrent cold-start through the daemon-backed `tlbx run` path.
 
 ---
 

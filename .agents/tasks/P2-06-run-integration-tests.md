@@ -14,6 +14,9 @@ Verify `tlbx run` end to end against real daemon-backed upstream fixtures.
   - no daemon running → `tlbx run` auto-starts daemon,
   - tool call succeeds,
   - second call reuses daemon,
+  - two concurrent cold-start `tlbx run` calls converge on one daemon (no orphan, no error),
+  - a config with `server.http.enabled=false` still runs (daemon forces loopback HTTP),
+  - a same-port different-config daemon is not reused and reports a clear collision,
   - `tlbx stop` stops it.
 - HTTP upstream fixture coverage:
   - daemon-backed call succeeds,
@@ -25,7 +28,9 @@ Verify `tlbx run` end to end against real daemon-backed upstream fixtures.
 
 - Integration tests pass from a clean checkout without requiring a pre-running daemon.
 - Tests prove the same daemon PID is reused across repeated `tlbx run` calls for one config.
-- Tests prove a different config path gets a different daemon.
+- Tests prove two concurrent cold-start calls for one config produce exactly one daemon PID.
+- Tests prove a different config path on a different configured endpoint gets a different daemon.
+- Tests prove a different config path on the same configured endpoint is rejected clearly rather than reused.
 - Integration suite cleans up daemon processes even on failure.
 
 ## Out of scope

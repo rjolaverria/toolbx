@@ -24,6 +24,15 @@ in `.agents/TASKS.md` Phase 2.
     the revealed set. A local-only control marker on the daemon connection turns disclosure off
     for `tlbx run` sessions while real MCP clients on the same daemon keep it. Global
     enable/disable still applies.
+11. `tlbx run` always uses an HTTP endpoint. An auto-started daemon forces a loopback HTTP
+    listener even when `server.http.enabled=false`; that flag only governs whether an explicit
+    `tlbx serve` exposes HTTP to external MCP clients.
+12. Concurrent cold-start is serialized by the OS socket bind, not a lock file: clean stale
+    state, probe-and-reuse a healthy daemon, bind before publishing state, real readiness probe.
+    ToolBox keeps the configured fixed port (MCP clients use a fixed URL) and resolves the race
+    by probe-and-reuse on that port rather than per-daemon port discovery. A healthy ToolBox
+    daemon for a different resolved config on the same host/port is a collision, not a reusable
+    daemon.
 
 ## Command Shape
 
