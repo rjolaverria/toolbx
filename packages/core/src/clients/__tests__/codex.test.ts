@@ -10,7 +10,11 @@ import {
   createCodexAdapterInternal,
   type InternalInstallHooks,
 } from '../codex.js';
-import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from '../toolbox-command.js';
+import {
+  TOOLBOX_LEGACY_STDIO_ARGS,
+  TOOLBOX_NPX_COMMAND,
+  TOOLBOX_STDIO_ARGS,
+} from '../toolbox-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -38,6 +42,13 @@ async function ensureCodexDir(home: string): Promise<string> {
   await fs.mkdir(dir, { recursive: true });
   return path.join(dir, 'config.toml');
 }
+
+function formatTomlArray(values: readonly string[]): string {
+  return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
+}
+
+const TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_STDIO_ARGS);
+const LEGACY_TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_LEGACY_STDIO_ARGS);
 
 describe('createCodexAdapter — detect()', () => {
   it('returns null when ~/.codex/config.toml is missing', async () => {
@@ -125,7 +136,7 @@ describe('createCodexAdapter — install()', () => {
     const initial = [
       '[mcp_servers.toolbox]',
       `command = "${TOOLBOX_NPX_COMMAND}"`,
-      'args = ["-y", "@toolbox/cli", "serve", "--stdio"]',
+      `args = ${TOOLBOX_STDIO_ARGS_TOML}`,
       '',
     ].join('\n');
     await fs.writeFile(configPath, initial);
@@ -142,6 +153,35 @@ describe('createCodexAdapter — install()', () => {
     expect(result.diff).toBe('');
     expect(result.backupPath).toBeUndefined();
     expect(await fs.readFile(configPath)).toEqual(before);
+  });
+
+  it('migrates a legacy npx tlbx toolbox entry without requiring --force', async () => {
+    const home = await makeFakeHome();
+    const configPath = await ensureCodexDir(home);
+    const initial = [
+      '[mcp_servers.toolbox]',
+      `command = "${TOOLBOX_NPX_COMMAND}"`,
+      `args = ${LEGACY_TOOLBOX_STDIO_ARGS_TOML}`,
+      '',
+    ].join('\n');
+    await fs.writeFile(configPath, initial);
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.status).toBe('installed');
+    expect(result.backupPath).toBeDefined();
+
+    const parsed = parseToml(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    const servers = parsed.mcp_servers as Record<string, unknown>;
+    expect(servers.toolbox).toEqual({
+      command: TOOLBOX_NPX_COMMAND,
+      args: [...TOOLBOX_STDIO_ARGS],
+    });
   });
 
   it('refuses to overwrite a conflicting toolbox entry without --force', async () => {
@@ -274,7 +314,7 @@ describe('createCodexAdapter — install()', () => {
     }
     expect(result.diff).toContain('+ [mcp_servers.toolbox]');
     expect(result.diff).toContain(`+   command = "${TOOLBOX_NPX_COMMAND}"`);
-    expect(result.diff).toContain('+   args = ["-y", "@toolbox/cli", "serve", "--stdio"]');
+    expect(result.diff).toContain(`+   args = ${TOOLBOX_STDIO_ARGS_TOML}`);
   });
 
   it('dryRun returns the diff without touching disk', async () => {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "cli": "./dist/index.js",
     "tlbx": "./dist/index.js"
   },
   "engines": {

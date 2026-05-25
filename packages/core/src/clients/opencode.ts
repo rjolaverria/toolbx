@@ -16,7 +16,7 @@ import type {
   InstallOpts,
   InstallResult,
 } from './types.js';
-import { TOOLBOX_STDIO_COMMAND } from './toolbox-command.js';
+import { TOOLBOX_LEGACY_STDIO_COMMAND, TOOLBOX_STDIO_COMMAND } from './toolbox-command.js';
 
 const OPENCODE_CONFIG_REL = path.join('.config', 'opencode', 'opencode.json');
 const OPENCODE_CONFIG_ENV = 'OPENCODE_CONFIG';
@@ -33,6 +33,14 @@ function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
   return {
     type: 'local',
     command: [...TOOLBOX_STDIO_COMMAND, ...extraArgs],
+    enabled: true,
+  };
+}
+
+function buildLegacyToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+  return {
+    type: 'local',
+    command: [...TOOLBOX_LEGACY_STDIO_COMMAND, ...extraArgs],
     enabled: true,
   };
 }
@@ -59,7 +67,9 @@ export function createOpencodeAdapterInternal(
   const homedir = options.homedir ?? osHomedir;
   const env = options.env ?? process.env;
   const configPath = resolveConfigPath(homedir, env);
-  const toolboxEntry = buildToolboxEntry(options.extraServeArgs ?? []);
+  const extraServeArgs = options.extraServeArgs ?? [];
+  const toolboxEntry = buildToolboxEntry(extraServeArgs);
+  const legacyToolboxEntry = buildLegacyToolboxEntry(extraServeArgs);
 
   return {
     name: 'opencode',
@@ -87,6 +97,7 @@ export function createOpencodeAdapterInternal(
             configPath: resolvedPath,
             opts,
             toolboxEntry,
+            legacyToolboxEntry,
           }),
       });
     },
@@ -109,10 +120,11 @@ interface MergeInput {
   readonly configPath: string;
   readonly opts: InstallOpts;
   readonly toolboxEntry: ToolboxEntry;
+  readonly legacyToolboxEntry: ToolboxEntry;
 }
 
 function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts, toolboxEntry } = input;
+  const { currentText, exists, configPath, opts, toolboxEntry, legacyToolboxEntry } = input;
   if (!exists) {
     const dir = path.dirname(configPath);
     return {
@@ -165,7 +177,8 @@ function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
     if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
-    if (!opts.force) {
+    const legacyEntryNeedsMigration = toolboxEntryMatches(existingToolbox, legacyToolboxEntry);
+    if (!legacyEntryNeedsMigration && !opts.force) {
       return {
         ok: false,
         reason: 'mcp.toolbox already present with different command/args',

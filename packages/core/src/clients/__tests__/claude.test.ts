@@ -9,7 +9,11 @@ import {
   createClaudeAdapterInternal,
   type InternalInstallHooks,
 } from '../claude.js';
-import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from '../toolbox-command.js';
+import {
+  TOOLBOX_LEGACY_STDIO_ARGS,
+  TOOLBOX_NPX_COMMAND,
+  TOOLBOX_STDIO_ARGS,
+} from '../toolbox-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -44,6 +48,10 @@ const TOOLBOX_ENTRY = {
   command: TOOLBOX_NPX_COMMAND,
   args: [...TOOLBOX_STDIO_ARGS],
   env: {},
+};
+const LEGACY_TOOLBOX_ENTRY = {
+  ...TOOLBOX_ENTRY,
+  args: [...TOOLBOX_LEGACY_STDIO_ARGS],
 };
 
 describe('createClaudeAdapter — detect()', () => {
@@ -144,6 +152,31 @@ describe('createClaudeAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(originalBytes);
     const entries = await fs.readdir(home);
     expect(entries.filter((name) => name.includes('.bak.'))).toEqual([]);
+  });
+
+  it('migrates a legacy npx tlbx toolbox entry without requiring --force', async () => {
+    const home = await makeFakeHome();
+    const configPath = path.join(home, '.claude.json');
+    const initial = { mcpServers: { toolbox: LEGACY_TOOLBOX_ENTRY } };
+    await fs.writeFile(configPath, JSON.stringify(initial, null, 2));
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.status).toBe('installed');
+    expect(result.backupPath).toBeDefined();
+    expect(await readToolboxEntry(home)).toEqual(TOOLBOX_ENTRY);
+
+    if (result.backupPath) {
+      const backupRaw = await fs.readFile(result.backupPath, 'utf8');
+      const backupParsed = JSON.parse(backupRaw) as Record<string, unknown>;
+      const mcpServers = backupParsed.mcpServers as Record<string, unknown>;
+      expect(mcpServers.toolbox).toEqual(LEGACY_TOOLBOX_ENTRY);
+    }
   });
 
   it('refuses to overwrite a conflicting toolbox entry without --force', async () => {

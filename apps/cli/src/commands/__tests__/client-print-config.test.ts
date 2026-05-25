@@ -51,6 +51,12 @@ const CLIENT_X_TRANSPORT: ReadonlyArray<[ClientId, Transport]> = [
   ['generic', 'http'],
 ];
 
+function formatTomlArray(values: readonly string[]): string {
+  return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
+}
+
+const TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_STDIO_ARGS);
+
 describe('runClientPrintConfig', () => {
   it('lists all four supported clients', () => {
     expect([...SUPPORTED_CLIENTS]).toEqual(['claude', 'codex', 'opencode', 'generic']);
@@ -213,7 +219,7 @@ describe('runClientPrintConfig', () => {
     expect(h.stdout.value).toContain('```toml');
     expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
     expect(h.stdout.value).toContain(`command = "${TOOLBOX_NPX_COMMAND}"`);
-    expect(h.stdout.value).toContain('args = ["-y", "@toolbox/cli", "serve", "--stdio"]');
+    expect(h.stdout.value).toContain(`args = ${TOOLBOX_STDIO_ARGS_TOML}`);
   });
 
   it('codex http friendly output emits the configured URL inside the TOML table', async () => {

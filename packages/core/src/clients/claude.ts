@@ -14,7 +14,11 @@ import type {
   InstallOpts,
   InstallResult,
 } from './types.js';
-import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS } from './toolbox-command.js';
+import {
+  TOOLBOX_LEGACY_STDIO_ARGS,
+  TOOLBOX_NPX_COMMAND,
+  TOOLBOX_STDIO_ARGS,
+} from './toolbox-command.js';
 
 const CLAUDE_CONFIG_FILENAME = '.claude.json';
 const TOOLBOX_KEY = 'toolbox';
@@ -31,6 +35,15 @@ function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
     type: 'stdio',
     command: TOOLBOX_NPX_COMMAND,
     args: [...TOOLBOX_STDIO_ARGS, ...extraArgs],
+    env: {},
+  };
+}
+
+function buildLegacyToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+  return {
+    type: 'stdio',
+    command: TOOLBOX_NPX_COMMAND,
+    args: [...TOOLBOX_LEGACY_STDIO_ARGS, ...extraArgs],
     env: {},
   };
 }
@@ -62,7 +75,9 @@ export function createClaudeAdapterInternal(
 ): ClientAdapter {
   const homedir = options.homedir ?? osHomedir;
   const configPath = resolveConfigPath(homedir);
-  const toolboxEntry = buildToolboxEntry(options.extraServeArgs ?? []);
+  const extraServeArgs = options.extraServeArgs ?? [];
+  const toolboxEntry = buildToolboxEntry(extraServeArgs);
+  const legacyToolboxEntry = buildLegacyToolboxEntry(extraServeArgs);
 
   return {
     name: 'claude',
@@ -90,6 +105,7 @@ export function createClaudeAdapterInternal(
             configPath: resolvedPath,
             opts,
             toolboxEntry,
+            legacyToolboxEntry,
           }),
       });
     },
@@ -108,10 +124,11 @@ interface MergeInput {
   readonly configPath: string;
   readonly opts: InstallOpts;
   readonly toolboxEntry: ToolboxEntry;
+  readonly legacyToolboxEntry: ToolboxEntry;
 }
 
 function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts, toolboxEntry } = input;
+  const { currentText, exists, configPath, opts, toolboxEntry, legacyToolboxEntry } = input;
   if (!exists) {
     return {
       ok: false,
@@ -161,7 +178,8 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
     if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
-    if (!opts.force) {
+    const legacyEntryNeedsMigration = toolboxEntryMatches(existingToolbox, legacyToolboxEntry);
+    if (!legacyEntryNeedsMigration && !opts.force) {
       return {
         ok: false,
         reason: 'mcpServers.toolbox already present with different command/args',
