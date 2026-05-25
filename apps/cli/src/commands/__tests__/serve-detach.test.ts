@@ -206,7 +206,7 @@ describe('runServeDetached', () => {
     expect(h.spawnCalls).toHaveLength(0);
   });
 
-  it('forces HTTP past the enabled gate when forceHttp is set', async () => {
+  it('forces HTTP past the enabled gate via a private env marker, not a CLI flag', async () => {
     const h = makeHarness({
       config: httpDisabledConfig(),
       readStateResponses: [null, makeState()],
@@ -216,7 +216,16 @@ describe('runServeDetached', () => {
 
     expect(code).toBe(0);
     expect(h.spawnCalls).toHaveLength(1);
-    expect(h.spawnCalls[0]?.args).toContain('--force-http');
+    expect(h.spawnCalls[0]?.args).not.toContain('--force-http');
+    expect(h.spawnCalls[0]?.options.env).toMatchObject({ TOOLBOX_SERVE_FORCE_HTTP: '1' });
+  });
+
+  it('does not set the force-http env marker on the explicit serve --detach path', async () => {
+    const h = makeHarness({ readStateResponses: [null, makeState()] });
+
+    await runServeDetached({}, h.deps);
+
+    expect(h.spawnCalls[0]?.options.env).not.toHaveProperty('TOOLBOX_SERVE_FORCE_HTTP');
   });
 
   it('refuses when an alive daemon is already recorded', async () => {

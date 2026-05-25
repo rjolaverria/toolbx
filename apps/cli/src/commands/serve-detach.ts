@@ -19,7 +19,7 @@ import {
   type ToolBoxConfig,
 } from '@toolbox/core';
 
-import { SERVE_LOG_PATH_ENV, SERVE_STATE_PATH_ENV } from './serve.js';
+import { SERVE_FORCE_HTTP_ENV, SERVE_LOG_PATH_ENV, SERVE_STATE_PATH_ENV } from './serve.js';
 
 export interface ServeDetachOptions {
   stdio?: boolean;
@@ -153,11 +153,7 @@ function errorMessage(error: unknown): string {
 }
 
 function buildChildArgs(options: ServeDetachOptions, configPath: string): string[] {
-  const args: string[] = ['serve', '--http'];
-  if (options.forceHttp === true) {
-    args.push('--force-http');
-  }
-  args.push('--config', configPath);
+  const args: string[] = ['serve', '--http', '--config', configPath];
   if (options.logLevel !== undefined) {
     args.push('--log-level', options.logLevel);
   }
@@ -328,6 +324,11 @@ export async function runServeDetached(
     [SERVE_STATE_PATH_ENV]: statePath,
     [SERVE_LOG_PATH_ENV]: logPath,
   };
+  if (options.forceHttp === true) {
+    // Reachable only from the run-spawn path; carries the HTTP-force override
+    // to the child without exposing it as a CLI flag.
+    childEnv[SERVE_FORCE_HTTP_ENV] = '1';
+  }
 
   let child: SpawnedChildHandle;
   try {

@@ -48,15 +48,22 @@ const LOG_FORMATS = ['pretty', 'json'] as const satisfies readonly LogFormat[];
 export const SERVE_STATE_PATH_ENV = 'TOOLBOX_SERVE_STATE_PATH';
 /** Companion marker recording the log path inside the published state. */
 export const SERVE_LOG_PATH_ENV = 'TOOLBOX_SERVE_LOG_PATH';
+/**
+ * Private marker the `tlbx run` spawner sets so the managed child binds HTTP
+ * even when `server.http.enabled` is `false`. It is intentionally not a CLI
+ * flag: an operator-facing `tlbx serve` must never be able to bypass the
+ * config gate, so the override is reachable only from the internal spawn path.
+ */
+export const SERVE_FORCE_HTTP_ENV = 'TOOLBOX_SERVE_FORCE_HTTP';
 
 export interface ServeOptions {
   stdio?: boolean;
   http?: boolean;
   /**
-   * Bind the HTTP listener even when `server.http.enabled` is `false`. Set by
-   * the `tlbx run` spawn path, which always needs an HTTP transport. An
-   * explicit `tlbx serve` never sets it, so `server.http.enabled` still gates
-   * the operator-facing command.
+   * Bind the HTTP listener even when `server.http.enabled` is `false`. Derived
+   * from the private {@link SERVE_FORCE_HTTP_ENV} marker (set only by the
+   * `tlbx run` spawn path), never from a CLI flag, so `server.http.enabled`
+   * still gates the operator-facing command.
    */
   forceHttp?: boolean;
   config?: string;
@@ -403,23 +410,23 @@ export function serveCommand(): Command {
     .description('Start the ToolBox MCP gateway in stdio or HTTP mode.')
     .option('-s, --stdio', 'serve over stdio')
     .option('-H, --http', 'serve over Streamable HTTP using config.server.http (default)')
-    .option(
-      '--force-http',
-      'bind the HTTP listener even when server.http.enabled is false (used by tlbx run)',
-    )
     .option('-d, --detach', 'fork an HTTP gateway into the background and return to the shell')
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))
     .addOption(new Option('--log-format <format>', 'logger output format').choices(LOG_FORMATS))
     .action(async (opts) => {
+      // `forceHttp` is reachable only through the private spawn-path marker,
+      // never a user-supplied flag, so an explicit `tlbx serve` cannot bypass
+      // `server.http.enabled`.
+      const forceHttp = process.env[SERVE_FORCE_HTTP_ENV] === '1';
       if (opts.detach === true) {
-        const code = await runServeDetached(opts, defaultServeDetachDeps());
+        const code = await runServeDetached({ ...opts, forceHttp }, defaultServeDetachDeps());
         if (code !== 0) {
           process.exit(code);
         }
         return;
       }
-      const code = await runServe(opts, defaultServeDeps());
+      const code = await runServe({ ...opts, forceHttp }, defaultServeDeps());
       if (code !== 0) {
         process.exit(code);
       }

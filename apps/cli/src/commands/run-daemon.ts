@@ -91,14 +91,18 @@ export function defaultEnsureDaemonDeps(): EnsureDaemonDeps {
         waitDeps,
       ),
     coldStart: async (options) => {
-      // Buffer serve-detach's stderr so the helper owns the single message the
-      // run command surfaces, rather than interleaving two writers.
+      // Capture both of serve-detach's streams. `tlbx run` reserves real stdout
+      // for the tool result (§5.4), so the daemon's startup/reuse chatter must
+      // never reach it — it is buffered here and only surfaced (on stderr, by
+      // the caller) when the cold-start fails.
       let diagnostic = '';
+      const append = (msg: string): void => {
+        diagnostic += msg;
+      };
       const detachDeps: ServeDetachDeps = {
         ...defaultServeDetachDeps(),
-        stderr: (msg) => {
-          diagnostic += msg;
-        },
+        stdout: append,
+        stderr: append,
       };
       const code = await runServeDetached(options, detachDeps);
       return { code, diagnostic };

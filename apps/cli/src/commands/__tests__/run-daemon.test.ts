@@ -1,7 +1,12 @@
 import { DEFAULT_CONFIG, type ServeDaemonState, type ToolBoxConfig } from '@toolbox/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { ensureDaemon, type ColdStartResult, type EnsureDaemonDeps } from '../run-daemon.js';
+import {
+  defaultEnsureDaemonDeps,
+  ensureDaemon,
+  type ColdStartResult,
+  type EnsureDaemonDeps,
+} from '../run-daemon.js';
 import type { ServeDetachOptions } from '../serve-detach.js';
 
 function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState {
@@ -262,6 +267,26 @@ describe('ensureDaemon', () => {
     if (!result.ok) {
       expect(result.message).toMatch(/failed to load config/);
       expect(result.message).toMatch(/not json/);
+    }
+  });
+});
+
+describe('defaultEnsureDaemonDeps', () => {
+  it('cold-start captures all daemon output without writing to process stdout', async () => {
+    const deps = defaultEnsureDaemonDeps();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      // A missing config makes serve-detach fail fast (before any spawn) and
+      // write its diagnostic — which must land in the buffer, not on stdout.
+      const result = await deps.coldStart({
+        config: '/nonexistent/toolbox-p2-01/config.json',
+        forceHttp: true,
+      });
+      expect(result.code).toBe(1);
+      expect(result.diagnostic).toMatch(/failed to load config/);
+      expect(stdoutSpy).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
     }
   });
 });
