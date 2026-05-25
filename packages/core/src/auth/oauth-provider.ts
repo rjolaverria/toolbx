@@ -50,6 +50,11 @@ export class SuppressedRedirectError extends Error {
   }
 }
 
+type DiscoveredResourceSelection =
+  | { kind: 'resource'; resource: URL }
+  | { kind: 'none' }
+  | { kind: 'invalid'; error: Error };
+
 /**
  * Implements the SDK's OAuthClientProvider against a ToolBox TokenStore.
  *
@@ -89,6 +94,8 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // recent stored resource rather than a stale session-cached one. Set when the
   // SDK saves the PKCE verifier (authorization-code path only).
   private authorizationCodeExchangeInFlight = false;
+  private useDiscoveredResourceForCodeExchange = false;
+  private latestDiscoveredResourceSelection: DiscoveredResourceSelection = { kind: 'none' };
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -133,6 +140,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   }
 
   /**
+   * Called by the browser login orchestration immediately before feeding the
+   * callback code back into the SDK. At that point the SDK is no longer
+   * refreshing stored credentials: it is exchanging an authorization code, so
+   * the freshly discovered resource selection must win over any old refreshable
+   * record still on disk.
+   */
+  useDiscoveredResourceForAuthorizationCodeExchange(): void {
+    this.useDiscoveredResourceForCodeExchange = true;
+  }
+
+  /**
    * SDK recovery hook. After a recoverable token error (e.g. `invalid_grant`
    * from a refresh against an expired/revoked token), the SDK calls this and
    * retries `auth()`; we hide the offending credential in-memory so the retry
@@ -155,6 +173,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       // The pending authorization-code flow is being torn down; drop its marker
       // so a later refresh save does not treat its discovery as authoritative.
       this.authorizationCodeExchangeInFlight = false;
+      this.useDiscoveredResourceForCodeExchange = false;
     }
     if (scope === 'all' || scope === 'discovery') {
       this.discoveryStateCache = undefined;
@@ -190,7 +209,13 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
    * metadata cannot redirect the audience away from the server.
    */
   async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL | undefined> {
-    const record = this.suppressTokensRead ? null : await this.load();
+    const discovered = this.selectDiscoveredResource(serverUrl, resource);
+    this.latestDiscoveredResourceSelection = discovered;
+    if (this.suppressTokensRead || this.useDiscoveredResourceForCodeExchange) {
+      return this.unwrapDiscoveredResource(discovered);
+    }
+
+    const record = await this.load();
     if (record?.tokens.refresh_token !== undefined) {
       const stored = record.resource;
       if (
@@ -202,13 +227,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       return undefined;
     }
     if (resource !== undefined) {
-      // `serverUrl` is the SDK's default resource (resourceUrlFromServerUrl).
-      if (!checkResourceAllowed({ requestedResource: serverUrl, configuredResource: resource })) {
-        throw new Error(
-          `Protected resource ${resource} does not match expected ${serverUrl.toString()} (or origin)`,
-        );
-      }
-      return new URL(resource);
+      return this.unwrapDiscoveredResource(discovered);
     }
     return undefined;
   }
@@ -303,9 +322,12 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // (possibly long-lived) provider must fall back to the stored resource
     // instead of this flow's selection.
     this.authorizationCodeExchangeInFlight = false;
+    this.useDiscoveredResourceForCodeExchange = false;
+    this.latestDiscoveredResourceSelection = { kind: 'none' };
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+    this.applyDiscoveredResourceToAuthorizationUrl(authorizationUrl);
     // The SDK calls this to *display* the URL. We don't open the browser here —
     // the CLI does that, because only the CLI has user consent. Surface the URL
     // via the SuppressedRedirectError seam for the login flow to handle.
@@ -337,5 +359,42 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // (via `tlbx auth login`) are picked up automatically. See class-level
     // comment above for the rationale.
     return this.opts.tokenStore.read(this.opts.serverName);
+  }
+
+  private selectDiscoveredResource(
+    serverUrl: string | URL,
+    resource: string | undefined,
+  ): DiscoveredResourceSelection {
+    if (resource === undefined) {
+      return { kind: 'none' };
+    }
+    if (!checkResourceAllowed({ requestedResource: serverUrl, configuredResource: resource })) {
+      return {
+        kind: 'invalid',
+        error: new Error(
+          `Protected resource ${resource} does not match expected ${serverUrl.toString()} (or origin)`,
+        ),
+      };
+    }
+    return { kind: 'resource', resource: new URL(resource) };
+  }
+
+  private unwrapDiscoveredResource(selection: DiscoveredResourceSelection): URL | undefined {
+    if (selection.kind === 'invalid') {
+      throw selection.error;
+    }
+    if (selection.kind === 'resource') {
+      return selection.resource;
+    }
+    return undefined;
+  }
+
+  private applyDiscoveredResourceToAuthorizationUrl(authorizationUrl: URL): void {
+    const resource = this.unwrapDiscoveredResource(this.latestDiscoveredResourceSelection);
+    if (resource === undefined) {
+      authorizationUrl.searchParams.delete('resource');
+      return;
+    }
+    authorizationUrl.searchParams.set('resource', resource.href);
   }
 }

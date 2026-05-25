@@ -19,6 +19,8 @@ export interface FakeOAuthServerOptions {
   onRegister?: () => void;
   /** `/token` rejects the `refresh_token` grant with `invalid_grant`. */
   rejectRefresh?: boolean;
+  /** `/token` rejects the `refresh_token` grant with a generic server error. */
+  rejectRefreshWithServerError?: boolean;
   /**
    * Serve RFC 9728 protected-resource metadata at the well-known path,
    * advertising this server as its own authorization server and its origin as
@@ -38,6 +40,8 @@ export interface FakeOAuthServerOptions {
    * be misread as a user cancellation.
    */
   rejectCodeExchange?: boolean;
+  /** `/token` rejects the `authorization_code` grant unless it carries `resource`. */
+  requireResourceOnCodeExchange?: boolean;
 }
 
 export interface FakeOAuthServer {
@@ -55,8 +59,12 @@ export interface FakeOAuthServer {
   readonly registrationCount: () => number;
   /** Hits to the authorization-server metadata endpoint — asserts discovery caching. */
   readonly discoveryCount: () => number;
-  /** `{ client_id, redirect_uri }` seen at each `/authorize` request. */
-  readonly authorizeParams: () => Array<{ clientId: string | null; redirectUri: string | null }>;
+  /** `{ client_id, redirect_uri, resource }` seen at each `/authorize` request. */
+  readonly authorizeParams: () => Array<{
+    clientId: string | null;
+    redirectUri: string | null;
+    resource: string | null;
+  }>;
   close(): Promise<void>;
 }
 
@@ -85,7 +93,11 @@ export async function startFakeOAuthServer(
   const tokenResources: Array<string | null> = [];
   let registrations = 0;
   let discoveries = 0;
-  const authorizeParams: Array<{ clientId: string | null; redirectUri: string | null }> = [];
+  const authorizeParams: Array<{
+    clientId: string | null;
+    redirectUri: string | null;
+    resource: string | null;
+  }> = [];
   // code -> the PKCE code_challenge presented at /authorize, so /token can
   // verify the matching code_verifier (proves the SDK round-tripped PKCE).
   const issuedCodes = new Map<string, string>();
@@ -148,7 +160,11 @@ export async function startFakeOAuthServer(
       const redirectUri = url.searchParams.get('redirect_uri');
       const state = url.searchParams.get('state');
       const codeChallenge = url.searchParams.get('code_challenge');
-      authorizeParams.push({ clientId: url.searchParams.get('client_id'), redirectUri });
+      authorizeParams.push({
+        clientId: url.searchParams.get('client_id'),
+        redirectUri,
+        resource: url.searchParams.get('resource'),
+      });
       if (!redirectUri || !state || !codeChallenge) {
         res.statusCode = 400;
         res.end('missing authorize params');
@@ -179,6 +195,13 @@ export async function startFakeOAuthServer(
           json(500, { error: 'server_error', error_description: 'upstream request was cancelled' });
           return;
         }
+        if (controls.requireResourceOnCodeExchange && !params.get('resource')) {
+          json(400, {
+            error: 'invalid_target',
+            error_description: 'resource indicator required on code exchange',
+          });
+          return;
+        }
         const code = params.get('code') ?? '';
         const codeVerifier = params.get('code_verifier') ?? '';
         const expectedChallenge = issuedCodes.get(code);
@@ -196,6 +219,10 @@ export async function startFakeOAuthServer(
         return;
       }
       if (grantType === 'refresh_token') {
+        if (controls.rejectRefreshWithServerError) {
+          json(500, { error: 'server_error', error_description: 'refresh temporarily failed' });
+          return;
+        }
         if (controls.rejectRefresh) {
           json(400, { error: 'invalid_grant', error_description: 'refresh token expired' });
           return;

@@ -202,6 +202,27 @@ describe('runOAuthLogin', () => {
     expect(record?.tokens.access_token).toBe('fake-access-token');
   });
 
+  it('uses freshly discovered resource metadata when refresh falls back to browser auth', async () => {
+    const server = await fakeServer({
+      serveResourceMetadata: true,
+      rejectRefreshWithServerError: true,
+      requireResourceOnCodeExchange: true,
+    });
+    const store = new InMemoryTokenStore();
+    await seedToken(store, server.url.origin);
+    const openBrowser = fetchingBrowser();
+
+    const result = await runOAuthLogin(baseInput(server, { tokenStore: store, openBrowser }));
+
+    expect(result).toEqual({ kind: 'success' });
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    expect(server.tokenGrants).toEqual(['refresh_token', 'authorization_code']);
+    const wireResource = server.url.toString();
+    expect(server.authorizeParams()[0]?.resource).toBe(wireResource);
+    expect(server.tokenResources).toEqual([null, wireResource]);
+    expect((await store.read(SERVER_NAME))?.resource).toBe(server.url.origin);
+  });
+
   it('forces the browser handshake when forceReauth is set despite a stored token', async () => {
     const server = await fakeServer();
     const store = new InMemoryTokenStore();
