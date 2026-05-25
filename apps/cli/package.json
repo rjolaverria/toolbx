@@ -6,7 +6,6 @@
     "dist"
   ],
   "bin": {
-    "cli": "./dist/index.js",
     "tlbx": "./dist/index.js"
   },
   "publishConfig": {
