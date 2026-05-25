@@ -33,10 +33,8 @@ One command, run anywhere:
 npx -y @toolbox/cli setup
 ```
 
-> Publishing note: `@toolbox/cli` is the intended npm package target. It remains private
-> until release packaging lands, so the zero-install `npx -y @toolbox/cli ...` examples
-> describe the published path. For local development, use the workspace-built `tlbx`
-> binary.
+> `@toolbox/cli` is the npm package target used by zero-install examples. For local
+> development, use the workspace-built `tlbx` binary.
 
 `tlbx setup` is the happy path. It creates `~/.config/toolbox/config.json` if it's missing, walks you through adding one upstream MCP server (optional), detects every installed MCP client on your machine — Claude Code, Codex, OpenCode — and writes a `toolbox` entry into each one's config file with a timestamped backup. You confirm once, the diffs are previewed before any write, and the next launch of those clients spawns the gateway on demand over stdio.
 

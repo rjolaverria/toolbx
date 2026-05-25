@@ -1,11 +1,16 @@
 {
   "name": "@toolbox/cli",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "cli": "./dist/index.js",
     "tlbx": "./dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22"
