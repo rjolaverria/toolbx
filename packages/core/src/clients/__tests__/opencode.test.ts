@@ -9,6 +9,7 @@ import {
   createOpencodeAdapterInternal,
   type InternalInstallHooks,
 } from '../opencode.js';
+import { TOOLBOX_LEGACY_STDIO_COMMAND, TOOLBOX_STDIO_COMMAND } from '../toolbox-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -39,8 +40,12 @@ async function ensureOpencodeDir(home: string): Promise<string> {
 
 const TOOLBOX_ENTRY = {
   type: 'local',
-  command: ['npx', '-y', 'tlbx', 'serve', '--stdio'],
+  command: [...TOOLBOX_STDIO_COMMAND],
   enabled: true,
+};
+const LEGACY_TOOLBOX_ENTRY = {
+  ...TOOLBOX_ENTRY,
+  command: [...TOOLBOX_LEGACY_STDIO_COMMAND],
 };
 
 describe('createOpencodeAdapter — detect()', () => {
@@ -139,6 +144,29 @@ describe('createOpencodeAdapter — install()', () => {
     expect(result.diff).toBe('');
     expect(result.backupPath).toBeUndefined();
     expect(await fs.readFile(configPath)).toEqual(before);
+  });
+
+  it('migrates a legacy npx tlbx toolbox entry without requiring --force', async () => {
+    const home = await makeFakeHome();
+    const configPath = await ensureOpencodeDir(home);
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({ mcp: { toolbox: LEGACY_TOOLBOX_ENTRY } }, null, 2),
+    );
+
+    const adapter = makeAdapter(home);
+    const result = await adapter.install({ dryRun: false, force: false });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.status).toBe('installed');
+    expect(result.backupPath).toBeDefined();
+
+    const parsed = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    const mcp = parsed.mcp as Record<string, unknown>;
+    expect(mcp.toolbox).toEqual(TOOLBOX_ENTRY);
   });
 
   it('refuses to overwrite a conflicting toolbox entry without --force', async () => {

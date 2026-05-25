@@ -17,7 +17,7 @@ Add the remaining two adapters — Codex and OpenCode — and a new `tlbx client
 - **`packages/core/src/clients/codex.ts`** — Codex adapter:
   - Config path: `~/.codex/config.toml` (no Windows-specific path; Codex is POSIX-only today — call out clearly if Windows support is requested).
   - `detect()` returns `{ configPath }` iff the file exists.
-  - `install()` follows the F1-08 contract: read, parse TOML, merge `[mcp_servers.toolbox]` block (`command = "npx"`, `args = ["-y", "tlbx", "serve", "--stdio"]`), idempotency check, conflict check with `force` semantics, atomic write via `<file>.tmp.<pid>` + rename, backup to `<file>.bak.<ISO>`, mtime-based concurrent-write detection.
+  - `install()` follows the F1-08 contract: read, parse TOML, merge `[mcp_servers.toolbox]` block (`command = "npx"`, `args = ["-y", "@toolbox/cli", "serve", "--stdio"]`), idempotency check, conflict check with `force` semantics, atomic write via `<file>.tmp.<pid>` + rename, backup to `<file>.bak.<ISO>`, mtime-based concurrent-write detection.
   - Reuse whichever TOML library `apps/cli/src/commands/client-print-config.ts` already imports for the Codex branch (around line 95+). Do not add a new dep.
 
 - **`packages/core/src/clients/opencode.ts`** — OpenCode adapter:

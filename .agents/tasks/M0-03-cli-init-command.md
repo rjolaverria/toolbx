@@ -5,7 +5,7 @@
 
 ## Goal
 
-Implement `npx tlbx init` so users can bootstrap a fresh, valid ToolBox config file in the right location.
+Implement `npx -y @toolbox/cli init` so users can bootstrap a fresh, valid ToolBox config file in the right location.
 
 ## Deliverables
 
@@ -19,9 +19,9 @@ Implement `npx tlbx init` so users can bootstrap a fresh, valid ToolBox config f
 
 ## Acceptance criteria
 
-- `npx tlbx init` on a fresh machine creates a valid config at the expected default path and exits with status 0.
-- A second `npx tlbx init` without `--force` exits with non-zero status, prints a message to stderr, and does not overwrite the existing file.
-- `npx tlbx init --force` overwrites the existing config.
+- `npx -y @toolbox/cli init` on a fresh machine creates a valid config at the expected default path and exits with status 0.
+- A second `npx -y @toolbox/cli init` without `--force` exits with non-zero status, prints a message to stderr, and does not overwrite the existing file.
+- `npx -y @toolbox/cli init --force` overwrites the existing config.
 - The created file passes `pnpm tlbx config validate` (after M5-03 lands; until then, validate via `@toolbox/core` `load.ts` in tests).
 
 ## Out of scope

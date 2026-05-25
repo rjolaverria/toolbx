@@ -14,7 +14,7 @@ ToolBox  ← this repo
 Upstream MCP Servers (Jira / GitHub / Linear / custom)
 ```
 
-The CLI binary is `tlbx` (invoked as `npx tlbx`). The product name is **ToolBox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
+The CLI binary is `tlbx`; zero-install `npx` examples use the package target `@toolbox/cli`. The product name is **ToolBox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
 
 ## Commands
 

@@ -17,7 +17,7 @@ Phase 1 prioritized Claude Desktop because that's what `client print-config clau
   - Replace the existing Claude Desktop branch (around line 67+) with a Claude Code branch. The default (no `--json`) output prints a friendly two-paragraph explanation:
     1. Point the user at `~/.claude.json` (POSIX) or `%USERPROFILE%\.claude.json` (Windows).
     2. Tell them to merge the printed JSON block into the file's top-level `mcpServers` object. Also tell them that `tlbx client install claude` does this for them automatically with a backup.
-  - The JSON block printed matches F1-08's merge contract exactly: `{ "mcpServers": { "toolbox": { "type": "stdio", "command": "npx", "args": ["-y", "tlbx", "serve", "--stdio"], "env": {} } } }`.
+  - The JSON block printed matches F1-08's merge contract exactly: `{ "mcpServers": { "toolbox": { "type": "stdio", "command": "npx", "args": ["-y", "@toolbox/cli", "serve", "--stdio"], "env": {} } } }`.
   - `--json` output is just the snippet JSON, no prose.
   - Codex and OpenCode branches are unchanged.
 

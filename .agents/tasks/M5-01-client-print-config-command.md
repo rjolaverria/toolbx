@@ -13,7 +13,7 @@ Print copy-paste MCP setup snippets for popular clients. This is the primary onb
 - Supported clients: `claude`, `codex`, `opencode`, `generic`.
 - Flags: `--stdio` (default), `--http`, `--json`.
 - For each client, render the snippet that points the client at this ToolBox instance:
-  - stdio → `npx -y tlbx serve --stdio` invocation.
+  - stdio → `npx -y @toolbox/cli serve --stdio` invocation.
   - http → the URL formed from `server.http.host`, `server.http.port`, `server.http.path` in config.
 - `--json` prints the exact JSON the user pastes; the default prints a friendly explanation followed by a fenced JSON block.
 - `claude` snippet matches the example in SPECS §4.3 for the stdio variant.

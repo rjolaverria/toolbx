@@ -1,5 +1,5 @@
 import { Command, InvalidArgumentError, Option } from '@commander-js/extra-typings';
-import type { ToolBoxConfig } from '@toolbox/core';
+import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -30,8 +30,8 @@ interface Snippet {
   readonly native?: { readonly language: string; readonly body: string };
 }
 
-const STDIO_COMMAND = 'npx';
-const STDIO_ARGS: readonly string[] = ['-y', 'tlbx', 'serve', '--stdio'];
+const STDIO_COMMAND = TOOLBOX_NPX_COMMAND;
+const STDIO_ARGS = TOOLBOX_STDIO_ARGS;
 
 function isClientId(value: string): value is ClientId {
   return (SUPPORTED_CLIENTS as readonly string[]).includes(value);

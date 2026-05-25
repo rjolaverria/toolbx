@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@toolbox/core';
+import {
+  DEFAULT_CONFIG,
+  TOOLBOX_NPX_COMMAND,
+  TOOLBOX_STDIO_ARGS,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 
 import {
   runClientPrintConfig,
@@ -45,6 +50,12 @@ const CLIENT_X_TRANSPORT: ReadonlyArray<[ClientId, Transport]> = [
   ['generic', 'stdio'],
   ['generic', 'http'],
 ];
+
+function formatTomlArray(values: readonly string[]): string {
+  return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
+}
+
+const TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_STDIO_ARGS);
 
 describe('runClientPrintConfig', () => {
   it('lists all four supported clients', () => {
@@ -97,8 +108,8 @@ describe('runClientPrintConfig', () => {
       mcpServers: {
         toolbox: {
           type: 'stdio',
-          command: 'npx',
-          args: ['-y', 'tlbx', 'serve', '--stdio'],
+          command: TOOLBOX_NPX_COMMAND,
+          args: [...TOOLBOX_STDIO_ARGS],
           env: {},
         },
       },
@@ -207,8 +218,8 @@ describe('runClientPrintConfig', () => {
     expect(h.stdout.value).toContain('~/.codex/config.toml');
     expect(h.stdout.value).toContain('```toml');
     expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
-    expect(h.stdout.value).toContain('command = "npx"');
-    expect(h.stdout.value).toContain('args = ["-y", "tlbx", "serve", "--stdio"]');
+    expect(h.stdout.value).toContain(`command = "${TOOLBOX_NPX_COMMAND}"`);
+    expect(h.stdout.value).toContain(`args = ${TOOLBOX_STDIO_ARGS_TOML}`);
   });
 
   it('codex http friendly output emits the configured URL inside the TOML table', async () => {
@@ -272,8 +283,8 @@ describe('runClientPrintConfig', () => {
       mcpServers: {
         toolbox: {
           type: 'stdio',
-          command: 'npx',
-          args: ['-y', 'tlbx', 'serve', '--stdio'],
+          command: TOOLBOX_NPX_COMMAND,
+          args: [...TOOLBOX_STDIO_ARGS],
           env: {},
         },
       },

@@ -4,7 +4,10 @@
 
 - **Official product name:** ToolBox
 - **Short CLI alias:** `tlbx`
-- Use `tlbx` only in commands, for example `npx tlbx serve`.
+- **npm package target:** `@toolbox/cli`
+- Use `tlbx` for installed/local binary command examples. Use `npx -y @toolbox/cli ...`
+  for zero-install npm examples and generated MCP client config so `npx` does not resolve the
+  unrelated public `tlbx` package.
 - Do **not** use `tlbx` in file names, config directories, package names, schemas, logs, or UI labels.
 
 Recommended names:
@@ -14,6 +17,7 @@ Product: ToolBox
 CLI command: tlbx
 Config directory: ~/.config/toolbox
 Package namespace: @toolbox/*
+npx package target: @toolbox/cli
 MCP server name in client configs: toolbox
 ```
 
@@ -72,7 +76,7 @@ Windows: %APPDATA%\ToolBox\config.json
 Also support environment override:
 
 ```bash
-TOOLBOX_CONFIG=/custom/path/config.json npx tlbx serve
+TOOLBOX_CONFIG=/custom/path/config.json npx -y @toolbox/cli serve
 ```
 
 If `XDG_CONFIG_HOME` is set, respect it:
@@ -338,7 +342,7 @@ Node subprocesses or worker threads for execution isolation
 Build a CLI-first ToolBox MVP that can be run with:
 
 ```bash
-npx tlbx
+npx -y @toolbox/cli
 ```
 
 The CLI should allow users to:
@@ -362,37 +366,37 @@ The CLI should allow users to:
 Initial command surface:
 
 ```bash
-npx tlbx init
-npx tlbx setup
-npx tlbx serve
-npx tlbx status
-npx tlbx doctor
+npx -y @toolbox/cli init
+npx -y @toolbox/cli setup
+npx -y @toolbox/cli serve
+npx -y @toolbox/cli status
+npx -y @toolbox/cli doctor
 
-npx tlbx server add-stdio <name> -- <command...>
-npx tlbx server add-http <name> --url <url>
-npx tlbx server list
-npx tlbx server status <name>
-npx tlbx server enable <name>
-npx tlbx server disable <name>
-npx tlbx server remove <name>
-npx tlbx server edit <name>
-npx tlbx server inspect <name>
+npx -y @toolbox/cli server add-stdio <name> -- <command...>
+npx -y @toolbox/cli server add-http <name> --url <url>
+npx -y @toolbox/cli server list
+npx -y @toolbox/cli server status <name>
+npx -y @toolbox/cli server enable <name>
+npx -y @toolbox/cli server disable <name>
+npx -y @toolbox/cli server remove <name>
+npx -y @toolbox/cli server edit <name>
+npx -y @toolbox/cli server inspect <name>
 
-npx tlbx tools list
-npx tlbx tools search <query>
-npx tlbx tools enable <namespace/tool>
-npx tlbx tools disable <namespace/tool>
+npx -y @toolbox/cli tools list
+npx -y @toolbox/cli tools search <query>
+npx -y @toolbox/cli tools enable <namespace/tool>
+npx -y @toolbox/cli tools disable <namespace/tool>
 
-npx tlbx config path
-npx tlbx config edit
-npx tlbx config validate
-npx tlbx config set progressiveDisclosure.enabled true
-npx tlbx config set progressiveDisclosure.enabled false
+npx -y @toolbox/cli config path
+npx -y @toolbox/cli config edit
+npx -y @toolbox/cli config validate
+npx -y @toolbox/cli config set progressiveDisclosure.enabled true
+npx -y @toolbox/cli config set progressiveDisclosure.enabled false
 
-npx tlbx client install <claude|codex|opencode>
-npx tlbx client print-config claude
-npx tlbx client print-config codex
-npx tlbx client print-config opencode
+npx -y @toolbox/cli client install <claude|codex|opencode>
+npx -y @toolbox/cli client print-config claude
+npx -y @toolbox/cli client print-config codex
+npx -y @toolbox/cli client print-config opencode
 ```
 
 `tlbx setup` is the recommended first-run command. It composes `init`, an optional `server add-stdio` prompt, and `client install` for every detected MCP client so a new user reaches a working ToolBox in one step. `init` and the individual commands remain available for scripting and CI.
@@ -402,10 +406,10 @@ npx tlbx client print-config opencode
 Upstream auth (OAuth) commands:
 
 ```bash
-npx tlbx auth login <server>
-npx tlbx auth logout <server>
-npx tlbx auth status
-npx tlbx auth refresh <server>
+npx -y @toolbox/cli auth login <server>
+npx -y @toolbox/cli auth logout <server>
+npx -y @toolbox/cli auth status
+npx -y @toolbox/cli auth refresh <server>
 ```
 
 These manage OAuth credentials for upstream HTTP MCP servers (see §4.6.2). `add-http` invokes the same login flow automatically when a probe detects an OAuth challenge, so `auth login` is primarily used for re-authentication after expiry or for switching identities.
@@ -413,14 +417,14 @@ These manage OAuth credentials for upstream HTTP MCP servers (see §4.6.2). `add
 Phase 2 adds daemon-backed tool execution:
 
 ```bash
-npx tlbx run <server> <tool> --json '{...}'
-npx tlbx run <server> <tool> --file input.json
-npx tlbx run <server> <tool> --stdin
-npx tlbx run <server> --list
-npx tlbx run --search <query>
-npx tlbx run <server> <tool> --describe
-npx tlbx run <server> <tool> --schema
-npx tlbx run <server> <tool> --example
+npx -y @toolbox/cli run <server> <tool> --json '{...}'
+npx -y @toolbox/cli run <server> <tool> --file input.json
+npx -y @toolbox/cli run <server> <tool> --stdin
+npx -y @toolbox/cli run <server> --list
+npx -y @toolbox/cli run --search <query>
+npx -y @toolbox/cli run <server> <tool> --describe
+npx -y @toolbox/cli run <server> <tool> --schema
+npx -y @toolbox/cli run <server> <tool> --example
 ```
 
 ### 4.2.1 Scope of `tlbx tools enable / disable`
@@ -461,7 +465,7 @@ context-saving knob for individual sessions.
 
 ## 4.3 What `client print-config` Does
 
-`npx tlbx client print-config claude` prints the exact config snippet a user needs to paste into **Claude Code**'s user-scope MCP config (`~/.claude.json` on POSIX, `%USERPROFILE%\.claude.json` on Windows) so Claude Code connects to ToolBox as one MCP server. The `claude` keyword targets Claude Code, not Claude Desktop — Desktop is not supported by ToolBox in Phase 1.
+`npx -y @toolbox/cli client print-config claude` prints the exact config snippet a user needs to paste into **Claude Code**'s user-scope MCP config (`~/.claude.json` on POSIX, `%USERPROFILE%\.claude.json` on Windows) so Claude Code connects to ToolBox as one MCP server. The `claude` keyword targets Claude Code, not Claude Desktop — Desktop is not supported by ToolBox in Phase 1.
 
 Most users should reach for `tlbx client install claude` instead — it writes the same snippet into the file directly (atomic write with a backup). `print-config` exists as a manual-paste fallback and as the documentation source for the snippet shape.
 
@@ -473,7 +477,7 @@ Example snippet (the JSON block that gets merged into the top-level `mcpServers`
     "toolbox": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "tlbx", "serve", "--stdio"],
+      "args": ["-y", "@toolbox/cli", "serve", "--stdio"],
       "env": {}
     }
   }
@@ -485,9 +489,9 @@ All four fields (`type`, `command`, `args`, `env`) are required by Claude Code's
 The command also supports:
 
 ```bash
-npx tlbx client print-config claude --stdio
-npx tlbx client print-config claude --http
-npx tlbx client print-config claude --json
+npx -y @toolbox/cli client print-config claude --stdio
+npx -y @toolbox/cli client print-config claude --http
+npx -y @toolbox/cli client print-config claude --json
 ```
 
 ## 4.4 Example Config File
@@ -690,7 +694,7 @@ Phase 2's `tlbx run` command reports those states.
   restart:
 
   ```bash
-  npx tlbx stop && npx tlbx serve --detach   # restart the gateway with the updated env
+  npx -y @toolbox/cli stop && npx -y @toolbox/cli serve --detach   # restart the gateway with the updated env
   ```
 
   `tlbx server disable && tlbx server enable` only edits the config file and does **not**
@@ -707,7 +711,7 @@ Phase 2's `tlbx run` command reports those states.
   commands.
 
 **OAuth auth recovery.** OAuth-based upstream servers follow §4.6.2's flow instead: the user
-runs `npx tlbx auth login <server>` and the gateway picks up the new token on the next
+runs `npx -y @toolbox/cli auth login <server>` and the gateway picks up the new token on the next
 upstream call without needing a restart. The env-var bearer path described in this subsection
 remains the supported recovery path for `auth.type === 'bearer'` servers.
 
@@ -733,7 +737,7 @@ auth type, alongside the bearer-with-env-var path in §4.6.1.
 
 **Decisions.**
 
-- **Trigger.** `npx tlbx server add-http <name> --url <url>` (no `--auth` flag) probes the URL
+- **Trigger.** `npx -y @toolbox/cli server add-http <name> --url <url>` (no `--auth` flag) probes the URL
   with an unauthenticated request. If the response carries an MCP OAuth challenge
   (`WWW-Authenticate: Bearer resource_metadata=...` per MCP 2025-06-18), ToolBox automatically
   opens a browser and runs the authorization-code flow with PKCE. The server entry is written
@@ -860,17 +864,17 @@ packages/mcp-gateway
 
 Phase 1 is complete when:
 
-1. `npx tlbx init` creates a valid ToolBox config file.
-2. `npx tlbx server add-stdio` works.
-3. `npx tlbx server add-http` works.
-4. `npx tlbx serve` exposes a valid MCP server.
+1. `npx -y @toolbox/cli init` creates a valid ToolBox config file.
+2. `npx -y @toolbox/cli server add-stdio` works.
+3. `npx -y @toolbox/cli server add-http` works.
+4. `npx -y @toolbox/cli serve` exposes a valid MCP server.
 5. Claude, Codex, OpenCode, or another MCP client can connect to ToolBox as one MCP server.
 6. `tools/list` returns namespaced tools.
 7. `tools/call` routes correctly to the upstream MCP server.
 8. Progressive disclosure can be toggled on/off.
 9. In progressive mode, only bootstrap tools plus revealed tools are visible.
 10. ToolBox can search tools and reveal selected tools.
-11. `npx tlbx status` shows server connection and auth state.
+11. `npx -y @toolbox/cli status` shows server connection and auth state.
 12. Config validation catches broken commands, duplicate names, invalid URLs, missing environment variables, and namespace collisions.
 
 ---
@@ -891,17 +895,17 @@ deterministic agent and script execution.
 Canonical execution uses JSON input:
 
 ```bash
-npx tlbx run <server> <tool> --json '{...}'
-npx tlbx run <server> <tool> --file input.json
-npx tlbx run <server> <tool> --stdin
+npx -y @toolbox/cli run <server> <tool> --json '{...}'
+npx -y @toolbox/cli run <server> <tool> --file input.json
+npx -y @toolbox/cli run <server> <tool> --stdin
 ```
 
 `<server> <tool>` resolves to the exposed MCP name `<server>__<tool>`. For scripting, the fully
 exposed name is also accepted:
 
 ```bash
-npx tlbx run github create_issue --json '{"title":"Bug"}'
-npx tlbx run github__create_issue --json '{"title":"Bug"}'
+npx -y @toolbox/cli run github create_issue --json '{"title":"Bug"}'
+npx -y @toolbox/cli run github__create_issue --json '{"title":"Bug"}'
 ```
 
 The three input modes are mutually exclusive. Tools with an empty input schema may omit all
@@ -911,12 +915,12 @@ boundary and forwarded as the `arguments` object for MCP `tools/call`.
 Discovery commands:
 
 ```bash
-npx tlbx run --search issue
-npx tlbx run github --list
-npx tlbx run github --search issue
-npx tlbx run github create_issue --describe
-npx tlbx run github create_issue --schema
-npx tlbx run github create_issue --example
+npx -y @toolbox/cli run --search issue
+npx -y @toolbox/cli run github --list
+npx -y @toolbox/cli run github --search issue
+npx -y @toolbox/cli run github create_issue --describe
+npx -y @toolbox/cli run github create_issue --schema
+npx -y @toolbox/cli run github create_issue --example
 ```
 
 Discovery must work without requiring the user to manually start `tlbx serve`. Because
@@ -1015,9 +1019,9 @@ still applies to both kinds of session: a disabled tool is not callable from `tl
 `tlbx run` supports explicit output modes:
 
 ```bash
-npx tlbx run github create_issue --json '{...}' --output text
-npx tlbx run github create_issue --json '{...}' --output json
-npx tlbx run github create_issue --json '{...}' --output mcp
+npx -y @toolbox/cli run github create_issue --json '{...}' --output text
+npx -y @toolbox/cli run github create_issue --json '{...}' --output json
+npx -y @toolbox/cli run github create_issue --json '{...}' --output mcp
 ```
 
 Defaults:
@@ -1067,7 +1071,7 @@ foreground commands such as `tlbx auth login <server>` and `tlbx server add-http
 
 Phase 2 is complete when:
 
-1. `npx tlbx run <server> <tool> --json '{...}'` starts the daemon when needed and calls a tool.
+1. `npx -y @toolbox/cli run <server> <tool> --json '{...}'` starts the daemon when needed and calls a tool.
 2. Repeated `tlbx run` calls reuse the same config-specific daemon until `tlbx stop`.
 3. `--json`, `--file`, and `--stdin` input modes work and are mutually exclusive.
 4. Fully exposed names like `github__create_issue` work in addition to `<server> <tool>`.
@@ -1122,7 +1126,7 @@ export default async function sendSlackSummary(input: { channel: string; summary
 Import command:
 
 ```bash
-npx tlbx tool import ./send_slack_summary.ts
+npx -y @toolbox/cli tool import ./send_slack_summary.ts
 ```
 
 ToolBox stores the imported tool under the ToolBox config/data directory, not under any path named with the CLI alias.
@@ -1164,12 +1168,12 @@ After import, ToolBox should generate a manifest:
 ## 6.4 Custom Tool CLI Commands
 
 ```bash
-npx tlbx tool import ./my-tool.ts
-npx tlbx tool list
-npx tlbx tool inspect personal__my_tool
-npx tlbx tool enable personal__my_tool
-npx tlbx tool disable personal__my_tool
-npx tlbx tool remove personal__my_tool
+npx -y @toolbox/cli tool import ./my-tool.ts
+npx -y @toolbox/cli tool list
+npx -y @toolbox/cli tool inspect personal__my_tool
+npx -y @toolbox/cli tool enable personal__my_tool
+npx -y @toolbox/cli tool disable personal__my_tool
+npx -y @toolbox/cli tool remove personal__my_tool
 ```
 
 ## 6.5 Custom Tool CLI Flow

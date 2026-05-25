@@ -41,7 +41,7 @@ export const NAMED_TOOL_FIXTURE = fileURLToPath(
  * Path to the built CLI entrypoint. The integration suite spawns this through
  * `node` so a real MCP client (`StdioClientTransport`) drives the same code
  * path a Claude / Codex / OpenCode user would hit when they run
- * `npx tlbx serve --stdio`. The Turbo `test:integration` task lists `build`
+ * `npx -y @toolbox/cli serve --stdio`. The Turbo `test:integration` task lists `build`
  * as a dependency so this file is guaranteed to exist before the suite runs.
  */
 export const CLI_BIN = fileURLToPath(new URL('../../dist/index.js', import.meta.url));
