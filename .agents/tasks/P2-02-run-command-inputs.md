@@ -19,7 +19,9 @@ Add the `tlbx run` command that resolves a tool name, parses JSON input, and cal
   - `--stdin`
 - Empty input handling: tools with empty input schemas may omit all input modes; tools with non-empty schemas require one.
 - MCP HTTP client wiring that uses P2-01's daemon helper, calls the daemon through the local Streamable HTTP MCP endpoint, and routes through `tools/call`.
-- Validation that global disablement, progressive disclosure gating, and namespacing behavior match the gateway's `tools/call` result.
+- The daemon connection carries the local control-plane marker (§5.3) so progressive disclosure does not gate `tlbx run`: every enabled tool is callable by name regardless of the revealed set, even when `progressiveDisclosure.enabled=true`.
+- Gateway-side honoring of the control marker: the downstream server recognizes the marker only on loopback connections and, for marked sessions, resolves `isDisclosureEnabled` to `false` and treats every enabled tool as visible in `tools/list` and `tools/call`. Unmarked sessions are unaffected and keep configured disclosure behavior.
+- Validation that global disablement and namespacing behavior still match the gateway's `tools/call` result. A globally disabled tool stays uncallable from `tlbx run`.
 
 ## Acceptance criteria
 
@@ -28,6 +30,7 @@ Add the `tlbx run` command that resolves a tool name, parses JSON input, and cal
 - `--json`, `--file`, and `--stdin` reject combinations with a usage error.
 - Invalid JSON exits nonzero before contacting the daemon.
 - Tool calls go through the daemon's MCP endpoint, not a direct upstream client.
+- A tool that is not revealed is still callable by name when `progressiveDisclosure.enabled=true`; a globally disabled tool is not.
 
 ## Out of scope
 

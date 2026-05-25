@@ -19,6 +19,11 @@ in `.agents/TASKS.md` Phase 2.
 7. Discovery is provided by `--list`, `--search`, `--describe`, `--schema`, and `--example`.
 8. Output supports `text`, `json`, and raw MCP result modes.
 9. `tlbx run` never opens a browser implicitly; OAuth remediation points to `tlbx auth login`.
+10. Progressive disclosure does not apply to `tlbx run`. It is a local control surface whose
+    caller already named an exact tool, so it sees and can call every enabled tool regardless of
+    the revealed set. A local-only control marker on the daemon connection turns disclosure off
+    for `tlbx run` sessions while real MCP clients on the same daemon keep it. Global
+    enable/disable still applies.
 
 ## Command Shape
 
@@ -61,6 +66,7 @@ In scope:
 - JSON/file/stdin input
 - text/json/mcp output
 - discovery commands
+- disclosure-free execution via a local control marker
 - auth/error remediation
 - daemon-backed integration tests
 

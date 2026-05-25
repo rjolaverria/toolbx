@@ -219,6 +219,9 @@ the visibility state is bound to the transport, not the `initialize` exchange. W
 `progressiveDisclosure.mode = "global"`, all transports in the same ToolBox process share one
 revealed set.
 
+Progressive disclosure applies only to MCP-client transport sessions. The `tlbx run` control
+surface is exempt and always sees the full enabled tool set — see §5.3.
+
 **Alternatives considered.**
 
 - _Per-`initialize`-call scope:_ rejected because MCP clients re-initialize during reconnect,
@@ -916,9 +919,11 @@ npx tlbx run github create_issue --schema
 npx tlbx run github create_issue --example
 ```
 
-Discovery must work without requiring the user to manually start `tlbx serve`. `--list` prints
-the tools exposed for the selected server. `--search` uses the same ranking as
-`toolbox__search_tools`. `--describe` prints the title, description, required fields, optional
+Discovery must work without requiring the user to manually start `tlbx serve`. Because
+disclosure does not apply to `tlbx run` (§5.3), `--list` and `--search` operate over all
+**enabled** tools for the selected scope regardless of the revealed set — they never collapse to
+just the bootstrap tools. `--list` prints the tools exposed for the selected server. `--search`
+uses the same ranking as `toolbox__search_tools`. `--describe` prints the title, description, required fields, optional
 fields, and an example command. `--schema` prints the raw input schema as JSON. `--example`
 prints a generated JSON input skeleton that can be redirected to a file and edited.
 
@@ -948,8 +953,21 @@ daemon started for that same resolved config path. Stale state files are cleaned
 daemon is started.
 
 The daemon's HTTP endpoint is local-only. `tlbx run` does not expose a remote execution surface
-and does not bypass the existing server/tool enablement, auth, timeout, progressive disclosure,
-or namespacing rules.
+and does not bypass the existing server/tool enablement, auth, timeout, or namespacing rules.
+
+**Progressive disclosure does not apply to `tlbx run`.** Disclosure exists to protect the
+context window of an MCP client that is browsing `tools/list`; `tlbx run` is a local control
+surface whose caller has already named an exact tool, so there is nothing to protect. `tlbx run`
+sees and can call every **enabled** tool regardless of the revealed set, even when
+`progressiveDisclosure.enabled=true` in config.
+
+This is achieved with a local control-plane marker rather than a daemon-wide flag: `tlbx run`
+connects to the loopback endpoint with a control marker (a header/token the daemon only honors
+on loopback). For marked sessions the daemon skips disclosure entirely — `tools/list` returns
+all enabled tools and `tools/call` skips the revealed-set check. Unmarked sessions (real MCP
+clients such as Claude, Codex, OpenCode) keep disclosure exactly as configured. Disclosure
+behavior therefore never depends on who started the daemon. Global `tlbx tools enable / disable`
+still applies to both kinds of session: a disabled tool is not callable from `tlbx run`.
 
 ## 5.4 Output and Exit Contract
 
