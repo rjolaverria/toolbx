@@ -33,6 +33,9 @@ in `.agents/TASKS.md` Phase 2.
     by probe-and-reuse on that port rather than per-daemon port discovery. A healthy ToolBox
     daemon for a different resolved config on the same host/port is a collision, not a reusable
     daemon.
+13. Phase 2 does not add a separate daemon-local auth handshake for `tlbx run`. The endpoint is
+    loopback-only, the control marker identifies a local control-plane caller, and upstream
+    bearer/OAuth auth remains enforced by the gateway path.
 
 ## Command Shape
 

@@ -959,6 +959,10 @@ only when it resolves to a different endpoint.
 
 The daemon's HTTP endpoint is local-only. `tlbx run` does not expose a remote execution surface
 and does not bypass the existing server/tool enablement, auth, timeout, or namespacing rules.
+There is no separate downstream daemon-auth mechanism in Phase 2: the daemon endpoint remains
+loopback-only, and `tlbx run` authenticates to ToolBox by being a local control-plane caller with
+the §5.3 marker. Upstream bearer/OAuth credentials are still enforced by the gateway when the
+target tool reaches its upstream server.
 
 **`tlbx run` always uses an HTTP endpoint, regardless of `server.http.enabled`.** `tlbx run`
 reaches the daemon over the local Streamable HTTP MCP transport, so it needs an HTTP listener
