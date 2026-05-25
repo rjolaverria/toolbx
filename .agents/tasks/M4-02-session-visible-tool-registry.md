@@ -27,7 +27,7 @@ Per-session state that records which exposed tools the current MCP client has re
 ## Out of scope
 
 - Persistence of revealed-tool state across ToolBox restarts.
-- "Pinned" / "always visible" tools — listed in §5.3 but a Phase 2 UI concern.
+- "Pinned" / "always visible" tools — a future interactive UI concern.
 
 ## Definition of done
 

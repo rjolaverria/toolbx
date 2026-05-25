@@ -9,7 +9,7 @@ Introduce a uniform `ClientAdapter` abstraction in `@toolbox/core/clients/` and 
 
 ## Motivation
 
-The first-run path today is four manual steps and the snippet-paste step is where developers stall. To collapse it to a single `tlbx setup` command we need a small, well-bounded primitive — "wire ToolBox into one MCP client" — that the orchestrator can call once per detected client and that Phase 2's Electron UI can reuse without re-implementing the file edits.
+The first-run path today is four manual steps and the snippet-paste step is where developers stall. To collapse it to a single `tlbx setup` command we need a small, well-bounded primitive — "wire ToolBox into one MCP client" — that the orchestrator can call once per detected client and that future CLI flows can reuse without re-implementing the file edits.
 
 We're going with **direct file writes** for all clients (including Claude Code), rather than delegating to `claude mcp add`. Reason: the user prefers not to track Claude Code's evolving CLI subcommand surface; the `~/.claude.json` schema is the more stable contract. Concurrent-write risk is real (Claude Code can rewrite this file via `/mcp`) but containable with read-then-restate.
 
@@ -47,7 +47,7 @@ We're going with **direct file writes** for all clients (including Claude Code),
 
   Re-export from the package's public index so apps/cli can consume it.
 
-- **`packages/core/src/clients/detect.ts`** — a pure `detectClients(): Promise<DetectedClient[]>` that probes each adapter in order (Claude Code, Codex, OpenCode for future tasks) and returns the ones whose config files exist. Honors `XDG_CONFIG_HOME` on Linux. Pure-function shape so the future Electron app can call it on a timer without side effects.
+- **`packages/core/src/clients/detect.ts`** — a pure `detectClients(): Promise<DetectedClient[]>` that probes each adapter in order (Claude Code, Codex, OpenCode for future tasks) and returns the ones whose config files exist. Honors `XDG_CONFIG_HOME` on Linux. Pure-function shape so other CLI flows can call it without side effects.
 
 - **`packages/core/src/clients/claude.ts`** — Claude Code adapter:
   - Config path: `~/.claude.json` on POSIX, `%USERPROFILE%\.claude.json` on Windows. **Do not** read `~/.claude/settings.json` — that's a different file (Claude Code user settings, not MCP servers).

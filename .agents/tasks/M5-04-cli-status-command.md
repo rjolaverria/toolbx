@@ -29,7 +29,7 @@ A single command that shows what every configured upstream server is doing right
 
 ## Out of scope
 
-- Streaming live status updates (Phase 2 UI).
+- Streaming live status updates.
 - Forcing a reconnect (that's `tlbx server status <name>` territory in M1-06).
 
 ## Definition of done
