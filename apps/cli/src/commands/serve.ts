@@ -2,15 +2,19 @@ import * as path from 'node:path';
 
 import { Command, Option } from '@commander-js/extra-typings';
 import {
+  clearServeState,
   createLogger,
   loadConfig,
+  readServeState,
   resolveConfigPath,
   resolveToolCachePath,
+  writeServeState,
   writeToolCache,
   type CachedTool,
   type CreateLoggerOptions,
   type LogFormat,
   type LogLevel,
+  type ServeDaemonState,
   type ToolBoxConfig,
   type WriteToolCacheInput,
 } from '@toolbox/core';
@@ -35,9 +39,26 @@ const LOG_LEVELS = [
 ] as const satisfies readonly LogLevel[];
 const LOG_FORMATS = ['pretty', 'json'] as const satisfies readonly LogFormat[];
 
+/**
+ * Env marker pointing the managed daemon at the state file it must publish
+ * once its HTTP listener has bound. Set only by `tlbx serve --detach` /
+ * `tlbx run`'s spawner; absent for a foreground `tlbx serve`, which never
+ * touches the daemon state file.
+ */
+export const SERVE_STATE_PATH_ENV = 'TOOLBOX_SERVE_STATE_PATH';
+/** Companion marker recording the log path inside the published state. */
+export const SERVE_LOG_PATH_ENV = 'TOOLBOX_SERVE_LOG_PATH';
+
 export interface ServeOptions {
   stdio?: boolean;
   http?: boolean;
+  /**
+   * Bind the HTTP listener even when `server.http.enabled` is `false`. Set by
+   * the `tlbx run` spawn path, which always needs an HTTP transport. An
+   * explicit `tlbx serve` never sets it, so `server.http.enabled` still gates
+   * the operator-facing command.
+   */
+  forceHttp?: boolean;
   config?: string;
   logLevel?: LogLevel;
   logFormat?: LogFormat;
@@ -83,6 +104,25 @@ export interface ServeDeps {
   writeToolCache?: (input: WriteToolCacheInput, filePath: string) => Promise<void>;
   /** Resolves the on-disk path the cache is written to; defaults to alongside the config. */
   resolveToolCachePath?: (configPath: string) => string;
+  /**
+   * Publishes the daemon state file once the HTTP listener has bound. A
+   * managed daemon (spawned by `tlbx serve --detach` / `tlbx run`) writes it
+   * so the bind — not a parent-side grace timer — is what makes the daemon
+   * discoverable. Defaults to the real `writeServeState`.
+   */
+  writeServeState?: (filePath: string, state: ServeDaemonState) => Promise<void>;
+  /** Removes the published state on shutdown. Defaults to the real `clearServeState`. */
+  clearServeState?: (filePath: string) => Promise<void>;
+  /**
+   * Reads the published state during shutdown so we only clear a record that
+   * still names this daemon's pid — never a successor that bound the freed
+   * port while we were tearing down. Defaults to the real `readServeState`.
+   */
+  readServeState?: (filePath: string) => Promise<ServeDaemonState | null>;
+  /** Clock used for the state file's `startedAt`. */
+  now?: () => Date;
+  /** Pid recorded in the published state; defaults to `process.pid`. */
+  pid?: () => number;
 }
 
 export function defaultServeDeps(): ServeDeps {
@@ -104,7 +144,36 @@ export function defaultServeDeps(): ServeDeps {
       // is explicit, drop the cache next to it instead of in the default XDG
       // location resolved from the ambient environment.
       path.join(path.dirname(configPath), path.basename(resolveToolCachePath())),
+    writeServeState: (filePath, state) => writeServeState(filePath, state),
+    clearServeState: (filePath) => clearServeState(filePath),
+    readServeState: (filePath) => readServeState(filePath),
+    now: () => new Date(),
+    pid: () => process.pid,
   };
+}
+
+interface ManagedDaemon {
+  readonly statePath: string;
+  readonly logPath: string;
+}
+
+/**
+ * Resolves the managed-daemon markers from the environment. Returns `null` for
+ * a foreground `tlbx serve`, which must never read or write the daemon state
+ * file. When the state path is set, the log path defaults to its sibling
+ * `serve.log` so the published record always carries a non-empty `logPath`.
+ */
+function resolveManagedDaemon(env: NodeJS.ProcessEnv): ManagedDaemon | null {
+  const statePath = env[SERVE_STATE_PATH_ENV];
+  if (statePath === undefined || statePath.length === 0) {
+    return null;
+  }
+  const logPathEnv = env[SERVE_LOG_PATH_ENV];
+  const logPath =
+    logPathEnv !== undefined && logPathEnv.length > 0
+      ? logPathEnv
+      : path.join(path.dirname(statePath), 'serve.log');
+  return { statePath, logPath };
 }
 
 export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<number> {
@@ -125,7 +194,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     return 1;
   }
 
-  if (mode === 'http' && !config.server.http.enabled) {
+  if (mode === 'http' && !config.server.http.enabled && options.forceHttp !== true) {
     deps.stderr(
       'tlbx serve: --http requested but server.http.enabled is false in config; enable it first or run with --stdio\n',
     );
@@ -194,11 +263,81 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     deps.stderr(`tlbx serve: failed to start http server: ${errorMessage(error)}\n`);
     return 1;
   }
+
+  // The listener is bound. A managed daemon publishes its state file now —
+  // after the bind, never before — so a concurrent starter that loses the
+  // port race can't observe a half-started daemon, and `tlbx stop` / `tlbx
+  // run` only ever see a record backed by a live HTTP endpoint.
+  const managed = resolveManagedDaemon(deps.processEnv);
+  if (managed !== null) {
+    const published = await publishManagedState(managed, downstream.url, deps);
+    if (!published) {
+      await downstream.stop();
+      await detachCacheWriter();
+      await runtime.dispose();
+      return 1;
+    }
+  }
+
   deps.onStarted?.({ mode, url: downstream.url, runtime });
   await downstream.done;
   await detachCacheWriter();
   await runtime.dispose();
+  if (managed !== null) {
+    await clearManagedState(managed, deps);
+  }
   return 0;
+}
+
+async function publishManagedState(
+  managed: ManagedDaemon,
+  url: URL,
+  deps: ServeDeps,
+): Promise<boolean> {
+  const writeState = deps.writeServeState;
+  if (writeState === undefined) {
+    return true;
+  }
+  const state: ServeDaemonState = {
+    version: 1,
+    pid: (deps.pid ?? (() => process.pid))(),
+    mode: 'http',
+    url: url.toString(),
+    logPath: managed.logPath,
+    startedAt: (deps.now ?? (() => new Date()))().toISOString(),
+  };
+  try {
+    await writeState(managed.statePath, state);
+    return true;
+  } catch (error) {
+    deps.stderr(
+      `tlbx serve: failed to publish daemon state ${managed.statePath}: ${errorMessage(error)}\n`,
+    );
+    return false;
+  }
+}
+
+async function clearManagedState(managed: ManagedDaemon, deps: ServeDeps): Promise<void> {
+  const clearState = deps.clearServeState;
+  if (clearState === undefined) {
+    return;
+  }
+  // Only clear a record that still names us. Once `done` resolved our listener
+  // is closed, so a successor could already have bound the freed port and
+  // published its own state under the same path — clearing that would orphan it.
+  const readState = deps.readServeState;
+  if (readState !== undefined) {
+    try {
+      const current = await readState(managed.statePath);
+      const ourPid = (deps.pid ?? (() => process.pid))();
+      if (current !== null && current.pid !== ourPid) {
+        return;
+      }
+    } catch {
+      // Best-effort: fall through to clear if we can't read the record back.
+    }
+  }
+  await clearState(managed.statePath).catch(() => undefined);
 }
 
 function startToolCacheWriter(
@@ -264,6 +403,10 @@ export function serveCommand(): Command {
     .description('Start the ToolBox MCP gateway in stdio or HTTP mode.')
     .option('-s, --stdio', 'serve over stdio')
     .option('-H, --http', 'serve over Streamable HTTP using config.server.http (default)')
+    .option(
+      '--force-http',
+      'bind the HTTP listener even when server.http.enabled is false (used by tlbx run)',
+    )
     .option('-d, --detach', 'fork an HTTP gateway into the background and return to the shell')
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))

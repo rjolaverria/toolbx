@@ -4,6 +4,7 @@ import {
   createNoopLogger,
   DEFAULT_CONFIG,
   type CreateLoggerOptions,
+  type ServeDaemonState,
   type ToolBoxConfig,
 } from '@toolbox/core';
 import type {
@@ -44,6 +45,7 @@ function makeFakeStdio(): FakeStdioControls {
 interface FakeHttpControls {
   server: DownstreamHttpServer;
   finishDone: () => void;
+  stopSpy: ReturnType<typeof vi.fn>;
 }
 
 function makeFakeHttp(url: URL): FakeHttpControls {
@@ -51,17 +53,18 @@ function makeFakeHttp(url: URL): FakeHttpControls {
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
   });
+  const stopSpy = vi.fn(() => Promise.resolve());
   const server: DownstreamHttpServer = {
     get url() {
       return url;
     },
     start: vi.fn(() => Promise.resolve()),
-    stop: vi.fn(() => Promise.resolve()),
+    stop: stopSpy,
     get done() {
       return done;
     },
   };
-  return { server, finishDone: () => resolveDone() };
+  return { server, finishDone: () => resolveDone(), stopSpy };
 }
 
 interface FakeRuntime {
@@ -98,6 +101,9 @@ interface Harness {
   runtime: GatewayRuntime;
   disposeSpy: ReturnType<typeof vi.fn>;
   startUpstreamsSpy: ReturnType<typeof vi.fn>;
+  writeStateSpy: ReturnType<typeof vi.fn>;
+  clearStateSpy: ReturnType<typeof vi.fn>;
+  readStateSpy: ReturnType<typeof vi.fn>;
 }
 
 function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
@@ -106,6 +112,13 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
   const httpControls = makeFakeHttp(new URL('http://127.0.0.1:7331/mcp'));
   const fakeRuntime = makeFakeRuntime();
   const { runtime, disposeSpy, startUpstreamsSpy } = fakeRuntime;
+  const writeStateSpy = vi.fn<(p: string, s: ServeDaemonState) => Promise<void>>(() =>
+    Promise.resolve(),
+  );
+  const clearStateSpy = vi.fn<(p: string) => Promise<void>>(() => Promise.resolve());
+  const readStateSpy = vi.fn<(p: string) => Promise<ServeDaemonState | null>>(() =>
+    Promise.resolve(null),
+  );
 
   const loadConfig = vi.fn<(path: string) => Promise<ToolBoxConfig>>(() => Promise.resolve(config));
   const createRuntime = vi.fn<() => GatewayRuntime>(() => runtime);
@@ -131,6 +144,11 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     },
     processEnv: { TOOLBOX_TEST: '1' },
     signalProcess: new EventEmitter() as unknown as NodeJS.Process,
+    writeServeState: writeStateSpy,
+    clearServeState: clearStateSpy,
+    readServeState: readStateSpy,
+    now: () => new Date('2026-05-25T12:00:00.000Z'),
+    pid: () => 4242,
   };
 
   return {
@@ -146,6 +164,9 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     runtime,
     disposeSpy,
     startUpstreamsSpy,
+    writeStateSpy,
+    clearStateSpy,
+    readStateSpy,
   };
 }
 
@@ -310,5 +331,119 @@ describe('runServe', () => {
     h.stdioControls.finishDone();
     await promise;
     expect(h.disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('binds http with --force-http even when server.http.enabled is false', async () => {
+    const config: ToolBoxConfig = {
+      ...DEFAULT_CONFIG,
+      server: {
+        ...DEFAULT_CONFIG.server,
+        http: { ...DEFAULT_CONFIG.server.http, enabled: false },
+      },
+    };
+    const h = makeHarness(config);
+    const promise = runServe({ http: true, forceHttp: true }, h.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    h.httpControls.finishDone();
+    const code = await promise;
+
+    expect(code).toBe(0);
+    expect(h.createHttp).toHaveBeenCalledTimes(1);
+    expect(h.stderr.value).not.toMatch(/http\.enabled is false/);
+  });
+
+  it('does not touch the state file for a foreground serve (no managed env)', async () => {
+    const h = makeHarness();
+    const promise = runServe({ http: true }, h.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    h.httpControls.finishDone();
+    await promise;
+
+    expect(h.writeStateSpy).not.toHaveBeenCalled();
+    expect(h.clearStateSpy).not.toHaveBeenCalled();
+  });
+
+  it('publishes the state file after the listener binds when managed', async () => {
+    const h = makeHarness();
+    h.deps.processEnv = {
+      TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json',
+      TOOLBOX_SERVE_LOG_PATH: '/state/serve.log',
+    };
+    const onStarted = vi.fn();
+    h.deps.onStarted = onStarted;
+
+    const promise = runServe({ http: true, forceHttp: true }, h.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // State is published before onStarted fires and before done resolves.
+    expect(h.writeStateSpy).toHaveBeenCalledTimes(1);
+    expect(h.writeStateSpy).toHaveBeenCalledWith('/state/serve-state.json', {
+      version: 1,
+      pid: 4242,
+      mode: 'http',
+      url: 'http://127.0.0.1:7331/mcp',
+      logPath: '/state/serve.log',
+      startedAt: '2026-05-25T12:00:00.000Z',
+    });
+    expect(h.clearStateSpy).not.toHaveBeenCalled();
+
+    h.httpControls.finishDone();
+    await promise;
+    expect(h.clearStateSpy).toHaveBeenCalledWith('/state/serve-state.json');
+  });
+
+  it('defaults the recorded log path to a sibling serve.log when unset', async () => {
+    const h = makeHarness();
+    h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+
+    const promise = runServe({ http: true, forceHttp: true }, h.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    h.httpControls.finishDone();
+    await promise;
+
+    expect(h.writeStateSpy).toHaveBeenCalledWith(
+      '/state/serve-state.json',
+      expect.objectContaining({ logPath: '/state/serve.log' }),
+    );
+  });
+
+  it('tears down the listener and returns 1 when publishing state fails', async () => {
+    const h = makeHarness();
+    h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.writeStateSpy.mockRejectedValueOnce(new Error('ENOSPC'));
+
+    const code = await runServe({ http: true, forceHttp: true }, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.httpControls.stopSpy).toHaveBeenCalledTimes(1);
+    expect(h.disposeSpy).toHaveBeenCalledTimes(1);
+    expect(h.stderr.value).toMatch(/failed to publish daemon state/);
+    expect(h.clearStateSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not clear a successor daemon that bound the freed port', async () => {
+    const h = makeHarness();
+    h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    // On shutdown the state now names a different pid — a successor took over.
+    h.readStateSpy.mockResolvedValueOnce({
+      version: 1,
+      pid: 9999,
+      mode: 'http',
+      url: 'http://127.0.0.1:7331/mcp',
+      logPath: '/state/serve.log',
+      startedAt: '2026-05-25T12:30:00.000Z',
+    });
+
+    const promise = runServe({ http: true, forceHttp: true }, h.deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    h.httpControls.finishDone();
+    await promise;
+
+    expect(h.clearStateSpy).not.toHaveBeenCalled();
   });
 });
