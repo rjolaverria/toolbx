@@ -347,6 +347,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
 
     await provider.saveClientInformation(makeClientInfo());
     await provider.saveCodeVerifier('verifier'); // interactive authorization-code flow
+    await provider.codeVerifier(); // SDK consumes it during the code exchange
     await provider.saveTokens(makeTokens());
 
     expect((await store.read('jira'))?.resource).toBe('https://api.example.com/mcp');
@@ -358,6 +359,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
 
     await provider.saveClientInformation(makeClientInfo());
     await provider.saveCodeVerifier('verifier');
+    await provider.codeVerifier();
     await provider.saveTokens(makeTokens());
 
     expect((await store.read('jira'))?.resource).toBeUndefined();
@@ -392,6 +394,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     });
     await provider.saveClientInformation(makeClientInfo());
     await provider.saveCodeVerifier('verifier'); // initial interactive login
+    await provider.codeVerifier();
     await provider.saveTokens(makeTokens({ access_token: 'first' }));
     expect((await store.read('jira'))?.resource).toBe('https://a.example/mcp');
 
@@ -445,6 +448,38 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     expect((await store.read('jira'))?.resource).toBe('https://b.example/mcp');
   });
 
+  it('does not treat an abandoned authorize (verifier saved, never exchanged) as authoritative', async () => {
+    // A redirect flow that starts but never completes saves a PKCE verifier yet
+    // never exchanges a code. On a reused (gateway) provider that marker must not
+    // linger and make a later refresh save treat stale cached discovery as
+    // authoritative over a newer externally-stored resource.
+    const { provider, store } = makeProvider();
+    provider.saveDiscoveryState({
+      authorizationServerUrl: 'https://issuer.example/',
+      resourceMetadata: {
+        resource: 'https://a.example/mcp',
+        authorization_servers: ['https://issuer.example/'],
+      },
+    });
+    await provider.saveClientInformation(makeClientInfo());
+    await provider.saveCodeVerifier('verifier'); // authorize started…
+    // …but never exchanged: no codeVerifier() consumption, no saveTokens.
+
+    // External relogin rebinds to resource B.
+    await store.write(
+      'jira',
+      makeRecord({
+        resource: 'https://b.example/mcp',
+        tokens: makeTokens({ access_token: 'external', refresh_token: 'rt' }),
+      }),
+    );
+
+    // A later refresh save (refresh grant — no code exchange).
+    await provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+
+    expect((await store.read('jira'))?.resource).toBe('https://b.example/mcp');
+  });
+
   it('drops a stale resource when reauth rediscovers metadata that advertises none', async () => {
     // Interactive reauth (or a server retargeted under the same name) runs fresh
     // discovery. If that discovery selects no resource, the freshly authenticated
@@ -456,6 +491,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/' });
     await provider.saveClientInformation(makeClientInfo());
     await provider.saveCodeVerifier('verifier'); // interactive reauth
+    await provider.codeVerifier();
     await provider.saveTokens(makeTokens({ access_token: 'reauthed' }));
 
     const record = await store.read('jira');

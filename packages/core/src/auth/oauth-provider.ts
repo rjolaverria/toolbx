@@ -318,11 +318,6 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
 
   saveCodeVerifier(verifier: string): Promise<void> {
     this.savedCodeVerifier = verifier;
-    // The SDK only saves a PKCE verifier on the interactive authorization-code
-    // path, so this marks the upcoming token save as a fresh authorization whose
-    // selected resource is authoritative (vs a refresh grant, which never saves
-    // a verifier).
-    this.authorizationCodeExchangeInFlight = true;
     return Promise.resolve();
   }
 
@@ -330,6 +325,13 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     if (this.savedCodeVerifier === undefined) {
       return Promise.reject(new Error('codeVerifier requested before saveCodeVerifier'));
     }
+    // The SDK reads the PKCE verifier only when it actually exchanges an
+    // authorization code (immediately before the token request that saveTokens
+    // persists), never on a refresh grant or an abandoned authorize that built a
+    // URL but never returned. So consuming it here — not saving it earlier —
+    // marks the upcoming token save as a fresh authorization whose selected
+    // resource is authoritative.
+    this.authorizationCodeExchangeInFlight = true;
     return Promise.resolve(this.savedCodeVerifier);
   }
 
