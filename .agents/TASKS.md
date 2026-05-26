@@ -100,14 +100,16 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **F1-23** — [End-to-end OAuth integration tests + CI security gates](tasks/F1-23-oauth-integration-tests.md) — closed by 4ac57f6; CLI snapshots manually reviewed for token-byte leakage
 - [x] **F1-24** — [Persist and replay the OAuth resource indicator on refresh](tasks/F1-24-oauth-refresh-resource-indicator.md) — closed by PR #67 (branch `f1-24-oauth-refresh-resource-indicator`)
 
-## Phase 2 — CLI Tool Execution
+## Phase 2 — CLI Tool Execution ✅
+
+Phase 2 is complete: every task below (P2-01 through P2-06) is closed and the SPECS §5.6 acceptance criteria 1–10 are exercised end-to-end by the P2-06 daemon-backed integration suite.
 
 - [x] **P2-01** — [`tlbx run` daemon auto-start and readiness](tasks/P2-01-run-daemon-autostart.md) — closed by PR #70 (branch `p2-01-run-daemon-autostart`)
 - [x] **P2-02** — [`tlbx run` command and JSON input modes](tasks/P2-02-run-command-inputs.md) — closed by branch `p2-02-run-command-inputs`
 - [x] **P2-03** — [`tlbx run` output modes and exit contract](tasks/P2-03-run-output-contract.md) — closed by bd7415e (branch `p2-03-run-output-contract`)
 - [x] **P2-04** — [`tlbx run` discovery commands](tasks/P2-04-run-discovery.md) — closed by e7f0014 (branch `p2-04-run-discovery`)
 - [x] **P2-05** — [`tlbx run` auth, errors, and remediation](tasks/P2-05-run-errors-auth.md) — closed by PR #74 (branch `p2-05-run-errors-auth`)
-- [ ] **P2-06** — [`tlbx run` daemon-backed integration tests](tasks/P2-06-run-integration-tests.md)
+- [x] **P2-06** — [`tlbx run` daemon-backed integration tests](tasks/P2-06-run-integration-tests.md) — closed by f2d502d (branch `p2-06-run-integration-tests`)
 
 ## Phase 3 — Custom JS/TS Tools
 
