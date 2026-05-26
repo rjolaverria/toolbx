@@ -41,6 +41,12 @@ export interface DaemonHandle {
   readonly configPath: string;
   readonly statePath: string;
   readonly logPath: string;
+  /**
+   * The config that was loaded to resolve this daemon. Carried out so callers
+   * can produce config-aware remediation (bearer vs OAuth auth, disabled vs
+   * unknown tools) without re-reading and re-parsing the file (P2-05 §5.5).
+   */
+  readonly config: ToolBoxConfig;
 }
 
 export type EnsureDaemonResult =
@@ -155,7 +161,7 @@ export async function ensureDaemon(
       if (await deps.waitForReady(url)) {
         return {
           ok: true,
-          daemon: { url, pid: existing.pid, reused: true, configPath, statePath, logPath },
+          daemon: { url, pid: existing.pid, reused: true, configPath, statePath, logPath, config },
         };
       }
       return {
@@ -211,6 +217,6 @@ export async function ensureDaemon(
 
   return {
     ok: true,
-    daemon: { url, pid: state.pid, reused: false, configPath, statePath, logPath },
+    daemon: { url, pid: state.pid, reused: false, configPath, statePath, logPath, config },
   };
 }

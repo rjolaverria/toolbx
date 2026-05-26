@@ -1,8 +1,10 @@
 import {
   authExpiredMeta,
+  DEFAULT_CONFIG,
   type DaemonCallToolResult,
   type DaemonClient,
   type DaemonListToolsResult,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -33,6 +35,7 @@ function makeHarness(
     stdin?: string;
     files?: Record<string, string>;
     isStdoutTTY?: boolean;
+    config?: ToolBoxConfig;
   } = {},
 ): Harness {
   const tools = opts.tools ?? [{ name: 'github__create_issue' }];
@@ -85,6 +88,7 @@ function makeHarness(
           configPath: '/resolved/config.json',
           statePath: '/resolved/config.json.state',
           logPath: '/resolved/config.json.log',
+          config: opts.config ?? DEFAULT_CONFIG,
         },
       });
     },
@@ -532,5 +536,192 @@ describe('runRun — exit contract', () => {
     });
     const code = await run({ target: 'github__whoami' }, {}, h);
     expect(code).toBe(1);
+  });
+});
+
+describe('runRun — auth remediation', () => {
+  function mcpError(message: string, data: Record<string, unknown>): Error {
+    return Object.assign(new Error(`MCP error -32603: ${message}`), { code: -32603, data });
+  }
+
+  function authRequired(server: string): Error {
+    return mcpError(`Upstream server "${server}" is unavailable (status: auth_required)`, {
+      server,
+      status: { kind: 'auth_required', reason: 'auth required' },
+    });
+  }
+
+  function bearerConfig(tokenEnv: string): ToolBoxConfig {
+    return {
+      ...DEFAULT_CONFIG,
+      servers: {
+        github: {
+          type: 'http',
+          enabled: true,
+          url: 'https://api.example.com/mcp',
+          auth: { type: 'bearer', tokenEnv },
+        },
+      },
+    };
+  }
+
+  it('points an OAuth server at `tlbx auth login` (no bearer config)', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'other__tool', empty: true }],
+      callToolThrows: authRequired('github'),
+      config: {
+        ...DEFAULT_CONFIG,
+        servers: {
+          github: {
+            type: 'http',
+            enabled: true,
+            url: 'https://api.example.com/mcp',
+            auth: { type: 'oauth' },
+          },
+        },
+      },
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).toBe(5);
+    expect(h.stderr).toMatch(/tlbx auth login github/);
+    expect(h.stderr).not.toMatch(/tlbx stop/);
+  });
+
+  it('explains the daemon restart for a missing bearer env var', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'other__tool', empty: true }],
+      callToolThrows: authRequired('github'),
+      config: bearerConfig('GITHUB_TOKEN'),
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).toBe(5);
+    expect(h.stderr).toContain('GITHUB_TOKEN');
+    expect(h.stderr).toContain('tlbx stop');
+    // Must not recommend `tlbx auth login` for a bearer server.
+    expect(h.stderr).not.toMatch(/auth login/);
+  });
+
+  it('tells a reused-daemon stale-env user that export plus retry is not enough', async () => {
+    // The daemon stub reports `reused: true`: it was started without the var,
+    // so exporting it now and retrying against the same daemon still fails. The
+    // remediation must name `tlbx stop`, not imply an immediate retry works.
+    const h = makeHarness({
+      tools: [{ name: 'other__tool', empty: true }],
+      callToolThrows: authRequired('github'),
+      config: bearerConfig('GITHUB_TOKEN'),
+    });
+    await run({ target: 'github__whoami' }, {}, h);
+    expect(h.stderr).toMatch(/already running will not pick up/i);
+    expect(h.stderr).toContain('tlbx stop');
+  });
+
+  it('still recommends `tlbx auth login` for an auth-expired result', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__whoami', empty: true }],
+      callResult: {
+        isError: true,
+        _meta: authExpiredMeta('github'),
+        content: [{ type: 'text', text: 'Authentication for "github" has expired.' }],
+      },
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).toBe(5);
+    expect(h.stderr).toContain('expired');
+  });
+});
+
+describe('runRun — disabled and unknown tool remediation', () => {
+  function methodNotFound(name: string): Error {
+    return Object.assign(new Error(`MCP error -32601: Unknown tool "${name}"`), {
+      code: -32601,
+    });
+  }
+
+  it('names the re-enable command for a disabled tool', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__whoami', empty: true }],
+      callToolThrows: methodNotFound('github__create_issue'),
+      config: { ...DEFAULT_CONFIG, tools: { github__create_issue: { enabled: false } } },
+    });
+    const code = await run({ target: 'github', tool: 'create_issue' }, { json: '{}' }, h);
+    expect(code).toBe(4);
+    expect(h.stderr).toContain('tlbx tools enable github__create_issue');
+  });
+
+  it('names the re-enable command for a disabled server', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'other__tool', empty: true }],
+      callToolThrows: methodNotFound('github__whoami'),
+      config: {
+        ...DEFAULT_CONFIG,
+        servers: { github: { type: 'http', enabled: false, url: 'https://api.example.com/mcp' } },
+      },
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).toBe(4);
+    expect(h.stderr).toContain('tlbx server enable github');
+  });
+
+  it('suggests nearby tools for a genuinely unknown tool', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__create_issue' }],
+      callToolThrows: methodNotFound('github__create_issu'),
+    });
+    const code = await run({ target: 'github', tool: 'create_issu' }, { json: '{}' }, h);
+    expect(code).toBe(4);
+    expect(h.stderr).toMatch(/did you mean/i);
+    expect(h.stderr).toContain('github__create_issue');
+  });
+});
+
+describe('runRun — json error codes', () => {
+  function mcpError(message: string, data: Record<string, unknown>): Error {
+    return Object.assign(new Error(`MCP error -32603: ${message}`), { code: -32603, data });
+  }
+
+  it('emits a stable machine-readable kind for an auth failure in json mode', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'other__tool', empty: true }],
+      callToolThrows: mcpError('Upstream server "github" is unavailable (status: auth_required)', {
+        server: 'github',
+        status: { kind: 'auth_required', reason: 'auth required' },
+      }),
+    });
+    const code = await run({ target: 'github__whoami' }, { output: 'json' }, h);
+    expect(code).toBe(5);
+    const parsed = JSON.parse(h.stdout) as { ok: boolean; error: { kind: string } };
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.kind).toBe('auth');
+    // Remediation text stays on stderr, never the structured stdout body.
+    expect(h.stderr).toMatch(/tlbx auth login github/);
+  });
+
+  it('emits the unknown_tool kind for a MethodNotFound in json mode', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__create_issue' }],
+      callToolThrows: Object.assign(new Error('MCP error -32601: Unknown tool "github__nope"'), {
+        code: -32601,
+      }),
+    });
+    const code = await run({ target: 'github__nope' }, { json: '{}', output: 'json' }, h);
+    expect(code).toBe(4);
+    const parsed = JSON.parse(h.stdout) as { error: { kind: string } };
+    expect(parsed.error.kind).toBe('unknown_tool');
+  });
+});
+
+describe('runRun — invalid JSON remediation', () => {
+  it('recommends generating an example for invalid JSON', async () => {
+    const h = makeHarness();
+    const code = await run({ target: 'github__create_issue' }, { json: '{not json' }, h);
+    expect(code).toBe(2);
+    expect(h.stderr).toContain('github__create_issue --example > input.json');
+  });
+
+  it('recommends generating an example for non-object JSON', async () => {
+    const h = makeHarness();
+    const code = await run({ target: 'github__create_issue' }, { json: '"hello"' }, h);
+    expect(code).toBe(2);
+    expect(h.stderr).toContain('--example > input.json');
   });
 });

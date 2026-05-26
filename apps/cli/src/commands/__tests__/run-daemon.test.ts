@@ -119,6 +119,7 @@ describe('ensureDaemon', () => {
         configPath: '/resolved/config.json',
         statePath: '/resolved/config.json.state',
         logPath: '/resolved/config.json.log',
+        config: DEFAULT_CONFIG,
       });
     }
     expect(h.coldStartCalls).toHaveLength(1);

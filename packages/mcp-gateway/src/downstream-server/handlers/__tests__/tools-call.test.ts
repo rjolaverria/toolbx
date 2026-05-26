@@ -313,6 +313,38 @@ describe('tools/call handler', () => {
     await closeAll();
   });
 
+  it('refuses a disabled tool even when it is revealed under disclosure', async () => {
+    // P2-05 §5.6(7): the disable gate takes precedence over the reveal gate, so
+    // a tool the session has revealed is still uncallable while disabled — it
+    // must not slip through as `not_revealed` or reach the upstream.
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues')],
+    });
+    const jira = fakeUpstream({ serverName: 'jira' });
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+    visibility.reveal(['jira__search_issues']);
+
+    const { client, closeAll } = await connect({
+      registry,
+      upstreams: lookupFrom({ jira: jira.session }),
+      visibility,
+      isDisclosureEnabled: () => true,
+      isToolEnabled: (name) => name !== 'jira__search_issues',
+    });
+
+    const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
+    expect(err.code).toBe(ErrorCode.MethodNotFound);
+    expect(jira.callTool).not.toHaveBeenCalled();
+    await closeAll();
+  });
+
   it('rejects when the upstream session is not registered with InternalError naming the server', async () => {
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({
