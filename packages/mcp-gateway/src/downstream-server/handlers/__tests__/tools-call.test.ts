@@ -3,7 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility, readAuthExpiredMeta } from '@toolbox/core';
 import type { Logger, NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -263,6 +263,7 @@ describe('tools/call handler', () => {
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content[0]?.text).toContain('Authentication for "jira" has expired.');
     expect(content[0]?.text).toContain('tlbx auth login jira');
+    expect(readAuthExpiredMeta(result._meta)).toEqual({ server: 'jira' });
     await closeAll();
   });
 

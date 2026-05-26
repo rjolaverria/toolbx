@@ -6,6 +6,7 @@ import {
   DEFAULT_NAMESPACE_SEPARATOR,
   formatExposedName,
   parseExposedName,
+  readAuthExpiredMeta,
   type DaemonCallToolResult,
   type DaemonClient,
   type LogFormat,
@@ -302,6 +303,20 @@ function classifyCallError(error: unknown): RunFailure {
 }
 
 /**
+ * Classifies an `isError: true` tool result. The daemon renders an expired
+ * upstream credential as an error result carrying a structured `_meta` marker
+ * (rather than a thrown error) so MCP clients can show the re-auth text; here
+ * that marker promotes the result to an `auth` failure with the dedicated exit
+ * code. Everything else is a generic tool error.
+ */
+function classifyResult(result: DaemonCallToolResult): RunFailure {
+  if (readAuthExpiredMeta(result._meta) !== undefined) {
+    return { kind: 'auth', exit: EXIT_AUTH, message: renderText(result), result };
+  }
+  return { kind: 'tool_error', exit: EXIT_TOOL_ERROR, message: renderText(result), result };
+}
+
+/**
  * Emits a successful tool result on stdout in the chosen mode. `text` extracts
  * text content, `json` wraps the result in the agent-stable envelope, and `mcp`
  * prints the raw `CallToolResult`. Nothing is written to stderr on success, so
@@ -470,12 +485,7 @@ export async function runRun(
     }
 
     if (result.isError === true) {
-      return emitFailure(
-        { kind: 'tool_error', exit: EXIT_TOOL_ERROR, message: renderText(result), result },
-        ctx,
-        mode,
-        deps,
-      );
+      return emitFailure(classifyResult(result), ctx, mode, deps);
     }
 
     emitSuccess(result, ctx, mode, deps);

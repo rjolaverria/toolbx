@@ -1,4 +1,9 @@
-import type { DaemonCallToolResult, DaemonClient, DaemonListToolsResult } from '@toolbox/core';
+import {
+  authExpiredMeta,
+  type DaemonCallToolResult,
+  type DaemonClient,
+  type DaemonListToolsResult,
+} from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runRun, type RunDeps, type RunOptions, type RunPositionals } from '../run.js';
@@ -471,6 +476,20 @@ describe('runRun — exit contract', () => {
     const code = await run({ target: 'github__whoami' }, {}, h);
     expect(code).toBe(5);
     expect(h.stderr).toMatch(/tlbx auth login github/);
+  });
+
+  it('exits with the auth code when the daemon returns an auth-expired result', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__whoami', empty: true }],
+      callResult: {
+        isError: true,
+        _meta: authExpiredMeta('github'),
+        content: [{ type: 'text', text: 'Authentication for "github" has expired.' }],
+      },
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).toBe(5);
+    expect(h.stderr).toContain('Authentication for "github" has expired.');
   });
 
   it('exits with the timeout code when the upstream call times out', async () => {
