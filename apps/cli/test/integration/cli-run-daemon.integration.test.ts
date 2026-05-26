@@ -248,8 +248,17 @@ describe('tlbx run — stdio daemon lifecycle', () => {
   });
 
   it('starts a separate daemon per config on a different endpoint', async () => {
-    const handleA = await makeTempConfig(await stdioEchoConfig());
-    const handleC = await makeTempConfig(await stdioEchoConfig());
+    const configA = await stdioEchoConfig();
+    // `getEphemeralPort` releases its socket immediately, so two independent
+    // configs can land on the same port — which would route this onto the
+    // same-port collision path instead. Resample until the ports differ so the
+    // test deterministically exercises two distinct endpoints.
+    let configC = await stdioEchoConfig();
+    while (configC.server.http.port === configA.server.http.port) {
+      configC = await stdioEchoConfig();
+    }
+    const handleA = await makeTempConfig(configA);
+    const handleC = await makeTempConfig(configC);
     tempConfigs.push(handleA, handleC);
 
     // Different config paths on different ephemeral ports → two daemons.
