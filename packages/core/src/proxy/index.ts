@@ -12,3 +12,9 @@ export {
   type RouteToolCallParams,
   type RouteUpstreamError,
 } from './route.js';
+export {
+  AUTH_EXPIRED_META_KEY,
+  authExpiredMeta,
+  readAuthExpiredMeta,
+  type AuthExpiredMeta,
+} from './auth-expired-meta.js';

@@ -3,6 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import {
+  authExpiredMeta,
   routeToolCall,
   type Logger,
   type NamespaceOptions,
@@ -99,11 +100,14 @@ export interface RegisterToolsCallHandlerOptions {
  * Renders the `auth_expired` outcome as a structured tool-call result instead
  * of a JSON-RPC error. The agent surfaces this text to the user, who recovers
  * by running `tlbx auth login <server>` in a terminal; the gateway picks up the
- * refreshed token on the next call (SPECS §4.6.2).
+ * refreshed token on the next call (SPECS §4.6.2). The `_meta` marker lets a
+ * programmatic caller (`tlbx run`) classify this as an auth failure rather than
+ * a generic tool error.
  */
 function buildAuthExpiredResult(serverName: string): CallToolResult {
   return {
     isError: true,
+    _meta: authExpiredMeta(serverName),
     content: [
       {
         type: 'text',

@@ -108,7 +108,11 @@ export {
 } from './server-status/registry.js';
 
 export {
+  AUTH_EXPIRED_META_KEY,
+  authExpiredMeta,
+  readAuthExpiredMeta,
   routeToolCall,
+  type AuthExpiredMeta,
   type RegisteredToolView,
   type RegistryView,
   type RoutedCallToolResult,
