@@ -403,6 +403,14 @@ describe('runDiscovery — flag validation', () => {
     expect(h.stderr).toMatch(/take no tool input/i);
   });
 
+  it('rejects --output mcp for discovery before contacting the daemon', async () => {
+    const h = makeHarness();
+    const code = await discover({}, { list: true, output: 'mcp' }, h);
+    expect(code).toBe(2);
+    expect(h.ensureDaemonCalls).toBe(0);
+    expect(h.stderr).toMatch(/mcp is not supported for discovery/i);
+  });
+
   it('surfaces daemon failures as exit 3', async () => {
     const h = makeHarness({ ensureDaemonFails: { code: 3, message: 'daemon down' } });
     const code = await discover({}, { list: true }, h);

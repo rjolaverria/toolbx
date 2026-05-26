@@ -436,7 +436,14 @@ export async function runDiscovery(
     deps.stderr(`${modeResult.message}\n`);
     return EXIT_USAGE;
   }
-  const json = modeResult.mode !== 'text';
+  // `mcp` means a raw MCP `CallToolResult` (the run output contract, §5.4).
+  // Discovery produces no tool result, so honor only `text` and `json` and
+  // reject `mcp` rather than silently emitting synthesized JSON in its place.
+  if (modeResult.mode === 'mcp') {
+    deps.stderr('tlbx run: --output mcp is not supported for discovery; use text or json.\n');
+    return EXIT_USAGE;
+  }
+  const json = modeResult.mode === 'json';
 
   // Shape-validate the positionals against the chosen mode before any daemon
   // contact, so a misuse fails fast with exit 2.
