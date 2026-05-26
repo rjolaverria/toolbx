@@ -1,140 +1,44 @@
-import { readFile as fsReadFile } from 'node:fs/promises';
-
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
-  connectDaemonClient,
-  DEFAULT_NAMESPACE_SEPARATOR,
-  formatExposedName,
-  parseExposedName,
   readAuthExpiredMeta,
   type DaemonCallToolResult,
   type DaemonClient,
   type LogFormat,
   type LogLevel,
-  type NamespaceOptions,
 } from '@toolbox/core';
 
-import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
+import { runDiscovery } from './run-discovery.js';
+import {
+  defaultRunDeps,
+  EXIT_AUTH,
+  EXIT_DAEMON,
+  EXIT_SUCCESS,
+  EXIT_TIMEOUT,
+  EXIT_TOOL_ERROR,
+  EXIT_UNKNOWN_TOOL,
+  EXIT_USAGE,
+  errorMessage,
+  isRecord,
+  openDaemonClient,
+  OUTPUT_MODES,
+  resolveOutputMode,
+  resolveTarget,
+  type OutputMode,
+  type RunDeps,
+  type RunOptions,
+  type RunPositionals,
+  type TargetContext,
+} from './run-shared.js';
 
-const NAMESPACING: NamespaceOptions = {
-  separator: DEFAULT_NAMESPACE_SEPARATOR,
-  format: 'server__tool',
-};
-
-/**
- * Exit codes for `tlbx run`. Each failure category gets a distinct code so an
- * agent driving the CLI can react without parsing stderr (SPECS §5.4). The
- * table is mirrored in the command help.
- */
-const EXIT_SUCCESS = 0;
-/** The tool ran but reported a failure, or an upstream error without a more specific code. */
-const EXIT_TOOL_ERROR = 1;
-/** Usage / input mistake: bad flags, invalid JSON, missing required input. */
-const EXIT_USAGE = 2;
-/** Config load, daemon startup/readiness, or daemon connection failure. */
-const EXIT_DAEMON = 3;
-/** The resolved tool is not exposed by the daemon (unknown or disabled). */
-const EXIT_UNKNOWN_TOOL = 4;
-/** The target server needs authentication (`tlbx auth login <server>`). */
-const EXIT_AUTH = 5;
-/** The upstream tool call exceeded its configured timeout. */
-const EXIT_TIMEOUT = 6;
+export {
+  defaultRunDeps,
+  type RunDeps,
+  type RunOptions,
+  type RunPositionals,
+} from './run-shared.js';
 
 /** JSON-RPC `MethodNotFound`; the daemon uses it for unknown and disabled tools. */
 const METHOD_NOT_FOUND = -32601;
-
-const OUTPUT_MODES = ['text', 'json', 'mcp'] as const;
-type OutputMode = (typeof OUTPUT_MODES)[number];
-
-export interface RunPositionals {
-  /** Either a full exposed name (`github__create_issue`) or a server name. */
-  target: string;
-  /** When present, `target` is the server and this is the upstream tool name. */
-  tool?: string | undefined;
-}
-
-export interface RunOptions {
-  json?: string | undefined;
-  file?: string | undefined;
-  stdin?: boolean | undefined;
-  output?: string | undefined;
-  config?: string | undefined;
-  logLevel?: LogLevel | undefined;
-  logFormat?: LogFormat | undefined;
-}
-
-export interface RunDeps {
-  /** Ensures a ready daemon for the resolved config and returns its endpoint. */
-  ensureDaemon: (options: {
-    config?: string;
-    logLevel?: LogLevel;
-    logFormat?: LogFormat;
-  }) => Promise<EnsureDaemonResult>;
-  /** Connects to the daemon as a control-plane caller (carries the §5.3 marker). */
-  connect: (url: string) => Promise<DaemonClient>;
-  readFile: (path: string) => Promise<string>;
-  readStdin: () => Promise<string>;
-  stdout: (msg: string) => void;
-  stderr: (msg: string) => void;
-  /** Whether real stdout is a TTY; selects the default output mode (§5.4). */
-  isStdoutTTY: boolean;
-}
-
-export function defaultRunDeps(): RunDeps {
-  return {
-    ensureDaemon: (options) => ensureDaemon(options, defaultEnsureDaemonDeps()),
-    connect: (url) => connectDaemonClient(url),
-    readFile: (path) => fsReadFile(path, 'utf8'),
-    readStdin: readStdin,
-    stdout: (msg) => {
-      process.stdout.write(msg);
-    },
-    stderr: (msg) => {
-      process.stderr.write(msg);
-    },
-    isStdoutTTY: process.stdout.isTTY === true,
-  };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-/** The resolved call target: its exposed name and `server`/`tool` decomposition. */
-interface TargetContext {
-  exposedName: string;
-  /** `null` when the exposed name carries no namespace separator. */
-  server: string | null;
-  tool: string;
-}
-
-/** Resolves the positional args into the exposed name and its `server`/`tool` parts. */
-function resolveTarget(pos: RunPositionals): TargetContext {
-  if (pos.tool !== undefined && pos.tool.length > 0) {
-    return {
-      exposedName: formatExposedName(pos.target, pos.tool, NAMESPACING),
-      server: pos.target,
-      tool: pos.tool,
-    };
-  }
-  const parsed = parseExposedName(pos.target, NAMESPACING);
-  if (parsed !== null) {
-    return { exposedName: pos.target, server: parsed.serverName, tool: parsed.upstreamName };
-  }
-  return { exposedName: pos.target, server: null, tool: pos.target };
-}
 
 interface ParsedInput {
   ok: true;
@@ -246,23 +150,6 @@ function renderText(result: DaemonCallToolResult): string {
     return text;
   }
   return JSON.stringify(content);
-}
-
-/** Resolves the effective output mode from `--output` or the stdout TTY default. */
-function resolveOutputMode(
-  options: RunOptions,
-  deps: RunDeps,
-): { ok: true; mode: OutputMode } | { ok: false; message: string } {
-  if (options.output !== undefined) {
-    if ((OUTPUT_MODES as readonly string[]).includes(options.output)) {
-      return { ok: true, mode: options.output as OutputMode };
-    }
-    return {
-      ok: false,
-      message: `tlbx run: invalid --output "${options.output}"; expected one of ${OUTPUT_MODES.join(', ')}`,
-    };
-  }
-  return { ok: true, mode: deps.isStdoutTTY ? 'text' : 'json' };
 }
 
 type FailureKind = 'usage' | 'daemon' | 'unknown_tool' | 'auth' | 'timeout' | 'tool_error';
@@ -390,17 +277,40 @@ function emitFailure(
   return failure.exit;
 }
 
+/** Returns `true` when any discovery flag is present, routing away from execution. */
+function isDiscovery(options: RunOptions): boolean {
+  return (
+    options.search !== undefined ||
+    options.list === true ||
+    options.describe === true ||
+    options.schema === true ||
+    options.example === true
+  );
+}
+
 export async function runRun(
   pos: RunPositionals,
   options: RunOptions,
   deps: RunDeps,
 ): Promise<number> {
+  if (isDiscovery(options)) {
+    return runDiscovery(pos, options, deps);
+  }
+
   const modeResult = resolveOutputMode(options, deps);
   if (!modeResult.ok) {
     deps.stderr(`${modeResult.message}\n`);
     return EXIT_USAGE;
   }
   const mode = modeResult.mode;
+
+  if (pos.target === undefined || pos.target.length === 0) {
+    deps.stderr(
+      'tlbx run: specify a tool to run (e.g. `tlbx run <server> <tool>`), ' +
+        'or use --list / --search to discover tools.\n',
+    );
+    return EXIT_USAGE;
+  }
 
   const input = await parseInput(options, deps);
   if (!input.ok) {
@@ -410,35 +320,16 @@ export async function runRun(
 
   const ctx = resolveTarget(pos);
 
-  const ensured = await deps.ensureDaemon({
-    ...(options.config !== undefined ? { config: options.config } : {}),
-    ...(options.logLevel !== undefined ? { logLevel: options.logLevel } : {}),
-    ...(options.logFormat !== undefined ? { logFormat: options.logFormat } : {}),
-  });
-  if (!ensured.ok) {
+  const opened = await openDaemonClient(options, deps);
+  if (!opened.ok) {
     return emitFailure(
-      { kind: 'daemon', exit: EXIT_DAEMON, message: ensured.message },
+      { kind: 'daemon', exit: EXIT_DAEMON, message: opened.message },
       ctx,
       mode,
       deps,
     );
   }
-
-  let client: DaemonClient;
-  try {
-    client = await deps.connect(ensured.daemon.url);
-  } catch (error) {
-    return emitFailure(
-      {
-        kind: 'daemon',
-        exit: EXIT_DAEMON,
-        message: `tlbx run: failed to connect to the daemon at ${ensured.daemon.url}: ${errorMessage(error)}`,
-      },
-      ctx,
-      mode,
-      deps,
-    );
-  }
+  const client: DaemonClient = opened.client;
 
   try {
     let listed: Awaited<ReturnType<DaemonClient['listTools']>>;
@@ -503,7 +394,7 @@ export async function runRun(
 export function runCommand(): CommandUnknownOpts {
   return new Command('run')
     .description('Call a tool through the ToolBox daemon, auto-starting it when needed.')
-    .argument('<target>', 'a fully exposed tool name, or the server name when <tool> is given')
+    .argument('[target]', 'a fully exposed tool name, or the server name when [tool] is given')
     .argument('[tool]', 'the upstream tool name (resolves to <target>__<tool>)')
     .option('--json <json>', 'tool arguments as an inline JSON object')
     .option('--file <path>', 'read tool arguments as JSON from a file')
@@ -512,12 +403,25 @@ export function runCommand(): CommandUnknownOpts {
       '--output <mode>',
       `output mode: ${OUTPUT_MODES.join(' | ')} (default: text on a TTY, json otherwise)`,
     )
+    .option('--search <query>', 'discover tools matching a query (optionally scoped by [target])')
+    .option('--list', 'list every enabled tool (optionally scoped by [target])')
+    .option('--describe', 'describe the resolved tool: fields and an example invocation')
+    .option('--schema', "print the resolved tool's raw input schema as JSON")
+    .option('--example', 'print a generated JSON argument skeleton for the resolved tool')
+    .option('--limit <n>', 'cap the number of --search results', (v) => Number.parseInt(v, 10))
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .option('--log-level <level>', 'daemon log level used when auto-starting')
     .option('--log-format <format>', 'daemon log format used when auto-starting')
     .addHelpText(
       'after',
       [
+        '',
+        'Discovery:',
+        '  tlbx run --search <query>             search every enabled tool',
+        "  tlbx run <server> --list             list a server's tools",
+        '  tlbx run <server> <tool> --describe  show fields and an example call',
+        '  tlbx run <server> <tool> --schema    print the raw input schema',
+        '  tlbx run <server> <tool> --example   print a JSON argument skeleton',
         '',
         'Exit codes:',
         '  0  success',
@@ -535,12 +439,21 @@ export function runCommand(): CommandUnknownOpts {
         ...(opts.file !== undefined ? { file: opts.file } : {}),
         ...(opts.stdin !== undefined ? { stdin: opts.stdin } : {}),
         ...(opts.output !== undefined ? { output: opts.output } : {}),
+        ...(opts.search !== undefined ? { search: opts.search } : {}),
+        ...(opts.list !== undefined ? { list: opts.list } : {}),
+        ...(opts.describe !== undefined ? { describe: opts.describe } : {}),
+        ...(opts.schema !== undefined ? { schema: opts.schema } : {}),
+        ...(opts.example !== undefined ? { example: opts.example } : {}),
+        ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
         ...(opts.config !== undefined ? { config: opts.config } : {}),
         ...(opts.logLevel !== undefined ? { logLevel: opts.logLevel as LogLevel } : {}),
         ...(opts.logFormat !== undefined ? { logFormat: opts.logFormat as LogFormat } : {}),
       };
       const code = await runRun(
-        { target, ...(tool !== undefined ? { tool } : {}) },
+        {
+          ...(target !== undefined ? { target } : {}),
+          ...(tool !== undefined ? { tool } : {}),
+        },
         options,
         defaultRunDeps(),
       );
