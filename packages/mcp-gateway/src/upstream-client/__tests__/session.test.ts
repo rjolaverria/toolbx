@@ -355,6 +355,42 @@ describe('createUpstreamSession — auth_required', () => {
     expect(session.status.kind).toBe('connected');
     await session.dispose();
   });
+
+  it('carries the bearer tokenEnv into the auth_required status', async () => {
+    // The status is the daemon-authoritative signal `tlbx run` reads to tell a
+    // missing-bearer-env case (restart the daemon) from a missing-OAuth-token
+    // case (`tlbx auth login`).
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(
+      UpstreamAuthRequiredError.forMissingBearerToken('GITHUB_TOKEN', 'github'),
+    );
+    await startPromise;
+
+    expect(session.status).toMatchObject({ kind: 'auth_required', tokenEnv: 'GITHUB_TOKEN' });
+    await session.dispose();
+  });
+
+  it('omits tokenEnv from the auth_required status for a missing OAuth token', async () => {
+    const { controls, factory } = fixture();
+    const session = createUpstreamSession(stdioConfig, {
+      logger: createNoopLogger(),
+      createClient: factory,
+    });
+
+    const startPromise = session.start();
+    controls[0]!.resolveConnect(UpstreamAuthRequiredError.forMissingOAuthToken('github'));
+    await startPromise;
+
+    expect(session.status.kind).toBe('auth_required');
+    expect((session.status as { tokenEnv?: string }).tokenEnv).toBeUndefined();
+    await session.dispose();
+  });
 });
 
 describe('createUpstreamSession — auth_required (oauth)', () => {

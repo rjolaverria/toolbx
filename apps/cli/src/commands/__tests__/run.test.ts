@@ -544,42 +544,25 @@ describe('runRun — auth remediation', () => {
     return Object.assign(new Error(`MCP error -32603: ${message}`), { code: -32603, data });
   }
 
-  function authRequired(server: string): Error {
+  // The daemon reports its own auth method in the `auth_required` status: a
+  // bearer server carries the `tokenEnv` it needs at startup; an OAuth server
+  // omits it. The CLI classifies remediation off this status, not off config,
+  // so it stays correct even when the running daemon's config has drifted.
+  function authRequired(server: string, tokenEnv?: string): Error {
     return mcpError(`Upstream server "${server}" is unavailable (status: auth_required)`, {
       server,
-      status: { kind: 'auth_required', reason: 'auth required' },
+      status: {
+        kind: 'auth_required',
+        reason: 'auth required',
+        ...(tokenEnv !== undefined ? { tokenEnv } : {}),
+      },
     });
   }
 
-  function bearerConfig(tokenEnv: string): ToolBoxConfig {
-    return {
-      ...DEFAULT_CONFIG,
-      servers: {
-        github: {
-          type: 'http',
-          enabled: true,
-          url: 'https://api.example.com/mcp',
-          auth: { type: 'bearer', tokenEnv },
-        },
-      },
-    };
-  }
-
-  it('points an OAuth server at `tlbx auth login` (no bearer config)', async () => {
+  it('points an OAuth server (no tokenEnv in status) at `tlbx auth login`', async () => {
     const h = makeHarness({
       tools: [{ name: 'other__tool', empty: true }],
       callToolThrows: authRequired('github'),
-      config: {
-        ...DEFAULT_CONFIG,
-        servers: {
-          github: {
-            type: 'http',
-            enabled: true,
-            url: 'https://api.example.com/mcp',
-            auth: { type: 'oauth' },
-          },
-        },
-      },
     });
     const code = await run({ target: 'github__whoami' }, {}, h);
     expect(code).toBe(5);
@@ -590,8 +573,7 @@ describe('runRun — auth remediation', () => {
   it('explains the daemon restart for a missing bearer env var', async () => {
     const h = makeHarness({
       tools: [{ name: 'other__tool', empty: true }],
-      callToolThrows: authRequired('github'),
-      config: bearerConfig('GITHUB_TOKEN'),
+      callToolThrows: authRequired('github', 'GITHUB_TOKEN'),
     });
     const code = await run({ target: 'github__whoami' }, {}, h);
     expect(code).toBe(5);
@@ -607,8 +589,7 @@ describe('runRun — auth remediation', () => {
     // remediation must name `tlbx stop`, not imply an immediate retry works.
     const h = makeHarness({
       tools: [{ name: 'other__tool', empty: true }],
-      callToolThrows: authRequired('github'),
-      config: bearerConfig('GITHUB_TOKEN'),
+      callToolThrows: authRequired('github', 'GITHUB_TOKEN'),
     });
     await run({ target: 'github__whoami' }, {}, h);
     expect(h.stderr).toMatch(/already running will not pick up/i);

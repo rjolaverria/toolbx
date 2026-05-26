@@ -327,7 +327,11 @@ export function createUpstreamSession(
   ): void {
     if (isAuthRequiredError(error) && !recovering) {
       phase = { kind: 'auth_required' };
-      setStatus({ kind: 'auth_required', reason: error.message });
+      setStatus({
+        kind: 'auth_required',
+        reason: error.message,
+        ...(error.tokenEnv !== undefined ? { tokenEnv: error.tokenEnv } : {}),
+      });
       return;
     }
     enterAuthExpired(error.message, attempt);

@@ -188,30 +188,20 @@ interface RunFailure {
   result?: DaemonCallToolResult;
 }
 
-/** Context the failure classifiers consult to produce config-aware remediation. */
+/**
+ * Context the failure classifiers consult for remediation. `config` is only
+ * read for the disabled-vs-unknown decision: the gateway deliberately refuses
+ * disabled servers and tools as a bare `MethodNotFound` (indistinguishable from
+ * a truly unknown name over MCP, so a cached name cannot probe the disabled
+ * set), so a local trusted caller has no daemon-side signal and must consult
+ * the config to name the re-enable command (§5.5). The auth decision, by
+ * contrast, reads the daemon's own `auth_required` status, never the config.
+ */
 interface RemediationContext {
   ctx: TargetContext;
   config: ToolBoxConfig;
   /** The control-plane `tools/list` snapshot, used to suggest nearby tools. */
   listed: readonly ListedTool[];
-}
-
-/**
- * Returns the bearer `tokenEnv` configured for a server, or `undefined` when the
- * server uses OAuth, no auth, or is not a configured HTTP server. This is the
- * signal that distinguishes the two `auth_required` remediations (§5.5): a
- * bearer server is recovered by restarting the daemon with the variable in its
- * environment, an OAuth server by `tlbx auth login`.
- */
-function bearerTokenEnvFor(config: ToolBoxConfig, server: string | undefined): string | undefined {
-  if (server === undefined) {
-    return undefined;
-  }
-  const entry = config.servers[server];
-  if (entry?.type === 'http' && entry.auth?.type === 'bearer') {
-    return entry.auth.tokenEnv;
-  }
-  return undefined;
 }
 
 /**
@@ -292,8 +282,11 @@ function classifyCallError(error: unknown, rc: RemediationContext): RunFailure {
       (status.kind === 'auth_required' || status.kind === 'auth_expired')
     ) {
       const server = typeof data.server === 'string' ? data.server : (rc.ctx.server ?? undefined);
-      const tokenEnv =
-        status.kind === 'auth_required' ? bearerTokenEnvFor(rc.config, server) : undefined;
+      // The daemon reports its own auth method: an `auth_required` status carries
+      // the bearer `tokenEnv` it needs at startup, and is absent for OAuth. This
+      // is authoritative even when the CLI's config has drifted from the running
+      // daemon's.
+      const tokenEnv = typeof status.tokenEnv === 'string' ? status.tokenEnv : undefined;
       return authRemediation(error, server, tokenEnv);
     }
   }
