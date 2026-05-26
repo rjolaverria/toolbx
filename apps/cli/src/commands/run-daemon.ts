@@ -220,6 +220,21 @@ export async function ensureDaemon(
     };
   }
 
+  // The daemon that actually bound the port published its own config identity.
+  // It may not match the snapshot loaded before the spawn — the file could have
+  // changed between the load and the child's startup, or a concurrent starter
+  // could have won the port with a different snapshot. Trust the published
+  // identity, not the pre-spawn load, so the returned `config` (used for
+  // remediation) always reflects the daemon actually serving (matches the
+  // reuse-path drift guard above).
+  if (state.configHash !== computeConfigIdentity(config)) {
+    return {
+      ok: false,
+      code: 1,
+      message: `tlbx run: the running daemon (pid ${String(state.pid)}) was started with a different config than ${configPath} now holds; run \`tlbx stop\` and retry to restart it with the current config`,
+    };
+  }
+
   const url = state.url ?? endpoint;
   if (!(await deps.waitForReady(url))) {
     return {
