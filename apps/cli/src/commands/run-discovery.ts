@@ -216,19 +216,27 @@ function generateExample(schema: unknown, depth = 0): unknown {
   }
 }
 
+/** Characters that need no quoting inside a POSIX shell word. */
+const SHELL_SAFE = /^[A-Za-z0-9_./:@%+=-]+$/;
+
 /**
- * Wraps a string in POSIX single quotes, escaping any embedded single quote so
- * the result is a single safe shell word. A `'` becomes `'\''` (close quote,
- * escaped quote, reopen quote).
+ * Renders a value as a single safe POSIX shell word. Already-safe values pass
+ * through unquoted for readability; anything else is single-quoted with
+ * embedded single quotes escaped as `'\''` (close quote, escaped quote,
+ * reopen). Both the tool name (upstream names are not shell-constrained) and
+ * the JSON payload pass through here.
  */
-function shellSingleQuote(value: string): string {
+function shellArg(value: string): string {
+  if (value.length > 0 && SHELL_SAFE.test(value)) {
+    return value;
+  }
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /** Builds a copy-pasteable `tlbx run` invocation seeded with a JSON skeleton. */
 function exampleCommand(exposedName: string, schema: unknown): string {
   const json = JSON.stringify(generateExample(schema));
-  return `tlbx run ${exposedName} --json ${shellSingleQuote(json)}`;
+  return `tlbx run ${shellArg(exposedName)} --json ${shellArg(json)}`;
 }
 
 /** Finds nearby tools for an unknown-tool error using the shared search ranking. */
@@ -437,6 +445,17 @@ export async function runDiscovery(
       deps.stderr(
         `tlbx run: --${kind} takes an optional server name, not a tool. ` +
           `Try \`tlbx run ${pos.target ?? '<server>'} --${kind}${kind === 'search' ? ` ${options.search ?? ''}` : ''}\`.\n`,
+      );
+      return EXIT_USAGE;
+    }
+    // The positional filter is a server name, never a tool. Server names cannot
+    // contain the namespace separator (enforced at config load), so a `target`
+    // that does is a misused exposed tool name — reject it rather than silently
+    // matching nothing.
+    if (pos.target !== undefined && pos.target.includes(NAMESPACING.separator)) {
+      deps.stderr(
+        `tlbx run: --${kind} takes a server name, but "${pos.target}" looks like a tool name. ` +
+          `Drop the "${NAMESPACING.separator}<tool>" suffix to filter by server.\n`,
       );
       return EXIT_USAGE;
     }

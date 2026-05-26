@@ -182,6 +182,14 @@ describe('runDiscovery — list', () => {
     expect(h.ensureDaemonCalls).toBe(0);
     expect(h.stderr).toMatch(/server name, not a tool/i);
   });
+
+  it('rejects a fully exposed name as the server filter before contacting the daemon', async () => {
+    const h = makeHarness();
+    const code = await discover({ target: 'github__create_issue' }, { list: true }, h);
+    expect(code).toBe(2);
+    expect(h.ensureDaemonCalls).toBe(0);
+    expect(h.stderr).toMatch(/looks like a tool name/i);
+  });
 });
 
 describe('runDiscovery — search', () => {
@@ -297,6 +305,25 @@ describe('runDiscovery — describe', () => {
     expect(code).toBe(0);
     // The embedded `'` is escaped as `'\''`, leaving a single safe shell word.
     expect(h.stdout).toContain(`--json '{"phrase":"it'\\''s a trap"}'`);
+  });
+
+  it('shell-quotes a tool name that is not shell-safe', async () => {
+    const h = makeHarness({
+      tools: [
+        {
+          name: 'custom__odd name',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+        },
+      ],
+    });
+    const code = await discover(
+      { target: 'custom__odd name' },
+      { describe: true, output: 'json' },
+      h,
+    );
+    expect(code).toBe(0);
+    const payload = JSON.parse(h.stdout) as { example: { command: string } };
+    expect(payload.example.command).toBe(`tlbx run 'custom__odd name' --json '{}'`);
   });
 });
 
