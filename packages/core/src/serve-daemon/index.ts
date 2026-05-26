@@ -7,6 +7,12 @@ export { ServeDaemonStateSchema, type ServeDaemonState } from './schema.js';
 export { clearServeState, readServeState, writeServeState } from './state.js';
 export { isProcessAlive } from './process.js';
 export {
+  CONTROL_PLANE_HEADER,
+  CONTROL_PLANE_MARKER,
+  isControlPlaneConnection,
+  isLoopbackAddress,
+} from './control-plane.js';
+export {
   defaultProbeDeps,
   probeDaemonEndpoint,
   waitForDaemonReady,

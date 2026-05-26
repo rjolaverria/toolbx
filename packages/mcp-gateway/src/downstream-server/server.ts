@@ -21,6 +21,12 @@ export interface BuildToolBoxMcpServerDeps {
    * (progressive-disclosure registry in M4) stays isolated.
    */
   sessionId: string;
+  /**
+   * Marks this session as a local control-plane caller (`tlbx run`, SPECS
+   * §5.3) so the handlers exempt it from progressive disclosure. HTTP sessions
+   * set this from the loopback marker; stdio sessions never do.
+   */
+  controlPlane?: boolean | undefined;
   registerHandlers?: RegisterDownstreamHandlers | undefined;
 }
 
@@ -43,7 +49,7 @@ export function buildToolBoxMcpServer(
     { capabilities: TOOLBOX_SERVER_CAPABILITIES },
   );
 
-  const session = createDownstreamSession(deps.sessionId);
+  const session = createDownstreamSession(deps.sessionId, deps.controlPlane ?? false);
   registerLifecycleHandlers(server, session);
 
   // Install the single canonical close hook. Consumers (transports, the

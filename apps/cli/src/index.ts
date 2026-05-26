@@ -8,6 +8,7 @@ import { clientCommand } from './commands/client-print-config.js';
 import { configCommand } from './commands/config.js';
 import { doctorCommand } from './commands/doctor.js';
 import { initCommand } from './commands/init.js';
+import { runCommand } from './commands/run.js';
 import { serveCommand, serveManagedCommand } from './commands/serve.js';
 import { serverCommand } from './commands/server.js';
 import { setupCommand } from './commands/setup.js';
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
   program.addCommand(serverCommand());
   program.addCommand(serveCommand());
   program.addCommand(serveManagedCommand(), { hidden: true });
+  program.addCommand(runCommand());
   program.addCommand(stopCommand());
   program.addCommand(statusCommand());
   program.addCommand(toolsCommand());

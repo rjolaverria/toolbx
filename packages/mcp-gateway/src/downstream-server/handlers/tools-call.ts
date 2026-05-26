@@ -291,6 +291,7 @@ export function registerToolsCallHandler(
     // sending the client into a dead-end "reveal this tool" flow.
     if (
       isDisclosureEnabled?.() === true &&
+      !session.controlPlane &&
       visibility !== undefined &&
       entry !== undefined &&
       !visibility.isVisible(name)

@@ -34,12 +34,14 @@ async function connect(opts: {
   visibility?: SessionVisibility;
   isDisclosureEnabled?: () => boolean;
   isToolEnabled?: (exposedName: string) => boolean;
+  controlPlane?: boolean;
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
   const built = buildToolBoxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-list-test',
+    ...(opts.controlPlane !== undefined ? { controlPlane: opts.controlPlane } : {}),
     registerHandlers: (server, session) => {
       registerToolsListHandler(server, session, opts.registry, bootstrap, {
         ...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
@@ -303,6 +305,41 @@ describe('tools/list handler — progressive disclosure mode', () => {
 
     const result = await client.listTools();
     expect(result.tools.map((t) => t.name).sort()).toEqual([...BOOTSTRAP_TOOL_NAMES].sort());
+    await closeAll();
+  });
+
+  it('returns every enabled upstream tool for a control-plane session even with disclosure on', async () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('search_issues'), tool('create_issue')],
+    });
+    registry.setServerEntry({
+      serverName: 'github',
+      status: CONNECTED,
+      enabled: true,
+      tools: [tool('create_pull_request')],
+    });
+    const bootstrap = bootstrapWithFiveNames();
+    const visibility = createSessionVisibility({
+      mode: 'session',
+      bootstrapToolNames: BOOTSTRAP_TOOL_NAMES,
+    });
+
+    const { client, closeAll } = await connect({
+      registry,
+      bootstrap,
+      visibility,
+      isDisclosureEnabled: () => true,
+      controlPlane: true,
+    });
+
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toContain('jira__search_issues');
+    expect(names).toContain('jira__create_issue');
+    expect(names).toContain('github__create_pull_request');
     await closeAll();
   });
 

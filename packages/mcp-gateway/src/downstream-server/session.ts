@@ -19,6 +19,14 @@ export interface DownstreamSession {
   readonly id: string;
   ready: boolean;
   /**
+   * `true` when this session is a local control-plane caller (`tlbx run`) that
+   * connected over loopback with the §5.3 marker. Marked sessions are exempt
+   * from progressive disclosure: `tools/list` returns every enabled tool and
+   * `tools/call` skips the revealed-set check. Always `false` for stdio
+   * sessions and for HTTP sessions from real MCP clients.
+   */
+  readonly controlPlane: boolean;
+  /**
    * Register a callback to fire when the SDK `Server` closes (transport
    * disconnect, explicit `server.close()`, etc). Cleanups run in
    * registration order; throws are swallowed so one cleanup cannot block
@@ -33,12 +41,13 @@ export interface DownstreamSession {
   runCloseCallbacks(): void;
 }
 
-export function createDownstreamSession(id: string): DownstreamSession {
+export function createDownstreamSession(id: string, controlPlane = false): DownstreamSession {
   const callbacks = new Set<() => void>();
 
   return {
     id,
     ready: false,
+    controlPlane,
     onClose(callback) {
       callbacks.add(callback);
       return () => {
