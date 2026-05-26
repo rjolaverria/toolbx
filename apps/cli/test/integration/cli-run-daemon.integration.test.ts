@@ -80,7 +80,14 @@ async function waitForToolListed(
   const deadline = Date.now() + timeoutMs;
   let last = '';
   while (Date.now() < deadline) {
-    const res = await runCli(['run', '--list', '--output', 'json', '--config', configPath]);
+    // Cap each poll's subprocess budget to the time left in the wait window, so
+    // a poll that starts late and then hangs is killed within this helper's own
+    // deadline rather than running on past Vitest's test timeout (which would
+    // leak the child the runCli budget exists to reap).
+    const remaining = deadline - Date.now();
+    const res = await runCli(['run', '--list', '--output', 'json', '--config', configPath], {
+      timeoutMs: remaining,
+    });
     last = `code=${String(res.code)} stdout=${res.stdout} stderr=${res.stderr}`;
     if (res.code === 0) {
       const rows = JSON.parse(res.stdout) as Array<{ exposedName: string }>;
