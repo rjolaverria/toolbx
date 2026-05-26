@@ -298,6 +298,13 @@ export async function runRun(
   options: RunOptions,
   deps: RunDeps,
 ): Promise<number> {
+  // `--limit` only bounds `--search` results; reject it anywhere else so it is
+  // never silently ignored (e.g. on a normal tool execution).
+  if (options.limit !== undefined && options.search === undefined) {
+    deps.stderr('tlbx run: --limit only applies to --search.\n');
+    return EXIT_USAGE;
+  }
+
   if (isDiscovery(options)) {
     return runDiscovery(pos, options, deps);
   }

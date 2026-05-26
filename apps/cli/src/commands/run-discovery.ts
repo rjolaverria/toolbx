@@ -5,7 +5,7 @@ import {
   type RegisteredToolView,
   type SearchMatchedField,
 } from '@toolbox/core';
-import { BOOTSTRAP_TOOL_NAMES } from '@toolbox/mcp-gateway';
+import { BOOTSTRAP_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 
 import {
   EXIT_DAEMON,
@@ -36,7 +36,17 @@ interface DiscoveredTool {
 
 type ListedTool = DaemonListToolsResult['tools'][number];
 
-const BOOTSTRAP_NAME_SET = new Set<string>(BOOTSTRAP_TOOL_NAMES);
+/**
+ * Identifies a gateway bootstrap tool by the `_meta` marker the daemon stamps
+ * onto its `tools/list` descriptor (§5.3), rather than by exposed name. A real
+ * upstream tool that happens to share a bootstrap name (a server literally
+ * named `toolbox` with bootstrap tools disabled) carries no marker and is
+ * therefore treated as a normal upstream tool.
+ */
+function isBootstrapTool(tool: ListedTool): boolean {
+  const meta = tool._meta;
+  return isRecord(meta) && meta[BOOTSTRAP_TOOL_META_KEY] === true;
+}
 
 /**
  * Placeholder emitted by `--example` for a property whose JSON Schema type
@@ -57,7 +67,7 @@ const EXAMPLE_MAX_DEPTH = 8;
  */
 function buildDiscoveredTools(listed: readonly ListedTool[]): DiscoveredTool[] {
   return listed
-    .filter((tool) => !BOOTSTRAP_NAME_SET.has(tool.name))
+    .filter((tool) => !isBootstrapTool(tool))
     .map((tool) => {
       const parts = tool.name.split(NAMESPACING.separator);
       const serverName = parts.length > 1 ? (parts[0] ?? '') : '';

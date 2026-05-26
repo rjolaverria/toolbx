@@ -1,5 +1,7 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { BOOTSTRAP_TOOL_META_KEY } from './names.js';
+
 /**
  * In-memory registry of toolbox-owned bootstrap tools. Bootstrap tools are
  * not upstream tools — they live inside the gateway and implement
@@ -48,7 +50,13 @@ export function createBootstrapToolRegistry(): BootstrapToolRegistry {
     list() {
       const out: Tool[] = [];
       for (const tool of tools.values()) {
-        out.push(tool.descriptor);
+        // Stamp the bootstrap marker into `_meta` (preserving any existing
+        // descriptor meta) so `tools/list` consumers can identify gateway
+        // tools by provenance rather than by name.
+        out.push({
+          ...tool.descriptor,
+          _meta: { ...tool.descriptor._meta, [BOOTSTRAP_TOOL_META_KEY]: true },
+        });
       }
       return out;
     },

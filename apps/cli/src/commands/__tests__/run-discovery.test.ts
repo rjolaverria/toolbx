@@ -4,6 +4,7 @@ import {
   type DaemonListToolsResult,
   type RegisteredToolView,
 } from '@toolbox/core';
+import { BOOTSTRAP_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runDiscovery } from '../run-discovery.js';
@@ -41,11 +42,13 @@ const DEFAULT_TOOLS: ListedTool[] = [
       required: ['jql'],
     },
   },
-  // Bootstrap tool — must be excluded from every discovery surface.
+  // Bootstrap tool — marked by the daemon, so it must be excluded from every
+  // discovery surface regardless of its name.
   {
     name: 'toolbox__search_tools',
     description: 'Search ToolBox tools.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+    _meta: { [BOOTSTRAP_TOOL_META_KEY]: true },
   },
 ];
 
@@ -173,6 +176,25 @@ describe('runDiscovery — list', () => {
     expect(h.stdout).toContain('github__create_issue');
     expect(h.stdout).toContain('Create a new GitHub issue');
     expect(h.stdout).not.toContain('toolbox__search_tools');
+  });
+
+  it('keeps an unmarked upstream tool that shares a bootstrap name', async () => {
+    // A server literally named `toolbox` with bootstrap tools disabled: the
+    // daemon lists `toolbox__search_tools` without the bootstrap marker, so it
+    // is a normal, callable upstream tool that discovery must surface.
+    const h = makeHarness({
+      tools: [
+        {
+          name: 'toolbox__search_tools',
+          description: 'A real upstream search tool.',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+        },
+      ],
+    });
+    const code = await discover({}, { list: true, output: 'json' }, h);
+    expect(code).toBe(0);
+    const rows = JSON.parse(h.stdout) as { exposedName: string }[];
+    expect(rows.map((r) => r.exposedName)).toEqual(['toolbox__search_tools']);
   });
 
   it('rejects a tool positional with a usage error', async () => {
@@ -425,5 +447,13 @@ describe('runRun — dispatches discovery flags', () => {
     const code = await runRun({}, { list: true, output: 'json' }, h.deps);
     expect(code).toBe(0);
     expect(h.listToolsCalls).toBe(1);
+  });
+
+  it('rejects --limit without --search before contacting the daemon', async () => {
+    const h = makeHarness();
+    const code = await runRun({ target: 'github__create_issue' }, { limit: 5 }, h.deps);
+    expect(code).toBe(2);
+    expect(h.ensureDaemonCalls).toBe(0);
+    expect(h.stderr).toMatch(/--limit only applies to --search/i);
   });
 });
