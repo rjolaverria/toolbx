@@ -153,7 +153,7 @@ async function parseInput(options: RunOptions, deps: RunDeps): Promise<ParsedInp
   } catch (error) {
     return {
       ok: false,
-      message: `tlbx run: invalid JSON input: ${errorMessage(error)}\nGenerate a starting point with \`tlbx run ... --example > input.json\`.`,
+      message: `tlbx run: invalid JSON input: ${errorMessage(error)}`,
     };
   }
 
@@ -235,9 +235,7 @@ export async function runRun(
     const listed = await client.listTools();
     const tool = listed.tools.find((entry) => entry.name === exposedName);
     if (tool === undefined) {
-      deps.stderr(
-        `tlbx run: unknown tool "${exposedName}". Run \`tlbx run --search <query>\` to discover available tools.\n`,
-      );
+      deps.stderr(`tlbx run: unknown tool "${exposedName}".\n`);
       return RUNTIME_EXIT;
     }
 
