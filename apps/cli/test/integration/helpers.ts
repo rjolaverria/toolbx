@@ -267,8 +267,13 @@ export interface RunCliOptions {
   timeoutMs?: number;
 }
 
-/** Default `runCli` budget — matches the integration suite's per-test timeout. */
-export const DEFAULT_CLI_TIMEOUT_MS = 30_000;
+/**
+ * Default `runCli` budget. Kept comfortably below the integration suite's 30s
+ * `testTimeout`/`hookTimeout` so the helper's own killer always fires first: if
+ * it matched the test timeout, Vitest could abort the test before the child was
+ * SIGKILLed, leaking exactly the subprocess this budget exists to reap.
+ */
+export const DEFAULT_CLI_TIMEOUT_MS = 20_000;
 
 /**
  * Spawns the built `tlbx` binary as a real subprocess and resolves with its
