@@ -4,6 +4,7 @@ export {
   type BootstrapToolRegistry,
 } from './registry.js';
 export {
+  BOOTSTRAP_TOOL_META_KEY,
   BOOTSTRAP_TOOL_NAMES,
   HIDE_TOOLS_NAME,
   LIST_AVAILABLE_SERVERS_NAME,

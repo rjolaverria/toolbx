@@ -65,6 +65,7 @@ export {
 } from './registry/index.js';
 
 export {
+  BOOTSTRAP_TOOL_META_KEY,
   BOOTSTRAP_TOOL_NAMES,
   createBootstrapToolRegistry,
   createHideToolsBootstrap,
