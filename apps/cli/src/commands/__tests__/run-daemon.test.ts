@@ -1,4 +1,9 @@
-import { DEFAULT_CONFIG, type ServeDaemonState, type ToolBoxConfig } from '@toolbox/core';
+import {
+  computeConfigIdentity,
+  DEFAULT_CONFIG,
+  type ServeDaemonState,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -17,6 +22,9 @@ function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState 
     url: 'http://127.0.0.1:7331/mcp',
     logPath: '/resolved/config.json.log',
     startedAt: '2026-05-25T12:00:00.000Z',
+    // Default to the identity of the harness's default config so reuse tests
+    // pass the drift check; tests that exercise drift override this.
+    configHash: computeConfigIdentity(DEFAULT_CONFIG),
     ...overrides,
   };
 }
@@ -139,6 +147,25 @@ describe('ensureDaemon', () => {
       expect(result.daemon.reused).toBe(true);
       expect(result.daemon.pid).toBe(4242);
     }
+    expect(h.coldStartCalls).toHaveLength(0);
+  });
+
+  it('refuses a reused daemon whose recorded config identity has drifted', async () => {
+    const h = makeHarness({
+      readStateResponses: [makeState({ pid: 4242, configHash: 'stale-hash-from-an-older-config' })],
+      isAliveOverride: (pid) => pid === 4242,
+      waitForReady: true,
+    });
+
+    const result = await ensureDaemon({}, h.deps);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toMatch(/different config/);
+      expect(result.message).toMatch(/tlbx stop/);
+    }
+    // The drift is detected before any readiness probe or cold-start.
+    expect(h.waitForReadyCalls).toHaveLength(0);
     expect(h.coldStartCalls).toHaveLength(0);
   });
 

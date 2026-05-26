@@ -2,6 +2,7 @@ import * as path from 'node:path';
 
 import {
   clearServeState,
+  computeConfigIdentity,
   defaultProbeDeps,
   isProcessAlive,
   loadConfig,
@@ -157,6 +158,19 @@ export async function ensureDaemon(
   const existing = await deps.readState(statePath);
   if (existing !== null) {
     if (deps.isProcessAlive(existing.pid)) {
+      // A reused daemon keeps serving the config snapshot it loaded at startup.
+      // If the file has drifted since then, its tool/server enable flags, auth
+      // types, and server set no longer match what this invocation would act on
+      // — so refuse rather than route calls (and derive remediation) against a
+      // daemon running stale config. Recovery is the same `tlbx stop` the reuse
+      // contract already expects (SPECS §5.6).
+      if (existing.configHash !== computeConfigIdentity(config)) {
+        return {
+          ok: false,
+          code: 1,
+          message: `tlbx run: the running daemon (pid ${String(existing.pid)}) was started with a different config than ${configPath} now holds; run \`tlbx stop\` and retry to restart it with the current config`,
+        };
+      }
       const url = existing.url ?? endpoint;
       if (await deps.waitForReady(url)) {
         return {

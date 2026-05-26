@@ -4,6 +4,7 @@ export {
   type ServeDaemonPaths,
 } from './paths.js';
 export { ServeDaemonStateSchema, type ServeDaemonState } from './schema.js';
+export { computeConfigIdentity } from './identity.js';
 export { clearServeState, readServeState, writeServeState } from './state.js';
 export { isProcessAlive } from './process.js';
 export {
