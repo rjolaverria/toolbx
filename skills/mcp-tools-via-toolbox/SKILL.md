@@ -83,7 +83,7 @@ When stdout is **not** a TTY (i.e. whenever you capture output), `tlbx run` defa
 }
 ```
 
-On failure, `ok` is `false` and `error` carries `{ kind, message }`. Diagnostics always go to **stderr**; stdout stays clean. Pass `--output text` for just the text content, or `--output mcp` for the raw `CallToolResult`.
+Once a call reaches execution, a failure flips `ok` to `false` with `error: { kind, message }`. But **preflight errors** — bad flags, invalid JSON, mutually-exclusive inputs, an unknown `--output`, a missing target — print only to **stderr** and exit non-zero with **empty stdout** (no envelope). So branch on the exit code first and tolerate empty stdout; only parse the envelope once you know the exit code is one of the execution outcomes. Diagnostics always go to stderr; stdout stays clean. Pass `--output text` for just the text content, or `--output mcp` for the raw `CallToolResult`.
 
 ## Branch on the exit code — don't parse stderr
 
@@ -102,7 +102,7 @@ Each failure class has its own code, so you can react without scraping text:
 ## Prerequisites (brief)
 
 - The daemon **auto-starts** on first `tlbx run` — never run `tlbx serve` yourself.
-- A server must already be configured. If `--list` is empty, the user hasn't added one; tell them, don't add it.
+- A server must already be configured. An empty `--list` means no _currently listable enabled_ tools — which can also happen when servers exist but are disabled, unauthenticated (`auth_required` servers contribute no tools), or errored. Don't conclude nothing is configured from an empty list alone: confirm with the call's exit code (`5` = auth, `4` = disabled) or `tlbx status` first. Either way, don't add a server yourself.
 
 ## Common mistakes
 

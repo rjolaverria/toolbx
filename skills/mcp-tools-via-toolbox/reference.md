@@ -81,6 +81,8 @@ The raw MCP `CallToolResult` JSON, verbatim. Not supported in discovery mode.
 
 **In every mode, human-facing diagnostics and remediation hints go to stderr; stdout carries only the result/envelope.**
 
+The JSON envelope is emitted only for failures that occur **after** the target is resolved and the daemon is contacted (`daemon`, `unknown_tool`, `auth`, `timeout`, `tool_error`, and the post-resolution "requires input" usage error). **Preflight** errors — an unknown `--output`, `--limit` without `--search`, mutually-exclusive input/discovery flags, malformed JSON, or a missing target — are written to stderr and exit non-zero with **empty stdout**. Branch on the exit code first; never assume stdout holds a parseable envelope.
+
 ## Exit codes
 
 | Code | Constant     | Meaning                                                                                 |
