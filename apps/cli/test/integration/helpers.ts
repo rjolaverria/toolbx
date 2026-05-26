@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
@@ -5,7 +6,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createNoopLogger, saveConfig, type ToolBoxConfig } from '@toolbox/core';
+import {
+  createNoopLogger,
+  isProcessAlive,
+  readServeState,
+  saveConfig,
+  serveDaemonPathsForConfig,
+  type ServeDaemonState,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 
 import {
   defaultServeDeps,
@@ -236,4 +245,80 @@ export async function waitFor(
  */
 export function silentLogger(): ReturnType<typeof createNoopLogger> {
   return createNoopLogger();
+}
+
+export interface CliResult {
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export interface RunCliOptions {
+  /** Extra env vars merged over (and able to override) the inherited process env. */
+  env?: Record<string, string>;
+  /** Written to the child's stdin and then closed (used for `tlbx run --stdin`). */
+  stdin?: string;
+}
+
+/**
+ * Spawns the built `tlbx` binary as a real subprocess and resolves with its
+ * exit code and captured streams. P2-06 drives the binary itself (not the
+ * command functions) so the daemon auto-start, detach, and reuse paths are
+ * exercised end to end exactly as an agent invoking `tlbx run` would hit them.
+ */
+export function runCli(args: readonly string[], options: RunCliOptions = {}): Promise<CliResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [CLI_BIN, ...args], {
+      env: { ...process.env, ...options.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ code: code ?? -1, stdout, stderr });
+    });
+    if (options.stdin !== undefined) {
+      child.stdin.write(options.stdin);
+    }
+    child.stdin.end();
+  });
+}
+
+/** Reads the persisted daemon state for a config path, or `null` if none. */
+export function readDaemonState(configPath: string): Promise<ServeDaemonState | null> {
+  const { statePath } = serveDaemonPathsForConfig(configPath);
+  return readServeState(statePath);
+}
+
+/** The pid of the daemon recorded for a config path, or `null` if none. */
+export async function daemonPid(configPath: string): Promise<number | null> {
+  const state = await readDaemonState(configPath);
+  return state?.pid ?? null;
+}
+
+/**
+ * Tears down any daemon started for a config path. Runs the real `tlbx stop`
+ * first (the path under test), then force-kills and clears state as a
+ * best-effort fallback so a failed assertion can never leak a detached daemon
+ * out of the suite. Safe to call when no daemon is running.
+ */
+export async function stopDaemon(configPath: string): Promise<void> {
+  await runCli(['stop', '--config', configPath]).catch(() => undefined);
+  const { statePath } = serveDaemonPathsForConfig(configPath);
+  const state = await readServeState(statePath).catch(() => null);
+  if (state !== null && isProcessAlive(state.pid)) {
+    try {
+      process.kill(state.pid, 'SIGKILL');
+    } catch {
+      // best-effort: the pid may already be gone.
+    }
+  }
+  await fs.rm(statePath, { force: true }).catch(() => undefined);
 }
