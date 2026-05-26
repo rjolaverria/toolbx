@@ -232,11 +232,19 @@ describe('runRun — daemon invocation', () => {
     expect(h.stderr).toContain('tlbx run: boom');
   });
 
-  it('fails when the resolved tool is not exposed by the daemon', async () => {
-    const h = makeHarness({ tools: [{ name: 'github__create_issue' }] });
+  it('issues the call even when the tool is absent from the listing, letting the daemon decide', async () => {
+    // A tool can be missing from `tools/list` yet callable (e.g. its server is
+    // auth_required). The daemon is authoritative: here it rejects the call as
+    // a genuinely unknown tool.
+    const h = makeHarness({
+      tools: [{ name: 'github__create_issue' }],
+      callToolThrows: Object.assign(new Error('MCP error -32601: Unknown tool "github__nope"'), {
+        code: -32601,
+      }),
+    });
     const code = await run({ target: 'github', tool: 'nope' }, { json: '{}' }, h);
-    expect(code).not.toBe(0);
-    expect(h.callToolCalls).toHaveLength(0);
+    expect(code).toBe(4);
+    expect(h.callToolCalls).toHaveLength(1);
     expect(h.stderr).toMatch(/github__nope|unknown/i);
   });
 
@@ -439,6 +447,10 @@ describe('runRun — exit contract', () => {
     return Object.assign(new Error(`MCP error -32603: ${message}`), { code: -32603, data });
   }
 
+  function methodNotFound(message: string): Error {
+    return Object.assign(new Error(`MCP error -32601: ${message}`), { code: -32601 });
+  }
+
   it('exits with the usage code for invalid input', async () => {
     const h = makeHarness();
     const code = await run({ target: 'github__create_issue' }, { json: '{not json' }, h);
@@ -459,15 +471,21 @@ describe('runRun — exit contract', () => {
     expect(h.stderr).toMatch(/failed to list tools/i);
   });
 
-  it('exits with the unknown-tool code when the tool is not exposed', async () => {
-    const h = makeHarness({ tools: [{ name: 'github__create_issue' }] });
+  it('exits with the unknown-tool code when the daemon rejects with MethodNotFound', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__create_issue' }],
+      callToolThrows: methodNotFound('Unknown tool "github__nope"'),
+    });
     const code = await run({ target: 'github', tool: 'nope' }, { json: '{}' }, h);
     expect(code).toBe(4);
   });
 
-  it('exits with the auth code when the upstream server needs authentication', async () => {
+  it('exits with the auth code when an unauthenticated server omits the tool from the listing', async () => {
+    // Reflects the real steady state: an `auth_required` server contributes no
+    // tools to `tools/list`, so the target is absent here. The call is still
+    // issued and the daemon reports the server unavailable for auth reasons.
     const h = makeHarness({
-      tools: [{ name: 'github__whoami', empty: true }],
+      tools: [{ name: 'other__tool', empty: true }],
       callToolThrows: mcpError('Upstream server "github" is unavailable (status: auth_required)', {
         server: 'github',
         status: { kind: 'auth_required' },
@@ -475,6 +493,7 @@ describe('runRun — exit contract', () => {
     });
     const code = await run({ target: 'github__whoami' }, {}, h);
     expect(code).toBe(5);
+    expect(h.callToolCalls).toHaveLength(1);
     expect(h.stderr).toMatch(/tlbx auth login github/);
   });
 

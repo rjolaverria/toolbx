@@ -40,6 +40,9 @@ const EXIT_AUTH = 5;
 /** The upstream tool call exceeded its configured timeout. */
 const EXIT_TIMEOUT = 6;
 
+/** JSON-RPC `MethodNotFound`; the daemon uses it for unknown and disabled tools. */
+const METHOD_NOT_FOUND = -32601;
+
 const OUTPUT_MODES = ['text', 'json', 'mcp'] as const;
 type OutputMode = (typeof OUTPUT_MODES)[number];
 
@@ -277,7 +280,8 @@ interface RunFailure {
  * Classifies an error thrown by `tools/call` into a `RunFailure`. The daemon
  * surfaces routing failures as `McpError`s whose `data` carries the structured
  * reason (SPECS §5.3 gateway contract): timeouts tag `data.code === 'timeout'`,
- * and an unavailable server's auth state lands in `data.status.kind`.
+ * and an unavailable server's auth state lands in `data.status.kind`. Unknown
+ * and disabled tools arrive as a bare `MethodNotFound`.
  */
 function classifyCallError(error: unknown): RunFailure {
   const data = isRecord(error) && isRecord(error.data) ? error.data : undefined;
@@ -298,6 +302,13 @@ function classifyCallError(error: unknown): RunFailure {
         message: `tlbx run: ${errorMessage(error)}\nRun \`${login}\` to authenticate, then retry.`,
       };
     }
+  }
+  if (isRecord(error) && error.code === METHOD_NOT_FOUND) {
+    return {
+      kind: 'unknown_tool',
+      exit: EXIT_UNKNOWN_TOOL,
+      message: `tlbx run: ${errorMessage(error)}`,
+    };
   }
   return { kind: 'tool_error', exit: EXIT_TOOL_ERROR, message: `tlbx run: ${errorMessage(error)}` };
 }
@@ -446,23 +457,17 @@ export async function runRun(
       );
     }
 
+    // The listing is only consulted to make the empty-input decision below.
+    // A tool can be absent here yet still callable — a server in `auth_required`
+    // contributes no tools to `tools/list`, so its tools surface only once the
+    // call reaches the daemon. We therefore never short-circuit a missing tool
+    // as "unknown": the call is issued regardless and the daemon's response is
+    // authoritative (unknown → exit 4, auth_required → exit 5, etc.).
     const tool = listed.tools.find((entry) => entry.name === ctx.exposedName);
-    if (tool === undefined) {
-      return emitFailure(
-        {
-          kind: 'unknown_tool',
-          exit: EXIT_UNKNOWN_TOOL,
-          message: `tlbx run: unknown tool "${ctx.exposedName}".`,
-        },
-        ctx,
-        mode,
-        deps,
-      );
-    }
 
     let args = input.args;
     if (args === undefined) {
-      if (!isEmptyInputSchema(tool.inputSchema)) {
+      if (tool !== undefined && !isEmptyInputSchema(tool.inputSchema)) {
         return emitFailure(
           {
             kind: 'usage',
