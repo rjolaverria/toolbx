@@ -32,6 +32,7 @@ function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState 
     url: 'http://127.0.0.1:7331/mcp',
     logPath: '/var/log/serve.log',
     startedAt: '2026-05-13T12:34:56.000Z',
+    configHash: 'a'.repeat(64),
     ...overrides,
   };
 }

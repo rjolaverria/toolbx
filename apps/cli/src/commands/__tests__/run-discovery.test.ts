@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CONFIG,
   searchTools,
   type DaemonClient,
   type DaemonListToolsResult,
@@ -101,6 +102,7 @@ function makeHarness(
           configPath: '/resolved/config.json',
           statePath: '/resolved/config.json.state',
           logPath: '/resolved/config.json.log',
+          config: DEFAULT_CONFIG,
         },
       });
     },

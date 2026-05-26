@@ -9,9 +9,10 @@ import {
   type DaemonClient,
   type LogFormat,
   type LogLevel,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 
-import { runDiscovery } from './run-discovery.js';
+import { runDiscovery, shellArg, unknownToolMessage, type ListedTool } from './run-discovery.js';
 import { parsePositiveInt } from './server-shared.js';
 import {
   defaultRunDeps,
@@ -57,13 +58,29 @@ interface InputError {
 }
 
 /**
+ * Suggests how to obtain a valid argument document. `--example` prints a JSON
+ * skeleton for the resolved tool, so redirecting it into a file gives the user
+ * a starting point to edit and pass back via `--file` (§5.5).
+ */
+function exampleRemediation(exposedName: string): string {
+  // Shell-quote the name: this runs before daemon validation, so the target may
+  // be an arbitrary positional with spaces or shell metacharacters, and the
+  // suggestion is meant to be copy-pasted verbatim.
+  return `Run \`tlbx run ${shellArg(exposedName)} --example > input.json\` to generate an argument skeleton, then edit it and pass it with --file.`;
+}
+
+/**
  * Validates the mutually-exclusive input modes and parses JSON when one is
  * supplied. Mutual exclusion and JSON validity are checked here so they fail
  * before the daemon is contacted (§5.2). Returns `args: undefined` when no
  * input mode was supplied; the empty-input decision needs the tool schema and
  * is made after the tool resolves.
  */
-async function parseInput(options: RunOptions, deps: RunDeps): Promise<ParsedInput | InputError> {
+async function parseInput(
+  options: RunOptions,
+  deps: RunDeps,
+  exposedName: string,
+): Promise<ParsedInput | InputError> {
   const modes: string[] = [];
   if (options.json !== undefined) {
     modes.push('--json');
@@ -108,12 +125,15 @@ async function parseInput(options: RunOptions, deps: RunDeps): Promise<ParsedInp
   } catch (error) {
     return {
       ok: false,
-      message: `tlbx run: invalid JSON input: ${errorMessage(error)}`,
+      message: `tlbx run: invalid JSON input: ${errorMessage(error)}\n${exampleRemediation(exposedName)}`,
     };
   }
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, message: 'tlbx run: JSON input must be an object of tool arguments' };
+    return {
+      ok: false,
+      message: `tlbx run: JSON input must be an object of tool arguments\n${exampleRemediation(exposedName)}`,
+    };
   }
 
   return { ok: true, args: parsed as Record<string, unknown> };
@@ -169,13 +189,88 @@ interface RunFailure {
 }
 
 /**
+ * Context the failure classifiers consult for remediation. `config` is only
+ * read for the disabled-vs-unknown decision: the gateway deliberately refuses
+ * disabled servers and tools as a bare `MethodNotFound` (indistinguishable from
+ * a truly unknown name over MCP, so a cached name cannot probe the disabled
+ * set), so a local trusted caller has no daemon-side signal and must consult
+ * the config to name the re-enable command (§5.5). The auth decision, by
+ * contrast, reads the daemon's own `auth_required` status, never the config.
+ */
+interface RemediationContext {
+  ctx: TargetContext;
+  config: ToolBoxConfig;
+  /** The control-plane `tools/list` snapshot, used to suggest nearby tools. */
+  listed: readonly ListedTool[];
+}
+
+/**
+ * Builds the remediation for an `auth_required` server. A bearer server is read
+ * from its environment only at daemon startup, so the fix is to export the
+ * variable and restart the daemon — and crucially, a daemon that is already
+ * running will not pick up a variable exported in a later shell, so the message
+ * names `tlbx stop` rather than implying an immediate retry suffices (§5.5,
+ * P2-05 reused-daemon stale-env criterion). OAuth servers re-authenticate with
+ * `tlbx auth login`.
+ */
+function authRemediation(error: unknown, server: string | undefined, tokenEnv: string | undefined) {
+  const base = `tlbx run: ${errorMessage(error)}`;
+  if (tokenEnv !== undefined) {
+    return {
+      kind: 'auth' as const,
+      exit: EXIT_AUTH,
+      message:
+        `${base}\nThe ToolBox daemon reads "${tokenEnv}" from its environment only when it starts. ` +
+        `Export ${tokenEnv}, then run \`tlbx stop\` and retry — a daemon that is already running ` +
+        `will not pick up a variable you export afterward.`,
+    };
+  }
+  const login = server !== undefined ? `tlbx auth login ${server}` : 'tlbx auth login <server>';
+  return {
+    kind: 'auth' as const,
+    exit: EXIT_AUTH,
+    message: `${base}\nRun \`${login}\` to authenticate, then retry.`,
+  };
+}
+
+/**
+ * Classifies a `MethodNotFound` from `tools/call`. The gateway refuses unknown
+ * and disabled tools identically (so a cached name cannot probe the disabled
+ * set over MCP), but `tlbx run` is a local, trusted caller: it consults the
+ * config to tell the two apart and name the exact re-enable command, falling
+ * back to nearby-match suggestions for a genuinely unknown tool (§5.5).
+ */
+function classifyMethodNotFound(rc: RemediationContext): RunFailure {
+  const { exposedName, server } = rc.ctx;
+  if (rc.config.tools[exposedName]?.enabled === false) {
+    return {
+      kind: 'unknown_tool',
+      exit: EXIT_UNKNOWN_TOOL,
+      message: `tlbx run: tool "${exposedName}" is disabled. Enable it with \`tlbx tools enable ${exposedName}\`.`,
+    };
+  }
+  if (server !== null && rc.config.servers[server]?.enabled === false) {
+    return {
+      kind: 'unknown_tool',
+      exit: EXIT_UNKNOWN_TOOL,
+      message: `tlbx run: server "${server}" is disabled. Enable it with \`tlbx server enable ${server}\`.`,
+    };
+  }
+  return {
+    kind: 'unknown_tool',
+    exit: EXIT_UNKNOWN_TOOL,
+    message: unknownToolMessage(exposedName, rc.listed),
+  };
+}
+
+/**
  * Classifies an error thrown by `tools/call` into a `RunFailure`. The daemon
  * surfaces routing failures as `McpError`s whose `data` carries the structured
  * reason (SPECS §5.3 gateway contract): timeouts tag `data.code === 'timeout'`,
  * and an unavailable server's auth state lands in `data.status.kind`. Unknown
  * and disabled tools arrive as a bare `MethodNotFound`.
  */
-function classifyCallError(error: unknown): RunFailure {
+function classifyCallError(error: unknown, rc: RemediationContext): RunFailure {
   const data = isRecord(error) && isRecord(error.data) ? error.data : undefined;
   if (data !== undefined) {
     if (data.code === 'timeout') {
@@ -186,21 +281,17 @@ function classifyCallError(error: unknown): RunFailure {
       status !== undefined &&
       (status.kind === 'auth_required' || status.kind === 'auth_expired')
     ) {
-      const server = typeof data.server === 'string' ? data.server : undefined;
-      const login = server !== undefined ? `tlbx auth login ${server}` : 'tlbx auth login <server>';
-      return {
-        kind: 'auth',
-        exit: EXIT_AUTH,
-        message: `tlbx run: ${errorMessage(error)}\nRun \`${login}\` to authenticate, then retry.`,
-      };
+      const server = typeof data.server === 'string' ? data.server : (rc.ctx.server ?? undefined);
+      // The daemon reports its own auth method: an `auth_required` status carries
+      // the bearer `tokenEnv` it needs at startup, and is absent for OAuth. This
+      // is authoritative even when the CLI's config has drifted from the running
+      // daemon's.
+      const tokenEnv = typeof status.tokenEnv === 'string' ? status.tokenEnv : undefined;
+      return authRemediation(error, server, tokenEnv);
     }
   }
   if (isRecord(error) && error.code === METHOD_NOT_FOUND) {
-    return {
-      kind: 'unknown_tool',
-      exit: EXIT_UNKNOWN_TOOL,
-      message: `tlbx run: ${errorMessage(error)}`,
-    };
+    return classifyMethodNotFound(rc);
   }
   return { kind: 'tool_error', exit: EXIT_TOOL_ERROR, message: `tlbx run: ${errorMessage(error)}` };
 }
@@ -324,13 +415,13 @@ export async function runRun(
     return EXIT_USAGE;
   }
 
-  const input = await parseInput(options, deps);
+  const ctx = resolveTarget(pos);
+
+  const input = await parseInput(options, deps, ctx.exposedName);
   if (!input.ok) {
     deps.stderr(`${input.message}\n`);
     return EXIT_USAGE;
   }
-
-  const ctx = resolveTarget(pos);
 
   const opened = await openDaemonClient(options, deps);
   if (!opened.ok) {
@@ -342,6 +433,7 @@ export async function runRun(
     );
   }
   const client: DaemonClient = opened.client;
+  const config = opened.config;
 
   try {
     let listed: Awaited<ReturnType<DaemonClient['listTools']>>;
@@ -389,7 +481,8 @@ export async function runRun(
     try {
       result = await client.callTool({ name: ctx.exposedName, arguments: args });
     } catch (error) {
-      return emitFailure(classifyCallError(error), ctx, mode, deps);
+      const rc: RemediationContext = { ctx, config, listed: listed.tools };
+      return emitFailure(classifyCallError(error, rc), ctx, mode, deps);
     }
 
     if (result.isError === true) {

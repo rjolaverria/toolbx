@@ -18,6 +18,13 @@ export const ServeDaemonStateSchema = z
     url: z.string().min(1).nullable(),
     logPath: z.string().min(1),
     startedAt: z.iso.datetime(),
+    /**
+     * Fingerprint of the config the daemon loaded at startup (see
+     * `computeConfigIdentity`). Consumers that reuse this daemon compare it
+     * against the current config file to detect drift and refuse a daemon
+     * running stale config.
+     */
+    configHash: z.string().min(1),
   })
   .strict();
 

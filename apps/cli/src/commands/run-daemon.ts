@@ -2,6 +2,7 @@ import * as path from 'node:path';
 
 import {
   clearServeState,
+  computeConfigIdentity,
   defaultProbeDeps,
   isProcessAlive,
   loadConfig,
@@ -41,6 +42,12 @@ export interface DaemonHandle {
   readonly configPath: string;
   readonly statePath: string;
   readonly logPath: string;
+  /**
+   * The config that was loaded to resolve this daemon. Carried out so callers
+   * can produce config-aware remediation (bearer vs OAuth auth, disabled vs
+   * unknown tools) without re-reading and re-parsing the file (P2-05 §5.5).
+   */
+  readonly config: ToolBoxConfig;
 }
 
 export type EnsureDaemonResult =
@@ -151,11 +158,24 @@ export async function ensureDaemon(
   const existing = await deps.readState(statePath);
   if (existing !== null) {
     if (deps.isProcessAlive(existing.pid)) {
+      // A reused daemon keeps serving the config snapshot it loaded at startup.
+      // If the file has drifted since then, its tool/server enable flags, auth
+      // types, and server set no longer match what this invocation would act on
+      // — so refuse rather than route calls (and derive remediation) against a
+      // daemon running stale config. Recovery is the same `tlbx stop` the reuse
+      // contract already expects (SPECS §5.6).
+      if (existing.configHash !== computeConfigIdentity(config)) {
+        return {
+          ok: false,
+          code: 1,
+          message: `tlbx run: the running daemon (pid ${String(existing.pid)}) was started with a different config than ${configPath} now holds; run \`tlbx stop\` and retry to restart it with the current config`,
+        };
+      }
       const url = existing.url ?? endpoint;
       if (await deps.waitForReady(url)) {
         return {
           ok: true,
-          daemon: { url, pid: existing.pid, reused: true, configPath, statePath, logPath },
+          daemon: { url, pid: existing.pid, reused: true, configPath, statePath, logPath, config },
         };
       }
       return {
@@ -200,6 +220,21 @@ export async function ensureDaemon(
     };
   }
 
+  // The daemon that actually bound the port published its own config identity.
+  // It may not match the snapshot loaded before the spawn — the file could have
+  // changed between the load and the child's startup, or a concurrent starter
+  // could have won the port with a different snapshot. Trust the published
+  // identity, not the pre-spawn load, so the returned `config` (used for
+  // remediation) always reflects the daemon actually serving (matches the
+  // reuse-path drift guard above).
+  if (state.configHash !== computeConfigIdentity(config)) {
+    return {
+      ok: false,
+      code: 1,
+      message: `tlbx run: the running daemon (pid ${String(state.pid)}) was started with a different config than ${configPath} now holds; run \`tlbx stop\` and retry to restart it with the current config`,
+    };
+  }
+
   const url = state.url ?? endpoint;
   if (!(await deps.waitForReady(url))) {
     return {
@@ -211,6 +246,6 @@ export async function ensureDaemon(
 
   return {
     ok: true,
-    daemon: { url, pid: state.pid, reused: false, configPath, statePath, logPath },
+    daemon: { url, pid: state.pid, reused: false, configPath, statePath, logPath, config },
   };
 }

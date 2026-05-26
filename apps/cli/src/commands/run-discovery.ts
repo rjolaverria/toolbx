@@ -34,7 +34,7 @@ interface DiscoveredTool {
   inputSchema: unknown;
 }
 
-type ListedTool = DaemonListToolsResult['tools'][number];
+export type ListedTool = DaemonListToolsResult['tools'][number];
 
 /**
  * Identifies a gateway bootstrap tool by the `_meta` marker the daemon stamps
@@ -236,7 +236,7 @@ const SHELL_SAFE = /^[A-Za-z0-9_./:@%+=-]+$/;
  * reopen). Both the tool name (upstream names are not shell-constrained) and
  * the JSON payload pass through here.
  */
-function shellArg(value: string): string {
+export function shellArg(value: string): string {
   if (value.length > 0 && SHELL_SAFE.test(value)) {
     return value;
   }
@@ -255,7 +255,13 @@ function suggestTools(reference: string, listed: readonly ListedTool[]): string[
   return hits.map((hit) => hit.tool.exposedName);
 }
 
-function unknownToolMessage(exposedName: string, listed: readonly ListedTool[]): string {
+/**
+ * Builds the "unknown tool" diagnostic, listing the nearest enabled tools by
+ * the shared search ranking (§5.5). Shared with the execution path (`tlbx run`
+ * proper) so a `MethodNotFound` from `tools/call` and a missing target in
+ * discovery surface identical "did you mean" guidance.
+ */
+export function unknownToolMessage(exposedName: string, listed: readonly ListedTool[]): string {
   const suggestions = suggestTools(exposedName, listed);
   if (suggestions.length === 0) {
     return (

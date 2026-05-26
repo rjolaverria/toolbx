@@ -1,4 +1,9 @@
-import { DEFAULT_CONFIG, type ServeDaemonState, type ToolBoxConfig } from '@toolbox/core';
+import {
+  computeConfigIdentity,
+  DEFAULT_CONFIG,
+  type ServeDaemonState,
+  type ToolBoxConfig,
+} from '@toolbox/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -17,6 +22,9 @@ function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState 
     url: 'http://127.0.0.1:7331/mcp',
     logPath: '/resolved/config.json.log',
     startedAt: '2026-05-25T12:00:00.000Z',
+    // Default to the identity of the harness's default config so reuse tests
+    // pass the drift check; tests that exercise drift override this.
+    configHash: computeConfigIdentity(DEFAULT_CONFIG),
     ...overrides,
   };
 }
@@ -119,6 +127,7 @@ describe('ensureDaemon', () => {
         configPath: '/resolved/config.json',
         statePath: '/resolved/config.json.state',
         logPath: '/resolved/config.json.log',
+        config: DEFAULT_CONFIG,
       });
     }
     expect(h.coldStartCalls).toHaveLength(1);
@@ -141,16 +150,59 @@ describe('ensureDaemon', () => {
     expect(h.coldStartCalls).toHaveLength(0);
   });
 
+  it('refuses a reused daemon whose recorded config identity has drifted', async () => {
+    const h = makeHarness({
+      readStateResponses: [makeState({ pid: 4242, configHash: 'stale-hash-from-an-older-config' })],
+      isAliveOverride: (pid) => pid === 4242,
+      waitForReady: true,
+    });
+
+    const result = await ensureDaemon({}, h.deps);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toMatch(/different config/);
+      expect(result.message).toMatch(/tlbx stop/);
+    }
+    // The drift is detected before any readiness probe or cold-start.
+    expect(h.waitForReadyCalls).toHaveLength(0);
+    expect(h.coldStartCalls).toHaveLength(0);
+  });
+
   it('forces HTTP on for the cold-start even when server.http.enabled is false', async () => {
     const h = makeHarness({
       config: httpDisabledConfig(),
-      readStateResponses: [null, makeState()],
+      // The daemon that bound the port publishes the identity of the config it
+      // actually loaded — here, the same http-disabled config.
+      readStateResponses: [
+        null,
+        makeState({ configHash: computeConfigIdentity(httpDisabledConfig()) }),
+      ],
     });
 
     const result = await ensureDaemon({}, h.deps);
 
     expect(result.ok).toBe(true);
     expect(h.coldStartCalls[0]?.forceHttp).toBe(true);
+  });
+
+  it('refuses after cold-start when the bound daemon published a different config identity', async () => {
+    // A concurrent starter could win the port with a different snapshot, or the
+    // file could change between the pre-spawn load and the child's startup.
+    const h = makeHarness({
+      readStateResponses: [
+        null,
+        makeState({ pid: 4242, configHash: 'a-different-config-identity' }),
+      ],
+    });
+
+    const result = await ensureDaemon({}, h.deps);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toMatch(/different config/);
+      expect(result.message).toMatch(/tlbx stop/);
+    }
   });
 
   it('clears stale state before cold-starting', async () => {

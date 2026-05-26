@@ -9,6 +9,7 @@ import {
   type LogFormat,
   type LogLevel,
   type NamespaceOptions,
+  type ToolBoxConfig,
 } from '@toolbox/core';
 
 import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
@@ -165,7 +166,7 @@ export function resolveOutputMode(
 }
 
 export type OpenDaemonResult =
-  | { ok: true; client: DaemonClient; url: string }
+  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig }
   | { ok: false; message: string };
 
 /**
@@ -188,7 +189,7 @@ export async function openDaemonClient(
   }
   try {
     const client = await deps.connect(ensured.daemon.url);
-    return { ok: true, client, url: ensured.daemon.url };
+    return { ok: true, client, url: ensured.daemon.url, config: ensured.daemon.config };
   } catch (error) {
     return {
       ok: false,

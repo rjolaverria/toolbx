@@ -106,7 +106,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 - [x] **P2-02** — [`tlbx run` command and JSON input modes](tasks/P2-02-run-command-inputs.md) — closed by branch `p2-02-run-command-inputs`
 - [x] **P2-03** — [`tlbx run` output modes and exit contract](tasks/P2-03-run-output-contract.md) — closed by bd7415e (branch `p2-03-run-output-contract`)
 - [x] **P2-04** — [`tlbx run` discovery commands](tasks/P2-04-run-discovery.md) — closed by e7f0014 (branch `p2-04-run-discovery`)
-- [ ] **P2-05** — [`tlbx run` auth, errors, and remediation](tasks/P2-05-run-errors-auth.md)
+- [x] **P2-05** — [`tlbx run` auth, errors, and remediation](tasks/P2-05-run-errors-auth.md) — closed by PR #74 (branch `p2-05-run-errors-auth`)
 - [ ] **P2-06** — [`tlbx run` daemon-backed integration tests](tasks/P2-06-run-integration-tests.md)
 
 ## Phase 3 — Custom JS/TS Tools

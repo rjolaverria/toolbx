@@ -154,6 +154,7 @@ export {
   clearServeState,
   CONTROL_PLANE_HEADER,
   CONTROL_PLANE_MARKER,
+  computeConfigIdentity,
   defaultProbeDeps,
   isControlPlaneConnection,
   isLoopbackAddress,

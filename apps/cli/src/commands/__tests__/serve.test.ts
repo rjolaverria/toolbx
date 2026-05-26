@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 
 import {
+  computeConfigIdentity,
   createNoopLogger,
   DEFAULT_CONFIG,
   type CreateLoggerOptions,
@@ -389,6 +390,7 @@ describe('runServe', () => {
       url: 'http://127.0.0.1:7331/mcp',
       logPath: '/state/serve.log',
       startedAt: '2026-05-25T12:00:00.000Z',
+      configHash: computeConfigIdentity(DEFAULT_CONFIG),
     });
     expect(h.clearStateSpy).not.toHaveBeenCalled();
 

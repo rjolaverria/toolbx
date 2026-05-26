@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { Command, Option } from '@commander-js/extra-typings';
 import {
   clearServeState,
+  computeConfigIdentity,
   createLogger,
   loadConfig,
   readServeState,
@@ -330,7 +331,12 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   // run` only ever see a record backed by a live HTTP endpoint.
   const managed = resolveManagedDaemon(deps.processEnv, deps.isManagedChild?.() ?? false);
   if (managed !== null) {
-    const published = await publishManagedState(managed, downstream.url, deps);
+    const published = await publishManagedState(
+      managed,
+      downstream.url,
+      computeConfigIdentity(config),
+      deps,
+    );
     if (!published) {
       await downstream.stop();
       await detachCacheWriter();
@@ -352,6 +358,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
 async function publishManagedState(
   managed: ManagedDaemon,
   url: URL,
+  configHash: string,
   deps: ServeDeps,
 ): Promise<boolean> {
   const writeState = deps.writeServeState;
@@ -365,6 +372,7 @@ async function publishManagedState(
     url: url.toString(),
     logPath: managed.logPath,
     startedAt: (deps.now ?? (() => new Date()))().toISOString(),
+    configHash,
   };
   try {
     await writeState(managed.statePath, state);
