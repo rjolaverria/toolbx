@@ -258,15 +258,30 @@ export interface RunCliOptions {
   env?: Record<string, string>;
   /** Written to the child's stdin and then closed (used for `tlbx run --stdin`). */
   stdin?: string;
+  /**
+   * Upper bound on how long the child may run before it is SIGKILLed and the
+   * call rejects. Keeps a hung `tlbx run`/`tlbx stop` from stalling the whole
+   * suite (and from blocking the daemon cleanup that runs after each test).
+   * Defaults to {@link DEFAULT_CLI_TIMEOUT_MS}.
+   */
+  timeoutMs?: number;
 }
+
+/** Default `runCli` budget — matches the integration suite's per-test timeout. */
+export const DEFAULT_CLI_TIMEOUT_MS = 30_000;
 
 /**
  * Spawns the built `tlbx` binary as a real subprocess and resolves with its
  * exit code and captured streams. P2-06 drives the binary itself (not the
  * command functions) so the daemon auto-start, detach, and reuse paths are
  * exercised end to end exactly as an agent invoking `tlbx run` would hit them.
+ *
+ * The child is killed and the promise rejected if it outlives `timeoutMs`, so a
+ * stuck subprocess fails loudly instead of hanging the runner — and a hung
+ * `tlbx stop` can never wedge `stopDaemon` before its force-kill fallback.
  */
 export function runCli(args: readonly string[], options: RunCliOptions = {}): Promise<CliResult> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_CLI_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI_BIN, ...args], {
       env: { ...process.env, ...options.env },
@@ -274,15 +289,36 @@ export function runCli(args: readonly string[], options: RunCliOptions = {}): Pr
     });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    const finish = (fn: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      finish(() => {
+        child.kill('SIGKILL');
+        reject(
+          new Error(`tlbx ${args.join(' ')} did not exit within ${String(timeoutMs)}ms; killed`),
+        );
+      });
+    }, timeoutMs);
+    // Don't let the kill timer hold the event loop open on its own.
+    timer.unref();
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8');
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      finish(() => reject(error));
+    });
     child.on('close', (code) => {
-      resolve({ code: code ?? -1, stdout, stderr });
+      finish(() => resolve({ code: code ?? -1, stdout, stderr }));
     });
     if (options.stdin !== undefined) {
       child.stdin.write(options.stdin);
@@ -310,7 +346,9 @@ export async function daemonPid(configPath: string): Promise<number | null> {
  * out of the suite. Safe to call when no daemon is running.
  */
 export async function stopDaemon(configPath: string): Promise<void> {
-  await runCli(['stop', '--config', configPath]).catch(() => undefined);
+  // Bound the `tlbx stop` attempt tightly: if it hangs, fall straight through
+  // to the force-kill below rather than letting teardown stall the suite.
+  await runCli(['stop', '--config', configPath], { timeoutMs: 10_000 }).catch(() => undefined);
   const { statePath } = serveDaemonPathsForConfig(configPath);
   const state = await readServeState(statePath).catch(() => null);
   if (state !== null && isProcessAlive(state.pid)) {

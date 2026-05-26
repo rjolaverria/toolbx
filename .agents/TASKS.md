@@ -102,7 +102,7 @@ These are items that fell out of the Phase 1 review (post M5-06). They are not p
 
 ## Phase 2 — CLI Tool Execution ✅
 
-Phase 2 is complete: every task below (P2-01 through P2-06) is closed and the SPECS §5.6 acceptance criteria 1–10 are exercised end-to-end by the P2-06 daemon-backed integration suite.
+Phase 2 is complete: every task below (P2-01 through P2-06) is closed. The SPECS §5.6 acceptance criteria 1–10 are covered across the Phase 2 tasks' tests; the P2-06 daemon-backed integration suite exercises the daemon lifecycle and the core `tlbx run` paths (auto-start, reuse, concurrent convergence, same-port collision, forced HTTP, stop, input/output modes, disabled-tool remediation, HTTP success and timeout, and discovery) end-to-end against real fixtures. Per-mode auth/browser-safety remediation remains covered by the P2-05 and OAuth suites rather than this integration suite.
 
 - [x] **P2-01** — [`tlbx run` daemon auto-start and readiness](tasks/P2-01-run-daemon-autostart.md) — closed by PR #70 (branch `p2-01-run-daemon-autostart`)
 - [x] **P2-02** — [`tlbx run` command and JSON input modes](tasks/P2-02-run-command-inputs.md) — closed by branch `p2-02-run-command-inputs`

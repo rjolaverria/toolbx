@@ -14,6 +14,9 @@
 // force-kills as a fallback) before removing the temp dirs, so a failed
 // assertion can never leak a detached daemon out of the suite.
 
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
 import { isProcessAlive, type ToolBoxConfig } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -301,6 +304,103 @@ describe('tlbx run — stdio daemon lifecycle', () => {
     expect(b.stderr).toContain('different config');
     // B never published its own daemon record.
     expect(await readDaemonState(handleB.target)).toBeNull();
+  });
+
+  it('honors the input modes (exposed-name, --stdin, --file) and output modes (text, mcp)', async () => {
+    const handle = await makeTempConfig(await stdioEchoConfig());
+    tempConfigs.push(handle);
+
+    await waitForToolListed(handle.target, 'echo__echo');
+
+    // Single positional = a fully exposed name (`echo__echo`), --output text:
+    // text mode prints just the joined text content, no JSON envelope.
+    const exposedNameText = await runCli([
+      'run',
+      'echo__echo',
+      '--json',
+      JSON.stringify({ message: 'exposed name' }),
+      '--output',
+      'text',
+      '--config',
+      handle.target,
+    ]);
+    expect(exposedNameText.code).toBe(0);
+    expect(exposedNameText.stdout.trim()).toBe('exposed name');
+
+    // --stdin: arguments read as JSON from stdin.
+    const viaStdin = await runCli(
+      ['run', 'echo', 'echo', '--stdin', '--output', 'text', '--config', handle.target],
+      { stdin: JSON.stringify({ message: 'via stdin' }) },
+    );
+    expect(viaStdin.code).toBe(0);
+    expect(viaStdin.stdout.trim()).toBe('via stdin');
+
+    // --file: arguments read as JSON from a file.
+    const argFile = path.join(handle.dir, 'args.json');
+    await fs.writeFile(argFile, JSON.stringify({ message: 'via file' }), 'utf8');
+    const viaFile = await runCli([
+      'run',
+      'echo',
+      'echo',
+      '--file',
+      argFile,
+      '--output',
+      'text',
+      '--config',
+      handle.target,
+    ]);
+    expect(viaFile.code).toBe(0);
+    expect(viaFile.stdout.trim()).toBe('via file');
+
+    // --output mcp: the raw CallToolResult, not the agent envelope.
+    const mcp = await runCli([
+      'run',
+      'echo',
+      'echo',
+      '--json',
+      JSON.stringify({ message: 'raw mcp' }),
+      '--output',
+      'mcp',
+      '--config',
+      handle.target,
+    ]);
+    expect(mcp.code).toBe(0);
+    const raw = JSON.parse(mcp.stdout) as {
+      content: Array<{ type: string; text: string }>;
+      ok?: unknown;
+    };
+    expect(raw.content).toEqual([{ type: 'text', text: 'raw mcp' }]);
+    // `mcp` mode emits the upstream result verbatim — never the `ok` envelope.
+    expect(raw.ok).toBeUndefined();
+  });
+
+  it('reports a disabled tool with exit 4 and a re-enable hint', async () => {
+    const base = await stdioEchoConfig();
+    // Disable a single namespaced tool. The gateway hides it and refuses a call
+    // as MethodNotFound; `tlbx run` consults the config to name the exact
+    // re-enable command (SPECS §5.5).
+    const config: ToolBoxConfig = { ...base, tools: { echo__echo: { enabled: false } } };
+    const handle = await makeTempConfig(config);
+    tempConfigs.push(handle);
+
+    // The disabled tool is absent from the listing, but `echo__slow` confirms
+    // the upstream connected before we probe the disabled one.
+    await waitForToolListed(handle.target, 'echo__slow');
+
+    const result = await runCli([
+      'run',
+      'echo',
+      'echo',
+      '--json',
+      JSON.stringify({ message: 'nope' }),
+      '--output',
+      'text',
+      '--config',
+      handle.target,
+    ]);
+    expect(result.code).toBe(4);
+    expect(result.stderr).toContain('disabled');
+    expect(result.stderr).toContain('tlbx tools enable echo__echo');
   });
 });
 
