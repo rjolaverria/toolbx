@@ -236,7 +236,7 @@ const SHELL_SAFE = /^[A-Za-z0-9_./:@%+=-]+$/;
  * reopen). Both the tool name (upstream names are not shell-constrained) and
  * the JSON payload pass through here.
  */
-function shellArg(value: string): string {
+export function shellArg(value: string): string {
   if (value.length > 0 && SHELL_SAFE.test(value)) {
     return value;
   }

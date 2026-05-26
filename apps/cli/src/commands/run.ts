@@ -12,7 +12,7 @@ import {
   type ToolBoxConfig,
 } from '@toolbox/core';
 
-import { runDiscovery, unknownToolMessage, type ListedTool } from './run-discovery.js';
+import { runDiscovery, shellArg, unknownToolMessage, type ListedTool } from './run-discovery.js';
 import { parsePositiveInt } from './server-shared.js';
 import {
   defaultRunDeps,
@@ -63,7 +63,10 @@ interface InputError {
  * a starting point to edit and pass back via `--file` (§5.5).
  */
 function exampleRemediation(exposedName: string): string {
-  return `Run \`tlbx run ${exposedName} --example > input.json\` to generate an argument skeleton, then edit it and pass it with --file.`;
+  // Shell-quote the name: this runs before daemon validation, so the target may
+  // be an arbitrary positional with spaces or shell metacharacters, and the
+  // suggestion is meant to be copy-pasted verbatim.
+  return `Run \`tlbx run ${shellArg(exposedName)} --example > input.json\` to generate an argument skeleton, then edit it and pass it with --file.`;
 }
 
 /**

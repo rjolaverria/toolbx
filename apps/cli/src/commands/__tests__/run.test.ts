@@ -724,4 +724,14 @@ describe('runRun — invalid JSON remediation', () => {
     expect(code).toBe(2);
     expect(h.stderr).toContain('--example > input.json');
   });
+
+  it('shell-quotes a target with metacharacters in the suggested command', async () => {
+    // The target is an unvalidated positional here (this path runs before the
+    // daemon resolves the tool), so the copy-pasteable suggestion must not let
+    // metacharacters escape into the shell.
+    const h = makeHarness();
+    const code = await run({ target: 'evil; rm -rf' }, { json: '{not json' }, h);
+    expect(code).toBe(2);
+    expect(h.stderr).toContain("tlbx run 'evil; rm -rf' --example > input.json");
+  });
 });
