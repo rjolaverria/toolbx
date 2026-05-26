@@ -216,9 +216,19 @@ function generateExample(schema: unknown, depth = 0): unknown {
   }
 }
 
+/**
+ * Wraps a string in POSIX single quotes, escaping any embedded single quote so
+ * the result is a single safe shell word. A `'` becomes `'\''` (close quote,
+ * escaped quote, reopen quote).
+ */
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /** Builds a copy-pasteable `tlbx run` invocation seeded with a JSON skeleton. */
 function exampleCommand(exposedName: string, schema: unknown): string {
-  return `tlbx run ${exposedName} --json '${JSON.stringify(generateExample(schema))}'`;
+  const json = JSON.stringify(generateExample(schema));
+  return `tlbx run ${exposedName} --json ${shellSingleQuote(json)}`;
 }
 
 /** Finds nearby tools for an unknown-tool error using the shared search ranking. */
@@ -430,6 +440,10 @@ export async function runDiscovery(
       );
       return EXIT_USAGE;
     }
+    if (kind === 'search' && (options.search ?? '').trim().length === 0) {
+      deps.stderr('tlbx run: --search requires a non-empty query.\n');
+      return EXIT_USAGE;
+    }
   } else if (pos.target === undefined || pos.target.length === 0) {
     deps.stderr(
       `tlbx run: --${kind} needs a tool (e.g. \`tlbx run <server> <tool> --${kind}\`).\n`,
@@ -499,10 +513,7 @@ function runSearch(
   json: boolean,
   deps: RunDeps,
 ): number {
-  if (query.trim().length === 0) {
-    deps.stderr('tlbx run: --search requires a non-empty query.\n');
-    return EXIT_USAGE;
-  }
+  // The empty-query guard runs in `runDiscovery` before the daemon is opened.
   let views = toSearchViews(listed);
   if (server !== undefined && server.length > 0) {
     views = views.filter((view) => view.serverName === server);

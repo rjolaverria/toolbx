@@ -1,4 +1,8 @@
-import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import {
+  Command,
+  InvalidArgumentError,
+  type CommandUnknownOpts,
+} from '@commander-js/extra-typings';
 import {
   readAuthExpiredMeta,
   type DaemonCallToolResult,
@@ -8,6 +12,7 @@ import {
 } from '@toolbox/core';
 
 import { runDiscovery } from './run-discovery.js';
+import { parsePositiveInt } from './server-shared.js';
 import {
   defaultRunDeps,
   EXIT_AUTH,
@@ -408,7 +413,16 @@ export function runCommand(): CommandUnknownOpts {
     .option('--describe', 'describe the resolved tool: fields and an example invocation')
     .option('--schema', "print the resolved tool's raw input schema as JSON")
     .option('--example', 'print a generated JSON argument skeleton for the resolved tool')
-    .option('--limit <n>', 'cap the number of --search results', (v) => Number.parseInt(v, 10))
+    .option('--limit <n>', 'cap the number of --search results', (v) => {
+      try {
+        return parsePositiveInt(v);
+      } catch (err) {
+        if (err instanceof InvalidArgumentError) {
+          throw err;
+        }
+        throw new InvalidArgumentError(String(err));
+      }
+    })
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .option('--log-level <level>', 'daemon log level used when auto-starting')
     .option('--log-format <format>', 'daemon log format used when auto-starting')

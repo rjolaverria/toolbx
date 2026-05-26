@@ -223,10 +223,11 @@ describe('runDiscovery — search', () => {
     expect(h.stdout).toMatch(/no matches/i);
   });
 
-  it('rejects an empty query', async () => {
+  it('rejects an empty query before contacting the daemon', async () => {
     const h = makeHarness();
     const code = await discover({}, { search: '   ' }, h);
     expect(code).toBe(2);
+    expect(h.ensureDaemonCalls).toBe(0);
     expect(h.stderr).toMatch(/non-empty query/i);
   });
 
@@ -277,6 +278,25 @@ describe('runDiscovery — describe', () => {
     expect(code).toBe(2);
     expect(h.ensureDaemonCalls).toBe(0);
     expect(h.stderr).toMatch(/needs a tool/i);
+  });
+
+  it('shell-escapes single quotes in the example command', async () => {
+    const h = makeHarness({
+      tools: [
+        {
+          name: 'custom__quote',
+          inputSchema: {
+            type: 'object',
+            properties: { phrase: { type: 'string', default: "it's a trap" } },
+            required: [],
+          },
+        },
+      ],
+    });
+    const code = await discover({ target: 'custom', tool: 'quote' }, { describe: true }, h);
+    expect(code).toBe(0);
+    // The embedded `'` is escaped as `'\''`, leaving a single safe shell word.
+    expect(h.stdout).toContain(`--json '{"phrase":"it'\\''s a trap"}'`);
   });
 });
 
