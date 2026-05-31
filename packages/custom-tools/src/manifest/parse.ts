@@ -66,10 +66,6 @@ interface RawDirective {
   readonly line: number;
 }
 
-// JSDoc-style block comments: `/** ... */`. Non-greedy so adjacent blocks stay
-// separate. Custom tools are small single files, so a regex sweep is enough —
-// we are not building a general JS parser.
-const BLOCK_COMMENT = /\/\*\*[\s\S]*?\*\//g;
 const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
 
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
@@ -149,24 +145,49 @@ function lineAt(source: string, index: number): number {
   return line;
 }
 
-/** Returns one entry per JSDoc block that contains at least one directive. */
-function findToolBlocks(source: string): RawDirective[][] {
-  const blocks: RawDirective[][] = [];
-  BLOCK_COMMENT.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = BLOCK_COMMENT.exec(source)) !== null) {
-    const blockStart = match.index;
-    const directives: RawDirective[] = [];
-    let offset = 0;
-    for (const rawLine of match[0].split('\n')) {
-      const directiveMatch = DIRECTIVE.exec(rawLine);
-      if (directiveMatch) {
-        const key = directiveMatch[1] ?? '';
-        const value = (directiveMatch[2] ?? '').replace(/\*\/\s*$/, '').trimEnd();
-        directives.push({ key, value, line: lineAt(source, blockStart + offset) });
-      }
-      offset += rawLine.length + 1; // + 1 for the consumed newline
+/** Extracts the `@toolbox-tool` directives found in a single comment's text. */
+function directivesInComment(
+  commentText: string,
+  commentStart: number,
+  source: string,
+): RawDirective[] {
+  const directives: RawDirective[] = [];
+  let offset = 0;
+  for (const rawLine of commentText.split('\n')) {
+    const directiveMatch = DIRECTIVE.exec(rawLine);
+    if (directiveMatch) {
+      const key = directiveMatch[1] ?? '';
+      const value = (directiveMatch[2] ?? '').replace(/\*\/\s*$/, '').trimEnd();
+      directives.push({ key, value, line: lineAt(source, commentStart + offset) });
     }
+    offset += rawLine.length + 1; // + 1 for the consumed newline
+  }
+  return directives;
+}
+
+/**
+ * Returns one entry per JSDoc block comment (opening with a double asterisk)
+ * that contains at least one directive. Uses the TypeScript scanner to
+ * enumerate real comment trivia, so JSDoc-looking text inside a string or
+ * template literal is never mistaken for a metadata block.
+ */
+function findToolBlocks(source: string): RawDirective[][] {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    /* skipTrivia */ false,
+    ts.LanguageVariant.Standard,
+    source,
+  );
+  const blocks: RawDirective[][] = [];
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token !== ts.SyntaxKind.MultiLineCommentTrivia) {
+      continue;
+    }
+    const text = scanner.getTokenText();
+    if (!text.startsWith('/**')) {
+      continue;
+    }
+    const directives = directivesInComment(text, scanner.getTokenStart(), source);
     if (directives.length > 0) {
       blocks.push(directives);
     }

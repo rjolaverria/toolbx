@@ -265,4 +265,40 @@ export default async function f() {
     expect(err.message.toLowerCase()).toContain('multiple');
     expect(err.issues.some((issue) => typeof issue.line === 'number')).toBe(true);
   });
+
+  it('ignores a JSDoc-looking block inside a string literal (no false duplicate)', () => {
+    const source = `${META}\nconst help = '/** @toolbox-tool name fake */';\nexport default async function f() {\n  return { content: [{ type: 'text', text: help }] };\n}\n`;
+
+    const result = parseToolMetadata(source, './strblock.ts');
+
+    expect(result.name).toBe('no_schema');
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('does not treat a JSDoc-looking block inside a template literal as metadata', () => {
+    const source = [
+      'const help = `',
+      '/**',
+      ' * @toolbox-tool name fake',
+      ' * @toolbox-tool title Fake',
+      ' * @toolbox-tool description Not real metadata.',
+      ' * @toolbox-tool namespace personal',
+      ' */',
+      '`;',
+      'export default async function f() {',
+      '  return { content: [{ type: "text", text: help }] };',
+      '}',
+      '',
+    ].join('\n');
+
+    let thrown: unknown;
+    try {
+      parseToolMetadata(source, './tmplblock.ts');
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ToolMetadataParseError);
+    expect((thrown as ToolMetadataParseError).message).toContain('no @toolbox-tool directives');
+  });
 });
