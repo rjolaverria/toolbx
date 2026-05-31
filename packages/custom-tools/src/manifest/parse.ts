@@ -8,6 +8,8 @@
  * can validate the tool's shape later.
  */
 
+import { posix as posixPath, win32 as win32Path } from 'node:path';
+
 import ts from 'typescript';
 
 /** The four required `@toolbox-tool` directives, in canonical order. */
@@ -255,14 +257,16 @@ export interface StaticAnalysis {
 
 /**
  * A module specifier points at the local filesystem (vs. a bare package or
- * `node:`): relative (`./`, `../`), absolute (`/abs`), or a `file:` URL. All
- * three reference files outside the copied entry and would dangle / escape.
+ * `node:`): relative (`./`, `../`), a POSIX or Windows absolute path
+ * (`/abs`, `C:/abs`, `\\unc`), or a `file:` URL. All reference files outside the
+ * copied entry and would dangle / escape after relocation.
  */
 function isRelativeSpecifier(specifier: string): boolean {
   return (
     specifier.startsWith('.') ||
-    specifier.startsWith('/') ||
-    specifier.toLowerCase().startsWith('file:')
+    /^file:/i.test(specifier) ||
+    posixPath.isAbsolute(specifier) ||
+    win32Path.isAbsolute(specifier)
   );
 }
 
@@ -375,8 +379,10 @@ function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
       }
     } else if (
       ts.isImportEqualsDeclaration(node) &&
+      !node.isTypeOnly &&
       ts.isExternalModuleReference(node.moduleReference)
     ) {
+      // `import type Foo = require('./t')` is erased at runtime; skip it.
       recordDynamic(node.moduleReference.expression, node, 'import = require()');
     } else if (
       ts.isCallExpression(node) &&

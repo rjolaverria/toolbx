@@ -380,6 +380,23 @@ export default async function f() {
       ]);
     });
 
+    it('reports a Windows absolute specifier (static and dynamic)', () => {
+      const source = `${META}\nimport a from 'C:/tools/a.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => {\n  const b = require('C:\\\\tools\\\\b.js');\n  return { a, b };\n};\n`;
+
+      expect(parseToolMetadata(source, './win.ts').relativeImports).toEqual([
+        'C:/tools/a.js',
+        'C:\\tools\\b.js',
+      ]);
+    });
+
+    it('does not report a type-only `import = require` reference', () => {
+      const source = `${META}\nimport type Foo = require('./types');\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (): Promise<Foo | { content: [] }> => ({ content: [] });\n`;
+
+      const result = parseToolMetadata(source, './typeeqreq.ts');
+      expect(result.relativeImports).toEqual([]);
+      expect(result.dynamicImports).toEqual([]);
+    });
+
     it('reports a parent-relative and absolute specifier', () => {
       const source = `${META}\nimport a from '../a.js';\nimport b from '/abs/b.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\n`;
 
