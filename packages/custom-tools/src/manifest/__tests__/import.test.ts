@@ -360,6 +360,30 @@ export default async function f() {
       expect(result.manifest.exposedName).toBe('personal__send_slack_summary');
     });
 
+    it('rejects a tool importing from a file: URL', async () => {
+      const withFileUrl = SPEC_EXAMPLE.replace(
+        "import { z } from 'zod';",
+        "import { z } from 'zod';\nimport helper from 'file:///etc/helper.js';",
+      ).replace('return {', 'void helper;\n  return {');
+      const sourcePath = await writeSource('send_slack_summary.ts', withFileUrl);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'relative-import',
+      });
+    });
+
+    it('rejects a .js tool that contains TypeScript-only syntax', async () => {
+      // SPEC_EXAMPLE has a type annotation on the handler parameter, which is
+      // valid TS but not valid JS.
+      const sourcePath = await writeSource('send_slack_summary.js', SPEC_EXAMPLE);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'syntax-error',
+      });
+    });
+
     it('rejects a tool with a syntax error', async () => {
       const broken = SPEC_EXAMPLE.replace(
         'export const inputSchema = z.object({',

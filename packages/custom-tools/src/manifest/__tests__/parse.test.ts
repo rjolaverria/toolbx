@@ -364,6 +364,22 @@ export default async function f() {
       expect(parseToolMetadata(source, './reexp.ts').relativeImports).toEqual(['./schema.js']);
     });
 
+    it('reports a file: URL import as a local reference', () => {
+      const source = `${META}\nimport x from 'file:///abs/x.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => x;\n`;
+
+      expect(parseToolMetadata(source, './fileurl.ts').relativeImports).toEqual([
+        'file:///abs/x.js',
+      ]);
+    });
+
+    it('reports a file: URL dynamic import as a local reference', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => {\n  const m = await import('file:///abs/x.js');\n  return m;\n};\n`;
+
+      expect(parseToolMetadata(source, './fileurldyn.ts').relativeImports).toEqual([
+        'file:///abs/x.js',
+      ]);
+    });
+
     it('reports a parent-relative and absolute specifier', () => {
       const source = `${META}\nimport a from '../a.js';\nimport b from '/abs/b.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\n`;
 
@@ -459,6 +475,19 @@ export default async function f() {
   describe('syntaxErrors', () => {
     it('reports no syntax errors for valid source', () => {
       expect(parseToolMetadata(SPEC_EXAMPLE, './ok.ts').syntaxErrors).toEqual([]);
+    });
+
+    it('flags TypeScript-only syntax in a .js file', () => {
+      const source = `${META}\nexport const inputSchema = {};\nexport default async (): Promise<void> => undefined;\n`;
+
+      const result = parseToolMetadata(source, './bad.js');
+      expect(result.syntaxErrors.length).toBeGreaterThan(0);
+    });
+
+    it('accepts the same TypeScript syntax in a .ts file', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (): Promise<{ content: [] }> => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './ok2.ts').syntaxErrors).toEqual([]);
     });
 
     it('reports a syntactic error in malformed source', () => {

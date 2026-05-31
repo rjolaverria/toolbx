@@ -95,28 +95,44 @@ interface RawDirective {
 
 const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
 
-// Fixed, absolute, already-normalized path for the in-memory program so
-// `createProgram` does not rewrite the root name and the host always matches.
-const PROGRAM_FILE_NAME = '/tool.ts';
+/**
+ * In-memory program file name + script kind for a tool source. A `.js` / `.cjs`
+ * / `.mjs` tool is parsed as JavaScript so that TypeScript-only syntax (type
+ * annotations, interfaces) is reported as a syntax error — it would fail when
+ * the runtime loads the file as `.js`. Everything else is parsed as TypeScript,
+ * which is a superset of JavaScript.
+ */
+function programFileFor(filename: string): { name: string; scriptKind: ts.ScriptKind } {
+  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+  if (ext === '.js' || ext === '.cjs' || ext === '.mjs') {
+    return { name: '/tool.js', scriptKind: ts.ScriptKind.JS };
+  }
+  return { name: '/tool.ts', scriptKind: ts.ScriptKind.TS };
+}
 
 /**
  * Builds a single-file in-memory program so the type checker can resolve module
  * exports semantically. No file system access (`noResolve`/`noLib`), and the
- * source is parsed and bound but never executed.
+ * source is parsed and bound but never executed. `allowJs` lets a `.js` root
+ * file be analysed and its JavaScript grammar diagnostics surface.
  */
-function createSingleFileProgram(sourceFile: ts.SourceFile): ts.Program {
+function createSingleFileProgram(sourceFile: ts.SourceFile, fileName: string): ts.Program {
   const host: ts.CompilerHost = {
-    getSourceFile: (name) => (name === PROGRAM_FILE_NAME ? sourceFile : undefined),
+    getSourceFile: (name) => (name === fileName ? sourceFile : undefined),
     getDefaultLibFileName: () => 'lib.d.ts',
     writeFile: () => undefined,
     getCurrentDirectory: () => '/',
     getCanonicalFileName: (name) => name,
     useCaseSensitiveFileNames: () => true,
     getNewLine: () => '\n',
-    fileExists: (name) => name === PROGRAM_FILE_NAME,
+    fileExists: (name) => name === fileName,
     readFile: () => undefined,
   };
-  return ts.createProgram([PROGRAM_FILE_NAME], { noResolve: true, noLib: true, types: [] }, host);
+  return ts.createProgram(
+    [fileName],
+    { noResolve: true, noLib: true, types: [], allowJs: true },
+    host,
+  );
 }
 
 /**
@@ -237,9 +253,17 @@ export interface StaticAnalysis {
   readonly syntaxErrors: readonly ParseIssue[];
 }
 
-/** A module specifier is relative/absolute (vs. a bare package or `node:`). */
+/**
+ * A module specifier points at the local filesystem (vs. a bare package or
+ * `node:`): relative (`./`, `../`), absolute (`/abs`), or a `file:` URL. All
+ * three reference files outside the copied entry and would dangle / escape.
+ */
 function isRelativeSpecifier(specifier: string): boolean {
-  return specifier.startsWith('.') || specifier.startsWith('/');
+  return (
+    specifier.startsWith('.') ||
+    specifier.startsWith('/') ||
+    specifier.toLowerCase().startsWith('file:')
+  );
 }
 
 /**
@@ -398,16 +422,17 @@ function syntacticIssues(program: ts.Program, sourceFile: ts.SourceFile): ParseI
  * bound but never evaluated. TypeScript is a superset of JavaScript, so parsing
  * as `ScriptKind.TS` covers both `.ts` and `.js` tool files.
  */
-function analyzeExports(source: string): StaticAnalysis {
+function analyzeExports(source: string, filename: string): StaticAnalysis {
+  const programFile = programFileFor(filename);
   const sourceFile = ts.createSourceFile(
-    PROGRAM_FILE_NAME,
+    programFile.name,
     source,
     ts.ScriptTarget.Latest,
     /* setParentNodes */ true,
-    ts.ScriptKind.TS,
+    programFile.scriptKind,
   );
 
-  const program = createSingleFileProgram(sourceFile);
+  const program = createSingleFileProgram(sourceFile, programFile.name);
   const checker = program.getTypeChecker();
   const { relativeImports, dynamicImports } = collectModuleReferences(sourceFile);
   const syntaxErrors = syntacticIssues(program, sourceFile);
@@ -554,7 +579,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
   }
 
   const read = (key: RequiredDirective): string => values.get(key) ?? '';
-  const exports = analyzeExports(source);
+  const exports = analyzeExports(source, filename);
 
   return {
     name: read('name'),
