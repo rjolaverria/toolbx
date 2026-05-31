@@ -202,6 +202,18 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './export-type.ts').hasInputSchema).toBe(false);
   });
 
+  it('does not treat a namespace-scoped export of inputSchema as a module export', () => {
+    const source = `${META}\nimport { z } from 'zod';\nnamespace Local {\n  export const inputSchema = z.object({});\n}\nexport default async function f() {\n  return { content: [{ type: 'text', text: String(Local) }] };\n}\n`;
+
+    expect(parseToolMetadata(source, './nested.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat an ambient `export declare const inputSchema` as a runtime export', () => {
+    const source = `${META}\nexport declare const inputSchema: unknown;\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './ambient.ts').hasInputSchema).toBe(false);
+  });
+
   it('still detects a real inputSchema export alongside a misleading comment', () => {
     const source = `${META}\nimport { z } from 'zod';\n// not this: export const inputSchema in a comment\nexport const inputSchema = z.object({ a: z.string() });\nexport default async function f() {\n  return { content: [] };\n}\n`;
 

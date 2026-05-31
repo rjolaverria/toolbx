@@ -72,11 +72,36 @@ interface RawDirective {
 const BLOCK_COMMENT = /\/\*\*[\s\S]*?\*\//g;
 const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
 
-function hasExportKeyword(node: ts.Node): boolean {
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
   return (
     ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
-      false)
+    (ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false)
+  );
+}
+
+/** Whether a top-level statement is a runtime `export const|let|var inputSchema`. */
+function isInputSchemaVariableExport(statement: ts.Statement): boolean {
+  return (
+    ts.isVariableStatement(statement) &&
+    hasModifier(statement, ts.SyntaxKind.ExportKeyword) &&
+    // `export declare const inputSchema` is ambient — it emits no runtime binding.
+    !hasModifier(statement, ts.SyntaxKind.DeclareKeyword) &&
+    statement.declarationList.declarations.some(
+      (declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'inputSchema',
+    )
+  );
+}
+
+/** Whether a top-level statement re-exports a runtime binding as `inputSchema`. */
+function isInputSchemaNamedExport(statement: ts.Statement): boolean {
+  return (
+    ts.isExportDeclaration(statement) &&
+    !statement.isTypeOnly &&
+    statement.exportClause !== undefined &&
+    ts.isNamedExports(statement.exportClause) &&
+    statement.exportClause.elements.some(
+      (element) => !element.isTypeOnly && element.name.text === 'inputSchema',
+    )
   );
 }
 
@@ -87,14 +112,17 @@ function hasExportKeyword(node: ts.Node): boolean {
  * template literals, and regex literals that merely contain the text are never
  * mistaken for an export. The source is parsed, never evaluated. TypeScript is
  * a superset of JavaScript, so parsing as `ScriptKind.TS` covers both `.ts` and
- * `.js` tool files. Recognised forms:
+ * `.js` tool files.
+ *
+ * Only top-level statements are inspected — a binding exported from inside a
+ * `namespace` or ambient module block is not a module export. Recognised forms:
  *
  *   - `export const | let | var inputSchema = ...`
  *   - `export { inputSchema }` and `export { local as inputSchema }`
  *
- * Type-only exports (`export type { inputSchema }`, `export { type inputSchema }`)
- * and re-aliases away from the name (`export { inputSchema as other }`) are
- * excluded — they produce no runtime `inputSchema` binding.
+ * Excluded: ambient `export declare` bindings, type-only exports
+ * (`export type { inputSchema }`, `export { type inputSchema }`), and re-aliases
+ * away from the name (`export { inputSchema as other }`).
  */
 function hasInputSchemaExport(source: string, filename: string): boolean {
   const sourceFile = ts.createSourceFile(
@@ -105,40 +133,9 @@ function hasInputSchemaExport(source: string, filename: string): boolean {
     ts.ScriptKind.TS,
   );
 
-  const exportsInputSchema = (node: ts.Node): boolean => {
-    if (ts.isVariableStatement(node) && hasExportKeyword(node)) {
-      return node.declarationList.declarations.some(
-        (declaration) =>
-          ts.isIdentifier(declaration.name) && declaration.name.text === 'inputSchema',
-      );
-    }
-    if (
-      ts.isExportDeclaration(node) &&
-      !node.isTypeOnly &&
-      node.exportClause !== undefined &&
-      ts.isNamedExports(node.exportClause)
-    ) {
-      return node.exportClause.elements.some(
-        (element) => !element.isTypeOnly && element.name.text === 'inputSchema',
-      );
-    }
-    return false;
-  };
-
-  let found = false;
-  const visit = (node: ts.Node): void => {
-    if (found) {
-      return;
-    }
-    if (exportsInputSchema(node)) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-  return found;
+  return sourceFile.statements.some(
+    (statement) => isInputSchemaVariableExport(statement) || isInputSchemaNamedExport(statement),
+  );
 }
 
 function lineAt(source: string, index: number): number {
