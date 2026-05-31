@@ -73,6 +73,87 @@ const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
 const INPUT_SCHEMA_EXPORT =
   /export\s+(?:const|let|var)\s+inputSchema\b|export\s*\{[^}]*\binputSchema\b[^}]*\}/;
 
+/**
+ * Blanks out comments and string / template literals so a downstream regex can
+ * only match real code, never text that merely mentions an export inside a
+ * comment or string. Comment and string characters are replaced with spaces so
+ * surrounding tokens stay separated; we are not building a full JS lexer (regex
+ * literals are left as-is), which is enough to keep the export probe honest.
+ */
+function stripCommentsAndStrings(source: string): string {
+  type State = 'code' | 'line' | 'block' | 'single' | 'double' | 'template';
+  let state: State = 'code';
+  let escaped = false;
+  const out: string[] = [];
+
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    const next = source[i + 1];
+
+    switch (state) {
+      case 'code':
+        if (char === '/' && next === '/') {
+          state = 'line';
+          out.push('  ');
+          i++;
+        } else if (char === '/' && next === '*') {
+          state = 'block';
+          out.push('  ');
+          i++;
+        } else if (char === "'") {
+          state = 'single';
+          out.push(' ');
+        } else if (char === '"') {
+          state = 'double';
+          out.push(' ');
+        } else if (char === '`') {
+          state = 'template';
+          out.push(' ');
+        } else {
+          out.push(char ?? '');
+        }
+        break;
+      case 'line':
+        if (char === '\n') {
+          state = 'code';
+          out.push('\n');
+        } else {
+          out.push(' ');
+        }
+        break;
+      case 'block':
+        if (char === '*' && next === '/') {
+          state = 'code';
+          out.push('  ');
+          i++;
+        } else {
+          out.push(char === '\n' ? '\n' : ' ');
+        }
+        break;
+      case 'single':
+      case 'double':
+      case 'template': {
+        const quote = state === 'single' ? "'" : state === 'double' ? '"' : '`';
+        if (escaped) {
+          escaped = false;
+          out.push(' ');
+        } else if (char === '\\') {
+          escaped = true;
+          out.push(' ');
+        } else if (char === quote) {
+          state = 'code';
+          out.push(' ');
+        } else {
+          out.push(char === '\n' ? '\n' : ' ');
+        }
+        break;
+      }
+    }
+  }
+
+  return out.join('');
+}
+
 function lineAt(source: string, index: number): number {
   let line = 1;
   const end = Math.min(index, source.length);
@@ -167,7 +248,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     title: read('title'),
     description: read('description'),
     namespace: read('namespace'),
-    hasInputSchema: INPUT_SCHEMA_EXPORT.test(source),
+    hasInputSchema: INPUT_SCHEMA_EXPORT.test(stripCommentsAndStrings(source)),
     warnings,
   };
 }

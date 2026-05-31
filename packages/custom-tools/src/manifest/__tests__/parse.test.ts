@@ -110,6 +110,62 @@ export default async function noSchema() {
     expect(result.hasInputSchema).toBe(false);
   });
 
+  const META = `/**
+ * @toolbox-tool name no_schema
+ * @toolbox-tool title No Schema
+ * @toolbox-tool description A tool without an input schema.
+ * @toolbox-tool namespace personal
+ */
+`;
+
+  it('does not treat `export const inputSchema` inside a line comment as a real export', () => {
+    const source = `${META}\n// export const inputSchema = z.object({});\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './commented.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat `export const inputSchema` inside a block comment as a real export', () => {
+    const source = `${META}\n/* export const inputSchema = z.object({}); */\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './block.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat `export const inputSchema` inside a string literal as a real export', () => {
+    const source = `${META}\nconst doc = 'export const inputSchema = ...';\nexport default async function f() {\n  return { content: [{ type: 'text', text: doc }] };\n}\n`;
+
+    expect(parseToolMetadata(source, './string.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat `export const inputSchema` inside a double-quoted string as a real export', () => {
+    const source = `${META}\nconst doc = "export const inputSchema = ...";\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './double.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat `export const inputSchema` inside a template literal as a real export', () => {
+    const source = `${META}\nconst doc = \`export const inputSchema = \${1}\`;\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './template.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat `export const inputSchema` inside a multi-line block comment as a real export', () => {
+    const source = `${META}\n/*\n  export const inputSchema = z.object({});\n*/\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './multiblock.ts').hasInputSchema).toBe(false);
+  });
+
+  it('handles escaped quotes inside a string without ending it early', () => {
+    const source = `${META}\nconst doc = 'it\\'s not: export const inputSchema here';\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './escaped.ts').hasInputSchema).toBe(false);
+  });
+
+  it('still detects a real inputSchema export alongside a misleading comment', () => {
+    const source = `${META}\nimport { z } from 'zod';\n// not this: export const inputSchema in a comment\nexport const inputSchema = z.object({ a: z.string() });\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './real.ts').hasInputSchema).toBe(true);
+  });
+
   it('throws when the source has no @toolbox-tool directives at all', () => {
     const source = `// just a plain module\nexport default function f() {\n  return { content: [] };\n}\n`;
 
