@@ -4,6 +4,7 @@
   "references": [
     { "path": "apps/cli" },
     { "path": "packages/core" },
-    { "path": "packages/mcp-gateway" }
+    { "path": "packages/mcp-gateway" },
+    { "path": "packages/custom-tools" }
   ]
 }
