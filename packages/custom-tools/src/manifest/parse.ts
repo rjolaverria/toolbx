@@ -70,15 +70,22 @@ interface RawDirective {
 const BLOCK_COMMENT = /\/\*\*[\s\S]*?\*\//g;
 const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
 // `export const|let|var inputSchema` or a named re-export `export { ..., inputSchema }`.
+// Anchored to a statement position (start of input, newline, or after `;`) so an
+// `export` token must begin a statement. A regex literal always opens with `/`,
+// so `export` can never sit at a statement start inside one — this keeps regex
+// literals that merely contain the phrase from registering as a real export.
+// Comments and strings are blanked beforehand by `stripCommentsAndStrings`.
 const INPUT_SCHEMA_EXPORT =
-  /export\s+(?:const|let|var)\s+inputSchema\b|export\s*\{[^}]*\binputSchema\b[^}]*\}/;
+  /(?:^|[\n;])[ \t]*export[ \t]+(?:const|let|var)[ \t]+inputSchema\b|(?:^|[\n;])[ \t]*export[ \t]*\{[^}]*\binputSchema\b[^}]*\}/;
 
 /**
  * Blanks out comments and string / template literals so a downstream regex can
  * only match real code, never text that merely mentions an export inside a
  * comment or string. Comment and string characters are replaced with spaces so
- * surrounding tokens stay separated; we are not building a full JS lexer (regex
- * literals are left as-is), which is enough to keep the export probe honest.
+ * surrounding tokens stay separated. This is not a full JS lexer: regex
+ * literals are left as-is, and the statement-anchored `INPUT_SCHEMA_EXPORT`
+ * probe (not this pass) is what keeps a regex literal containing the export
+ * phrase from registering as a real export.
  */
 function stripCommentsAndStrings(source: string): string {
   type State = 'code' | 'line' | 'block' | 'single' | 'double' | 'template';

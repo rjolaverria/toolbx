@@ -160,6 +160,12 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './escaped.ts').hasInputSchema).toBe(false);
   });
 
+  it('does not treat a regex literal containing the export phrase as a real export', () => {
+    const source = `${META}\nconst re = /export const inputSchema/;\nexport default async function f() {\n  return { content: [{ type: 'text', text: String(re) }] };\n}\n`;
+
+    expect(parseToolMetadata(source, './regex.ts').hasInputSchema).toBe(false);
+  });
+
   it('still detects a real inputSchema export alongside a misleading comment', () => {
     const source = `${META}\nimport { z } from 'zod';\n// not this: export const inputSchema in a comment\nexport const inputSchema = z.object({ a: z.string() });\nexport default async function f() {\n  return { content: [] };\n}\n`;
 
