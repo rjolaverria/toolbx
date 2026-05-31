@@ -113,7 +113,7 @@ Phase 2 is complete: every task below (P2-01 through P2-06) is closed. The SPECS
 
 ## Phase 3 — Custom JS/TS Tools
 
-- [ ] **P3-01** — [JSDoc tool metadata parser](tasks/P3-01-jsdoc-metadata-parser.md)
+- [x] **P3-01** — [JSDoc tool metadata parser](tasks/P3-01-jsdoc-metadata-parser.md) — closed by 56b7813 (branch `p3-01-jsdoc-metadata-parser`)
 - [ ] **P3-02** — [Custom tool importer + manifest generator](tasks/P3-02-tool-importer-and-manifest.md)
 - [ ] **P3-03** — [Custom tool runtime with timeouts and permissions](tasks/P3-03-tool-runtime.md)
 - [ ] **P3-04** — [`tlbx tool` CLI commands (import/list/inspect/enable/disable/remove)](tasks/P3-04-cli-tool-commands.md)
