@@ -2,10 +2,12 @@
  * Pure JSDoc metadata parser for custom tool files (SPECS §6.2).
  *
  * Extracts the `@toolbox-tool` directives from a user-provided `.ts` / `.js`
- * source string. This module never evaluates the file — it only reads the
- * comment block and notes whether an `inputSchema` export is present so the
- * importer (P3-02) can validate it later.
+ * source string. This module never evaluates the file — it reads the JSDoc
+ * comment block and uses the TypeScript parser to note whether an `inputSchema`
+ * binding is exported, so the importer (P3-02) can validate it later.
  */
+
+import ts from 'typescript';
 
 /** The four required `@toolbox-tool` directives, in canonical order. */
 const REQUIRED_DIRECTIVES = ['name', 'title', 'description', 'namespace'] as const;
@@ -69,96 +71,74 @@ interface RawDirective {
 // we are not building a general JS parser.
 const BLOCK_COMMENT = /\/\*\*[\s\S]*?\*\//g;
 const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
-// `export const|let|var inputSchema` or a named re-export `export { ..., inputSchema }`.
-// Anchored to a statement position (start of input, newline, or after `;`) so an
-// `export` token must begin a statement. A regex literal always opens with `/`,
-// so `export` can never sit at a statement start inside one — this keeps regex
-// literals that merely contain the phrase from registering as a real export.
-// Comments and strings are blanked beforehand by `stripCommentsAndStrings`.
-const INPUT_SCHEMA_EXPORT =
-  /(?:^|[\n;])[ \t]*export[ \t]+(?:const|let|var)[ \t]+inputSchema\b|(?:^|[\n;])[ \t]*export[ \t]*\{[^}]*\binputSchema\b[^}]*\}/;
+
+function hasExportKeyword(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
+      false)
+  );
+}
 
 /**
- * Blanks out comments and string / template literals so a downstream regex can
- * only match real code, never text that merely mentions an export inside a
- * comment or string. Comment and string characters are replaced with spaces so
- * surrounding tokens stay separated. This is not a full JS lexer: regex
- * literals are left as-is, and the statement-anchored `INPUT_SCHEMA_EXPORT`
- * probe (not this pass) is what keeps a regex literal containing the export
- * phrase from registering as a real export.
+ * Reports whether the source exports a runtime binding named `inputSchema`.
+ *
+ * Uses the TypeScript parser rather than a text scan so comments, string /
+ * template literals, and regex literals that merely contain the text are never
+ * mistaken for an export. The source is parsed, never evaluated. TypeScript is
+ * a superset of JavaScript, so parsing as `ScriptKind.TS` covers both `.ts` and
+ * `.js` tool files. Recognised forms:
+ *
+ *   - `export const | let | var inputSchema = ...`
+ *   - `export { inputSchema }` and `export { local as inputSchema }`
+ *
+ * Type-only exports (`export type { inputSchema }`, `export { type inputSchema }`)
+ * and re-aliases away from the name (`export { inputSchema as other }`) are
+ * excluded — they produce no runtime `inputSchema` binding.
  */
-function stripCommentsAndStrings(source: string): string {
-  type State = 'code' | 'line' | 'block' | 'single' | 'double' | 'template';
-  let state: State = 'code';
-  let escaped = false;
-  const out: string[] = [];
+function hasInputSchemaExport(source: string, filename: string): boolean {
+  const sourceFile = ts.createSourceFile(
+    filename,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ false,
+    ts.ScriptKind.TS,
+  );
 
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i];
-    const next = source[i + 1];
-
-    switch (state) {
-      case 'code':
-        if (char === '/' && next === '/') {
-          state = 'line';
-          out.push('  ');
-          i++;
-        } else if (char === '/' && next === '*') {
-          state = 'block';
-          out.push('  ');
-          i++;
-        } else if (char === "'") {
-          state = 'single';
-          out.push(' ');
-        } else if (char === '"') {
-          state = 'double';
-          out.push(' ');
-        } else if (char === '`') {
-          state = 'template';
-          out.push(' ');
-        } else {
-          out.push(char ?? '');
-        }
-        break;
-      case 'line':
-        if (char === '\n') {
-          state = 'code';
-          out.push('\n');
-        } else {
-          out.push(' ');
-        }
-        break;
-      case 'block':
-        if (char === '*' && next === '/') {
-          state = 'code';
-          out.push('  ');
-          i++;
-        } else {
-          out.push(char === '\n' ? '\n' : ' ');
-        }
-        break;
-      case 'single':
-      case 'double':
-      case 'template': {
-        const quote = state === 'single' ? "'" : state === 'double' ? '"' : '`';
-        if (escaped) {
-          escaped = false;
-          out.push(' ');
-        } else if (char === '\\') {
-          escaped = true;
-          out.push(' ');
-        } else if (char === quote) {
-          state = 'code';
-          out.push(' ');
-        } else {
-          out.push(char === '\n' ? '\n' : ' ');
-        }
-        break;
-      }
+  const exportsInputSchema = (node: ts.Node): boolean => {
+    if (ts.isVariableStatement(node) && hasExportKeyword(node)) {
+      return node.declarationList.declarations.some(
+        (declaration) =>
+          ts.isIdentifier(declaration.name) && declaration.name.text === 'inputSchema',
+      );
     }
-  }
+    if (
+      ts.isExportDeclaration(node) &&
+      !node.isTypeOnly &&
+      node.exportClause !== undefined &&
+      ts.isNamedExports(node.exportClause)
+    ) {
+      return node.exportClause.elements.some(
+        (element) => !element.isTypeOnly && element.name.text === 'inputSchema',
+      );
+    }
+    return false;
+  };
 
-  return out.join('');
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) {
+      return;
+    }
+    if (exportsInputSchema(node)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return found;
 }
 
 function lineAt(source: string, index: number): number {
@@ -255,7 +235,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     title: read('title'),
     description: read('description'),
     namespace: read('namespace'),
-    hasInputSchema: INPUT_SCHEMA_EXPORT.test(stripCommentsAndStrings(source)),
+    hasInputSchema: hasInputSchemaExport(source, filename),
     warnings,
   };
 }

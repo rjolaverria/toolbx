@@ -166,6 +166,42 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './regex.ts').hasInputSchema).toBe(false);
   });
 
+  it('does not treat a regex literal containing `;export const inputSchema` as a real export', () => {
+    const source = `${META}\nconst re = /;export const inputSchema/;\nexport default async function f() {\n  return { content: [{ type: 'text', text: String(re) }] };\n}\n`;
+
+    expect(parseToolMetadata(source, './regex2.ts').hasInputSchema).toBe(false);
+  });
+
+  it('detects a named export of inputSchema', () => {
+    const source = `${META}\nimport { z } from 'zod';\nconst inputSchema = z.object({});\nexport { inputSchema };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './named.ts').hasInputSchema).toBe(true);
+  });
+
+  it('detects a binding aliased to the exported name inputSchema', () => {
+    const source = `${META}\nimport { z } from 'zod';\nconst schema = z.object({});\nexport { schema as inputSchema };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './alias-to.ts').hasInputSchema).toBe(true);
+  });
+
+  it('does not treat `export { inputSchema as other }` as an inputSchema export', () => {
+    const source = `${META}\nimport { z } from 'zod';\nconst inputSchema = z.object({});\nexport { inputSchema as somethingElse };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './alias-from.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat a type-only export of inputSchema as a runtime export', () => {
+    const source = `${META}\ntype inputSchema = { a: string };\nexport { type inputSchema };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './type-only.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat `export type { inputSchema }` as a runtime export', () => {
+    const source = `${META}\ntype inputSchema = { a: string };\nexport type { inputSchema };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './export-type.ts').hasInputSchema).toBe(false);
+  });
+
   it('still detects a real inputSchema export alongside a misleading comment', () => {
     const source = `${META}\nimport { z } from 'zod';\n// not this: export const inputSchema in a comment\nexport const inputSchema = z.object({ a: z.string() });\nexport default async function f() {\n  return { content: [] };\n}\n`;
 
