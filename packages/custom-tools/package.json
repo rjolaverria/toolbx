@@ -17,6 +17,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@toolbox/core": "workspace:*",
     "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },

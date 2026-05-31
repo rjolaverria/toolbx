@@ -233,6 +233,36 @@ describe('importTool', () => {
       await expect(importTool(sourcePath, { configDir })).rejects.toThrow(/inputSchema/);
     });
 
+    it('rejects a namespace that contains the namespace separator', async () => {
+      // `github__foo` + name `bar` would expose `github__foo__bar`, which is
+      // indistinguishable from proxied server `github` tool `foo__bar`.
+      const ambiguous = SPEC_EXAMPLE.replace(
+        '@toolbox-tool namespace personal',
+        '@toolbox-tool namespace github__foo',
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', ambiguous);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'invalid-identifier',
+      });
+      await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
+    });
+
+    it('rejects a namespace containing a configured non-default separator', async () => {
+      // `team-a` passes the server-name charset but contains the configured `-`
+      // separator, so the exposed name would be ambiguous.
+      const sourcePath = await writeSource(
+        'send_slack_summary.ts',
+        SPEC_EXAMPLE.replace('@toolbox-tool namespace personal', '@toolbox-tool namespace team-a'),
+      );
+
+      await expect(importTool(sourcePath, { configDir, separator: '-' })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'invalid-identifier',
+      });
+    });
+
     it('rejects a namespace containing path traversal segments', async () => {
       const traversal = SPEC_EXAMPLE.replace(
         '@toolbox-tool namespace personal',

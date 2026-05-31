@@ -10,6 +10,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { ServerNameSchema } from '@toolbox/core';
 import { z } from 'zod';
 
 import { parseToolMetadata, type ParseWarning } from './parse.js';
@@ -17,7 +18,7 @@ import { parseToolMetadata, type ParseWarning } from './parse.js';
 /** Tool source files ToolBox can import, keyed to their stored runtime. */
 const SUPPORTED_EXTENSIONS = new Set(['.ts', '.js']);
 
-/** Namespace / name segments must be safe path segments (no traversal). */
+/** The tool name must be a safe path segment (no traversal). */
 const IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 
 /** Default namespace separator for exposed tool names (SPECS §6.2). */
@@ -164,17 +165,35 @@ export async function importTool(
   // that propagate unwrapped so its line-anchored detail survives.
   const metadata = parseToolMetadata(source, sourcePath);
 
-  for (const [field, value] of [
-    ['namespace', metadata.namespace],
-    ['name', metadata.name],
-  ] as const) {
-    if (!IDENTIFIER.test(value)) {
-      throw new ToolImportError(
-        'invalid-identifier',
-        sourcePath,
-        `@toolbox-tool ${field} "${value}" must contain only letters, digits, "-", and "_"`,
-      );
-    }
+  const separator = options.separator ?? DEFAULT_SEPARATOR;
+
+  // The namespace shares the upstream server-name rules: it is the prefix of the
+  // exposed name, so it must obey the same charset and must not contain the
+  // namespace separator. Otherwise `namespace "github__foo"` + `name "bar"`
+  // would expose `github__foo__bar`, ambiguous with proxied `github` tool
+  // `foo__bar` and able to bypass the server-name collision check below.
+  if (!ServerNameSchema.safeParse(metadata.namespace).success) {
+    throw new ToolImportError(
+      'invalid-identifier',
+      sourcePath,
+      `@toolbox-tool namespace "${metadata.namespace}" must be alphanumeric with "-" or "_" and must not contain the "__" separator`,
+    );
+  }
+  // ServerNameSchema only knows the default `__` separator; reject a custom one
+  // too so the exposed name stays unambiguous under any configured separator.
+  if (separator !== DEFAULT_SEPARATOR && metadata.namespace.includes(separator)) {
+    throw new ToolImportError(
+      'invalid-identifier',
+      sourcePath,
+      `@toolbox-tool namespace "${metadata.namespace}" must not contain the "${separator}" namespace separator`,
+    );
+  }
+  if (!IDENTIFIER.test(metadata.name)) {
+    throw new ToolImportError(
+      'invalid-identifier',
+      sourcePath,
+      `@toolbox-tool name "${metadata.name}" must contain only letters, digits, "-", and "_"`,
+    );
   }
 
   const shapeIssues: string[] = [];
@@ -192,7 +211,6 @@ export async function importTool(
     );
   }
 
-  const separator = options.separator ?? DEFAULT_SEPARATOR;
   const exposedName = `${metadata.namespace}${separator}${metadata.name}`;
 
   if (options.serverNames?.includes(metadata.namespace)) {

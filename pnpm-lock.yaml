@@ -110,6 +110,9 @@ importers:
 
   packages/custom-tools:
     dependencies:
+      '@toolbox/core':
+        specifier: workspace:*
+        version: link:../core
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
