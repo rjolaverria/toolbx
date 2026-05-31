@@ -68,70 +68,94 @@ interface RawDirective {
 
 const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
 
-function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false)
-  );
+// Fixed, absolute, already-normalized path for the in-memory program so
+// `createProgram` does not rewrite the root name and the host always matches.
+const PROGRAM_FILE_NAME = '/tool.ts';
+
+/**
+ * Builds a single-file in-memory program so the type checker can resolve module
+ * exports semantically. No file system access (`noResolve`/`noLib`), and the
+ * source is parsed and bound but never executed.
+ */
+function createSingleFileProgram(sourceFile: ts.SourceFile): ts.Program {
+  const host: ts.CompilerHost = {
+    getSourceFile: (name) => (name === PROGRAM_FILE_NAME ? sourceFile : undefined),
+    getDefaultLibFileName: () => 'lib.d.ts',
+    writeFile: () => undefined,
+    getCurrentDirectory: () => '/',
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => '\n',
+    fileExists: (name) => name === PROGRAM_FILE_NAME,
+    readFile: () => undefined,
+  };
+  return ts.createProgram([PROGRAM_FILE_NAME], { noResolve: true, noLib: true, types: [] }, host);
 }
 
-/** Whether a top-level statement is a runtime `export const|let|var inputSchema`. */
-function isInputSchemaVariableExport(statement: ts.Statement): boolean {
-  return (
-    ts.isVariableStatement(statement) &&
-    hasModifier(statement, ts.SyntaxKind.ExportKeyword) &&
-    // `export declare const inputSchema` is ambient — it emits no runtime binding.
-    !hasModifier(statement, ts.SyntaxKind.DeclareKeyword) &&
-    statement.declarationList.declarations.some(
-      (declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'inputSchema',
-    )
-  );
-}
+/**
+ * Whether an exported symbol names a binding that exists at runtime. Type-only
+ * symbols (`type` / `interface`) and ambient `declare` bindings emit nothing, so
+ * they do not count. Aliases (re-exports) are followed to their target; a
+ * re-export we cannot resolve (another module, not loaded here) is assumed to be
+ * a value so cross-file schema re-exports still register.
+ */
+function isRuntimeValueExport(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  let resolved = symbol;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    // Only called when the Alias flag is set, so this never throws.
+    const aliased = checker.getAliasedSymbol(symbol);
+    if ((aliased.declarations?.length ?? 0) === 0) {
+      // A re-export from another module not loaded here resolves to a
+      // placeholder with no declarations — assume it is a value so cross-file
+      // schema re-exports still register.
+      return true;
+    }
+    resolved = aliased;
+  }
 
-/** Whether a top-level statement re-exports a runtime binding as `inputSchema`. */
-function isInputSchemaNamedExport(statement: ts.Statement): boolean {
-  return (
-    ts.isExportDeclaration(statement) &&
-    !statement.isTypeOnly &&
-    statement.exportClause !== undefined &&
-    ts.isNamedExports(statement.exportClause) &&
-    statement.exportClause.elements.some(
-      (element) => !element.isTypeOnly && element.name.text === 'inputSchema',
-    )
+  if ((resolved.flags & ts.SymbolFlags.Value) === 0) {
+    return false; // type-only
+  }
+
+  // True only if a non-ambient declaration backs the value; ambient `declare`
+  // bindings emit nothing at runtime.
+  return (resolved.declarations ?? []).some(
+    (declaration) => (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Ambient) === 0,
   );
 }
 
 /**
  * Reports whether the source exports a runtime binding named `inputSchema`.
  *
- * Uses the TypeScript parser rather than a text scan so comments, string /
- * template literals, and regex literals that merely contain the text are never
- * mistaken for an export. The source is parsed, never evaluated. TypeScript is
- * a superset of JavaScript, so parsing as `ScriptKind.TS` covers both `.ts` and
- * `.js` tool files.
- *
- * Only top-level statements are inspected — a binding exported from inside a
- * `namespace` or ambient module block is not a module export. Recognised forms:
- *
- *   - `export const | let | var inputSchema = ...`
- *   - `export { inputSchema }` and `export { local as inputSchema }`
- *
- * Excluded: ambient `export declare` bindings, type-only exports
- * (`export type { inputSchema }`, `export { type inputSchema }`), and re-aliases
- * away from the name (`export { inputSchema as other }`).
+ * Uses the TypeScript type checker rather than a text scan, so comments, string
+ * / template / regex literals that merely contain the text never count, and the
+ * binding's meaning is resolved semantically: type-only exports
+ * (`export type { inputSchema }`, `export { type inputSchema }`, or
+ * `type inputSchema = ...; export { inputSchema }`), ambient `export declare`
+ * bindings, nested `namespace` exports, and re-aliases away from the name
+ * (`export { inputSchema as other }`) are all excluded. The source is parsed and
+ * bound but never evaluated. TypeScript is a superset of JavaScript, so parsing
+ * as `ScriptKind.TS` covers both `.ts` and `.js` tool files.
  */
-function hasInputSchemaExport(source: string, filename: string): boolean {
+function hasInputSchemaExport(source: string): boolean {
   const sourceFile = ts.createSourceFile(
-    filename,
+    PROGRAM_FILE_NAME,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    /* setParentNodes */ true,
     ts.ScriptKind.TS,
   );
 
-  return sourceFile.statements.some(
-    (statement) => isInputSchemaVariableExport(statement) || isInputSchemaNamedExport(statement),
-  );
+  const checker = createSingleFileProgram(sourceFile).getTypeChecker();
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+  if (moduleSymbol === undefined) {
+    return false; // not an ES module — no exports
+  }
+
+  const exported = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.name === 'inputSchema');
+  return exported !== undefined && isRuntimeValueExport(checker, exported);
 }
 
 function lineAt(source: string, index: number): number {
@@ -253,7 +277,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     title: read('title'),
     description: read('description'),
     namespace: read('namespace'),
-    hasInputSchema: hasInputSchemaExport(source, filename),
+    hasInputSchema: hasInputSchemaExport(source),
     warnings,
   };
 }

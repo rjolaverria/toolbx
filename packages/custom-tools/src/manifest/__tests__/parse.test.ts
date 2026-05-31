@@ -214,6 +214,24 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './ambient.ts').hasInputSchema).toBe(false);
   });
 
+  it('does not treat a named export of a type-only `inputSchema` as a runtime export', () => {
+    const source = `${META}\ntype inputSchema = { a: string };\nexport { inputSchema };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './type-value.ts').hasInputSchema).toBe(false);
+  });
+
+  it('treats a cross-module re-export of inputSchema as present', () => {
+    const source = `${META}\nexport { inputSchema } from './schema.js';\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './reexport.ts').hasInputSchema).toBe(true);
+  });
+
+  it('reports no inputSchema export for a non-module script with directives', () => {
+    const source = `${META}\nconst inputSchema = 1;\nvoid inputSchema;\n`;
+
+    expect(parseToolMetadata(source, './script.ts').hasInputSchema).toBe(false);
+  });
+
   it('still detects a real inputSchema export alongside a misleading comment', () => {
     const source = `${META}\nimport { z } from 'zod';\n// not this: export const inputSchema in a comment\nexport const inputSchema = z.object({ a: z.string() });\nexport default async function f() {\n  return { content: [] };\n}\n`;
 
