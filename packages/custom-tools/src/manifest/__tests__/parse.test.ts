@@ -173,6 +173,24 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './regex2.ts').hasInputSchema).toBe(false);
   });
 
+  it('does not treat a primitive-valued `export const inputSchema = 42` as a schema', () => {
+    const source = `${META}\nexport const inputSchema = 42;\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './primitive.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat a string-valued inputSchema export as a schema', () => {
+    const source = `${META}\nexport const inputSchema = 'nope';\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './stringschema.ts').hasInputSchema).toBe(false);
+  });
+
+  it('treats a JSON-schema object literal inputSchema export as present', () => {
+    const source = `${META}\nexport const inputSchema = { type: 'object', properties: {} };\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './jsonschema.ts').hasInputSchema).toBe(true);
+  });
+
   it('detects a named export of inputSchema', () => {
     const source = `${META}\nimport { z } from 'zod';\nconst inputSchema = z.object({});\nexport { inputSchema };\nexport default async function f() {\n  return { content: [] };\n}\n`;
 

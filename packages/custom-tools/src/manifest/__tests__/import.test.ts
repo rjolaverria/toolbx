@@ -219,6 +219,20 @@ describe('importTool', () => {
       await expect(importTool(sourcePath, { configDir })).rejects.toThrow(/inputSchema/);
     });
 
+    it('rejects a tool whose inputSchema export is a primitive, not a schema', async () => {
+      const primitive = SPEC_EXAMPLE.replace(
+        /export const inputSchema = z\.object\(\{[\s\S]*?\}\);/,
+        'export const inputSchema = 42;',
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', primitive);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'invalid-shape',
+      });
+      await expect(importTool(sourcePath, { configDir })).rejects.toThrow(/inputSchema/);
+    });
+
     it('rejects a namespace containing path traversal segments', async () => {
       const traversal = SPEC_EXAMPLE.replace(
         '@toolbox-tool namespace personal',

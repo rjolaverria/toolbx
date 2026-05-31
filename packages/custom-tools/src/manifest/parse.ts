@@ -32,7 +32,12 @@ export interface ParsedToolMetadata {
   readonly title: string;
   readonly description: string;
   readonly namespace: string;
-  /** Whether the source exports an `inputSchema` binding (not evaluated). */
+  /**
+   * Whether the source exports a plausibly schema-shaped `inputSchema` binding
+   * (a runtime value that is not a primitive). Not evaluated — full Zod / JSON
+   * Schema value validation happens when the runtime loader runs the file
+   * (P3-03).
+   */
   readonly hasInputSchema: boolean;
   /**
    * Whether the source has a default export whose type is callable (a function
@@ -150,6 +155,44 @@ function isRuntimeValueExport(checker: ts.TypeChecker, symbol: ts.Symbol): boole
   );
 }
 
+// Primitive type flags. A schema (Zod instance or JSON-schema object literal)
+// is never one of these: a Zod call resolves to `any` here (the `zod` import is
+// not loaded in the isolated program) and a JSON-schema literal is an object
+// type. So a primitively-typed `inputSchema` (`= 42`, `= 'x'`, `= true`) is
+// certainly not a schema and can be rejected statically. Full schema-value
+// validation happens when the runtime loader evaluates the module (P3-03).
+const PRIMITIVE_TYPE_FLAGS =
+  ts.TypeFlags.StringLike |
+  ts.TypeFlags.NumberLike |
+  ts.TypeFlags.BigIntLike |
+  ts.TypeFlags.BooleanLike |
+  ts.TypeFlags.ESSymbolLike |
+  ts.TypeFlags.Null |
+  ts.TypeFlags.Undefined |
+  ts.TypeFlags.Void;
+
+/**
+ * Whether the export's resolved type is a primitive. Returns `false` when the
+ * type cannot be determined (e.g. an unresolved cross-module re-export), so the
+ * presence check stays permissive — only a positively primitive type is
+ * rejected.
+ */
+function isPrimitiveTypedExport(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  let resolved = symbol;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if ((aliased.declarations?.length ?? 0) > 0) {
+      resolved = aliased;
+    }
+  }
+  const declaration = resolved.valueDeclaration ?? resolved.declarations?.[0];
+  if (declaration === undefined) {
+    return false;
+  }
+  const type = checker.getTypeOfSymbolAtLocation(resolved, declaration);
+  return (type.flags & PRIMITIVE_TYPE_FLAGS) !== 0;
+}
+
 /**
  * Whether the default export's type is callable (a function handler). Aliases
  * (`export { handler as default }`, `export default handler`) are followed to
@@ -210,7 +253,10 @@ function analyzeExports(source: string): ExportAnalysis {
   const defaultExport = exports.find((symbol) => symbol.name === 'default');
 
   return {
-    hasInputSchema: inputSchema !== undefined && isRuntimeValueExport(checker, inputSchema),
+    hasInputSchema:
+      inputSchema !== undefined &&
+      isRuntimeValueExport(checker, inputSchema) &&
+      !isPrimitiveTypedExport(checker, inputSchema),
     hasDefaultFunctionExport:
       defaultExport !== undefined && isFunctionExport(checker, defaultExport),
   };
