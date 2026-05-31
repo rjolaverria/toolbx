@@ -391,6 +391,24 @@ export default async function f() {
       expect(parseToolMetadata(source, './mixed.ts').relativeImports).toEqual(['./mixed.js']);
     });
 
+    it('does not report an import whose specifiers are all inline type-only', () => {
+      const source = `${META}\nimport { type Foo, type Bar } from './types.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (): Promise<Foo | Bar | { content: [] }> => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './inlinetype.ts').relativeImports).toEqual([]);
+    });
+
+    it('does not report an export whose specifiers are all inline type-only', () => {
+      const source = `${META}\nexport { type Foo } from './types.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './inlinetypeexp.ts').relativeImports).toEqual([]);
+    });
+
+    it('still reports an import with a default binding plus an inline type specifier', () => {
+      const source = `${META}\nimport thing, { type Foo } from './d.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (): Promise<Foo> => thing;\n`;
+
+      expect(parseToolMetadata(source, './defplus.ts').relativeImports).toEqual(['./d.js']);
+    });
+
     it('does not report bare package or node specifiers as relative', () => {
       const source = `${META}\nimport { z } from 'zod';\nimport { readFile } from 'node:fs/promises';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\nvoid readFile;\n`;
 

@@ -349,6 +349,17 @@ export default async function f() {
       expect(result.manifest.exposedName).toBe('personal__send_slack_summary');
     });
 
+    it('imports a tool whose only relative import is inline type-only', async () => {
+      const withInlineType = SPEC_EXAMPLE.replace(
+        "import { z } from 'zod';",
+        "import { type Foo } from './types.js';\nimport { z } from 'zod';",
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', withInlineType);
+
+      const result = await importTool(sourcePath, { configDir });
+      expect(result.manifest.exposedName).toBe('personal__send_slack_summary');
+    });
+
     it('rejects a tool with a syntax error', async () => {
       const broken = SPEC_EXAMPLE.replace(
         'export const inputSchema = z.object({',

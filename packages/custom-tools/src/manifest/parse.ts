@@ -242,6 +242,46 @@ function isRelativeSpecifier(specifier: string): boolean {
   return specifier.startsWith('.') || specifier.startsWith('/');
 }
 
+/**
+ * Whether an `import` is fully erased at runtime: `import type ...`, or named
+ * imports whose every specifier is inline `type`-only (and there is no default
+ * or namespace binding, which would be a runtime value). A side-effect import
+ * (`import './x'`) is not erased.
+ */
+function isErasedImport(node: ts.ImportDeclaration): boolean {
+  const clause = node.importClause;
+  if (clause === undefined) {
+    return false; // side-effect import — runs at runtime
+  }
+  if (clause.isTypeOnly) {
+    return true;
+  }
+  if (clause.name !== undefined) {
+    return false; // default import is a runtime value
+  }
+  const bindings = clause.namedBindings;
+  if (bindings === undefined || !ts.isNamedImports(bindings) || bindings.elements.length === 0) {
+    return false; // namespace import, or empty `import {} from` (still evaluated)
+  }
+  return bindings.elements.every((element) => element.isTypeOnly);
+}
+
+/**
+ * Whether an `export ... from` is fully erased at runtime: `export type ...`, or
+ * named exports whose every specifier is inline `type`-only. `export * from` is
+ * a runtime re-export.
+ */
+function isErasedExport(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) {
+    return true;
+  }
+  const clause = node.exportClause;
+  if (clause === undefined || !ts.isNamedExports(clause) || clause.elements.length === 0) {
+    return false; // `export * from` or empty clause
+  }
+  return clause.elements.every((element) => element.isTypeOnly);
+}
+
 interface ModuleReferences {
   /** Literal relative / absolute specifiers (`./util.js`, `../x`, `/abs`). */
   readonly relativeImports: string[];
@@ -300,15 +340,15 @@ function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
   };
 
   const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly !== true) {
-      // `import type { X } from './t'` is erased at runtime, so it never dangles.
-      recordLiteral(node.moduleSpecifier);
-    } else if (
-      ts.isExportDeclaration(node) &&
-      !node.isTypeOnly &&
-      node.moduleSpecifier !== undefined
-    ) {
-      recordLiteral(node.moduleSpecifier);
+    if (ts.isImportDeclaration(node)) {
+      // Type-only imports are erased at runtime, so they never dangle.
+      if (!isErasedImport(node)) {
+        recordLiteral(node.moduleSpecifier);
+      }
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+      if (!isErasedExport(node)) {
+        recordLiteral(node.moduleSpecifier);
+      }
     } else if (
       ts.isImportEqualsDeclaration(node) &&
       ts.isExternalModuleReference(node.moduleReference)
