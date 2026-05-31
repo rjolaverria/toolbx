@@ -95,7 +95,9 @@ export class ToolImportError extends Error {
   }
 }
 
-const permissionsSchema = z.object({
+// Loose for the same forward-compatibility reason as the entry schema below:
+// unknown permission keys on existing entries are preserved, not stripped.
+const permissionsSchema = z.looseObject({
   network: z.boolean(),
   filesystem: z.boolean(),
   env: z.array(z.string()),

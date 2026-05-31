@@ -338,6 +338,17 @@ export default async function f() {
       });
     });
 
+    it('imports a tool that only has a type-only relative import', async () => {
+      const withTypeImport = SPEC_EXAMPLE.replace(
+        "import { z } from 'zod';",
+        "import type { Foo } from './types.js';\nimport { z } from 'zod';",
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', withTypeImport);
+
+      const result = await importTool(sourcePath, { configDir });
+      expect(result.manifest.exposedName).toBe('personal__send_slack_summary');
+    });
+
     it('rejects a tool with a syntax error', async () => {
       const broken = SPEC_EXAMPLE.replace(
         'export const inputSchema = z.object({',
@@ -398,7 +409,7 @@ export default async function f() {
         entry: 'tools/personal/other_tool.ts',
         runtime: 'node',
         enabled: true,
-        permissions: { network: false, filesystem: false, env: [] },
+        permissions: { network: false, filesystem: false, env: [], futurePerm: 'keep-too' },
         futureField: 'keep-me',
       };
       await writeManifestRaw(JSON.stringify([existing]));
@@ -410,6 +421,7 @@ export default async function f() {
         (m) => m.exposedName === 'personal__other_tool',
       ) as unknown as Record<string, unknown> | undefined;
       expect(preserved?.futureField).toBe('keep-me');
+      expect((preserved?.permissions as Record<string, unknown>).futurePerm).toBe('keep-too');
     });
   });
 

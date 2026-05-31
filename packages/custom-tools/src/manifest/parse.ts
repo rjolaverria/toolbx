@@ -300,8 +300,12 @@ function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
   };
 
   const visit = (node: ts.Node): void => {
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+    if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly !== true) {
+      // `import type { X } from './t'` is erased at runtime, so it never dangles.
+      recordLiteral(node.moduleSpecifier);
+    } else if (
+      ts.isExportDeclaration(node) &&
+      !node.isTypeOnly &&
       node.moduleSpecifier !== undefined
     ) {
       recordLiteral(node.moduleSpecifier);

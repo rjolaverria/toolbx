@@ -373,6 +373,24 @@ export default async function f() {
       ]);
     });
 
+    it('does not report a type-only relative import (erased at runtime)', () => {
+      const source = `${META}\nimport type { Foo } from './types.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (): Promise<Foo | { content: [] }> => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './typeimport.ts').relativeImports).toEqual([]);
+    });
+
+    it('does not report a type-only relative export (erased at runtime)', () => {
+      const source = `${META}\nexport type { Foo } from './types.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './typeexport.ts').relativeImports).toEqual([]);
+    });
+
+    it('still reports a mixed value+type relative import', () => {
+      const source = `${META}\nimport { value, type Foo } from './mixed.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (): Promise<Foo> => value;\n`;
+
+      expect(parseToolMetadata(source, './mixed.ts').relativeImports).toEqual(['./mixed.js']);
+    });
+
     it('does not report bare package or node specifiers as relative', () => {
       const source = `${META}\nimport { z } from 'zod';\nimport { readFile } from 'node:fs/promises';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\nvoid readFile;\n`;
 
