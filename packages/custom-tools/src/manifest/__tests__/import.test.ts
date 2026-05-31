@@ -312,6 +312,32 @@ export default async function f() {
       });
     });
 
+    it('rejects a tool using `import = require(...)` for a relative module', async () => {
+      const eqReq = SPEC_EXAMPLE.replace(
+        "import { z } from 'zod';",
+        "import { z } from 'zod';\nimport helper = require('./helper');",
+      ).replace('return {', 'void helper;\n  return {');
+      const sourcePath = await writeSource('send_slack_summary.ts', eqReq);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'relative-import',
+      });
+    });
+
+    it('rejects a tool with a computed dynamic import', async () => {
+      const computed = SPEC_EXAMPLE.replace(
+        'return {',
+        "const extra = await import('./' + input.channel + '.js');\n  void extra;\n  return {",
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', computed);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'dynamic-import',
+      });
+    });
+
     it('rejects a tool with a syntax error', async () => {
       const broken = SPEC_EXAMPLE.replace(
         'export const inputSchema = z.object({',
@@ -360,6 +386,30 @@ export default async function f() {
         name: 'ToolImportError',
         code: 'invalid-manifest',
       });
+    });
+
+    it('preserves unknown fields on existing manifest entries when importing another tool', async () => {
+      const existing = {
+        name: 'other_tool',
+        namespace: 'personal',
+        exposedName: 'personal__other_tool',
+        title: 'Other',
+        description: 'Another tool.',
+        entry: 'tools/personal/other_tool.ts',
+        runtime: 'node',
+        enabled: true,
+        permissions: { network: false, filesystem: false, env: [] },
+        futureField: 'keep-me',
+      };
+      await writeManifestRaw(JSON.stringify([existing]));
+
+      await importTool(await writeSource('send_slack_summary.ts', SPEC_EXAMPLE), { configDir });
+
+      const manifest = await readManifestFile();
+      const preserved = manifest.find(
+        (m) => m.exposedName === 'personal__other_tool',
+      ) as unknown as Record<string, unknown> | undefined;
+      expect(preserved?.futureField).toBe('keep-me');
     });
   });
 

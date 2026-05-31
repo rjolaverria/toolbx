@@ -384,6 +384,40 @@ export default async function f() {
 
       expect(parseToolMetadata(source, './dyn.ts').relativeImports).toEqual(['./lazy.js']);
     });
+
+    it('reports a relative `import = require(...)` reference', () => {
+      const source = `${META}\nimport helper = require('./helper');\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => helper.run();\n`;
+
+      expect(parseToolMetadata(source, './eqreq.ts').relativeImports).toEqual(['./helper']);
+    });
+
+    it('does not report a bare `import = require(...)` reference', () => {
+      const source = `${META}\nimport zod = require('zod');\nexport const inputSchema = zod.object({});\nexport default async () => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './eqreqbare.ts').relativeImports).toEqual([]);
+    });
+  });
+
+  describe('dynamicImports', () => {
+    it('flags a computed dynamic import that cannot be proven relocatable', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (name) => {\n  const m = await import('./' + name + '.js');\n  return m.run();\n};\n`;
+
+      expect(parseToolMetadata(source, './comp.ts').dynamicImports.length).toBeGreaterThan(0);
+    });
+
+    it('flags a computed require call', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async (name) => {\n  const m = require(name);\n  return m;\n};\n`;
+
+      expect(parseToolMetadata(source, './compreq.ts').dynamicImports.length).toBeGreaterThan(0);
+    });
+
+    it('does not flag a literal bare dynamic import', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => {\n  const m = await import('node:os');\n  return m.platform();\n};\n`;
+
+      const result = parseToolMetadata(source, './litdyn.ts');
+      expect(result.dynamicImports).toEqual([]);
+      expect(result.relativeImports).toEqual([]);
+    });
   });
 
   describe('syntaxErrors', () => {

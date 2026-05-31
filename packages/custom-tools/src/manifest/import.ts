@@ -77,6 +77,7 @@ export type ToolImportErrorCode =
   | 'invalid-shape'
   | 'syntax-error'
   | 'relative-import'
+  | 'dynamic-import'
   | 'namespace-collision'
   | 'tool-exists'
   | 'invalid-manifest';
@@ -100,7 +101,10 @@ const permissionsSchema = z.object({
   env: z.array(z.string()),
 });
 
-const toolManifestSchema = z.object({
+// Loose: unknown keys on existing entries (e.g. fields written by a newer
+// ToolBox component) are preserved, not silently dropped when the manifest is
+// rewritten during an unrelated import.
+const toolManifestSchema = z.looseObject({
   name: z.string(),
   namespace: z.string(),
   exposedName: z.string(),
@@ -184,6 +188,16 @@ export async function importTool(
       'relative-import',
       sourcePath,
       `tool files must be self-contained; relative imports cannot be relocated: ${metadata.relativeImports.join(', ')}`,
+    );
+  }
+  if (metadata.dynamicImports.length > 0) {
+    const lines = metadata.dynamicImports
+      .map((issue) => (issue.line !== undefined ? `line ${issue.line}` : 'unknown line'))
+      .join(', ');
+    throw new ToolImportError(
+      'dynamic-import',
+      sourcePath,
+      `tool files must be self-contained; dynamic import()/require() with a computed specifier cannot be verified (${lines})`,
     );
   }
 

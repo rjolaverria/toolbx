@@ -52,6 +52,12 @@ export interface ParsedToolMetadata {
    * package and `node:` specifiers are not listed.
    */
   readonly relativeImports: readonly string[];
+  /**
+   * Dynamic `import()` / `require()` calls with a computed (non-literal)
+   * specifier. They cannot be proven self-contained, so the importer rejects
+   * them too.
+   */
+  readonly dynamicImports: readonly ParseIssue[];
   /** Syntactic (parse) errors in the source; a tool with any cannot run. */
   readonly syntaxErrors: readonly ParseIssue[];
   readonly warnings: readonly ParseWarning[];
@@ -227,6 +233,7 @@ export interface StaticAnalysis {
   readonly hasInputSchema: boolean;
   readonly hasDefaultFunctionExport: boolean;
   readonly relativeImports: readonly string[];
+  readonly dynamicImports: readonly ParseIssue[];
   readonly syntaxErrors: readonly ParseIssue[];
 }
 
@@ -235,19 +242,61 @@ function isRelativeSpecifier(specifier: string): boolean {
   return specifier.startsWith('.') || specifier.startsWith('/');
 }
 
-/**
- * Collects relative / absolute module specifiers from static `import` /
- * `export ... from` declarations and dynamic `import('...')` / `require('...')`
- * calls. Bare package and `node:` specifiers are excluded — they resolve from
- * `node_modules` at runtime and survive relocation.
- */
-function collectRelativeImports(sourceFile: ts.SourceFile): string[] {
-  const found: string[] = [];
+interface ModuleReferences {
+  /** Literal relative / absolute specifiers (`./util.js`, `../x`, `/abs`). */
+  readonly relativeImports: string[];
+  /**
+   * Dynamic `import(...)` / `require(...)` whose specifier is computed rather
+   * than a string literal, so it cannot be proven self-contained.
+   */
+  readonly dynamicImports: ParseIssue[];
+}
 
-  const record = (node: ts.Expression | undefined): void => {
-    if (node !== undefined && ts.isStringLiteralLike(node) && isRelativeSpecifier(node.text)) {
-      found.push(node.text);
+/**
+ * Collects module references that would break when only the entry file is
+ * relocated: literal relative / absolute specifiers (from static `import` /
+ * `export ... from`, `import x = require('...')`, and literal dynamic
+ * `import()` / `require()`), plus dynamic `import()` / `require()` with a
+ * computed (non-literal) specifier. Bare package and `node:` specifiers resolve
+ * from `node_modules` at runtime and are ignored.
+ */
+function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
+  const relativeImports: string[] = [];
+  const dynamicImports: ParseIssue[] = [];
+
+  const lineOf = (node: ts.Node): number =>
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+
+  // A statically-required string-literal specifier: only the relative ones matter.
+  const recordLiteral = (specifier: ts.Expression | undefined): void => {
+    if (
+      specifier !== undefined &&
+      ts.isStringLiteralLike(specifier) &&
+      isRelativeSpecifier(specifier.text)
+    ) {
+      relativeImports.push(specifier.text);
     }
+  };
+
+  // A specifier that may be computed (dynamic import / require / import=require).
+  const recordDynamic = (
+    specifier: ts.Expression | undefined,
+    node: ts.Node,
+    kind: string,
+  ): void => {
+    if (specifier === undefined) {
+      return;
+    }
+    if (ts.isStringLiteralLike(specifier)) {
+      if (isRelativeSpecifier(specifier.text)) {
+        relativeImports.push(specifier.text);
+      }
+      return;
+    }
+    dynamicImports.push({
+      line: lineOf(node),
+      message: `${kind} with a computed specifier cannot be proven self-contained`,
+    });
   };
 
   const visit = (node: ts.Node): void => {
@@ -255,19 +304,25 @@ function collectRelativeImports(sourceFile: ts.SourceFile): string[] {
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier !== undefined
     ) {
-      record(node.moduleSpecifier);
+      recordLiteral(node.moduleSpecifier);
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
+      recordDynamic(node.moduleReference.expression, node, 'import = require()');
     } else if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
     ) {
-      record(node.arguments[0]);
+      const kind = node.expression.kind === ts.SyntaxKind.ImportKeyword ? 'import()' : 'require()';
+      recordDynamic(node.arguments[0], node, kind);
     }
     ts.forEachChild(node, visit);
   };
 
   visit(sourceFile);
-  return found;
+  return { relativeImports, dynamicImports };
 }
 
 /** Maps the source file's syntactic (parse) diagnostics to 1-based issues. */
@@ -310,7 +365,7 @@ function analyzeExports(source: string): StaticAnalysis {
 
   const program = createSingleFileProgram(sourceFile);
   const checker = program.getTypeChecker();
-  const relativeImports = collectRelativeImports(sourceFile);
+  const { relativeImports, dynamicImports } = collectModuleReferences(sourceFile);
   const syntaxErrors = syntacticIssues(program, sourceFile);
 
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
@@ -320,6 +375,7 @@ function analyzeExports(source: string): StaticAnalysis {
       hasInputSchema: false,
       hasDefaultFunctionExport: false,
       relativeImports,
+      dynamicImports,
       syntaxErrors,
     };
   }
@@ -336,6 +392,7 @@ function analyzeExports(source: string): StaticAnalysis {
     hasDefaultFunctionExport:
       defaultExport !== undefined && isFunctionExport(checker, defaultExport),
     relativeImports,
+    dynamicImports,
     syntaxErrors,
   };
 }
@@ -463,6 +520,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     hasInputSchema: exports.hasInputSchema,
     hasDefaultFunctionExport: exports.hasDefaultFunctionExport,
     relativeImports: exports.relativeImports,
+    dynamicImports: exports.dynamicImports,
     syntaxErrors: exports.syntaxErrors,
     warnings,
   };
