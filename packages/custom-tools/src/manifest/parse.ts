@@ -99,7 +99,26 @@ function createSingleFileProgram(sourceFile: ts.SourceFile): ts.Program {
  * re-export we cannot resolve (another module, not loaded here) is assumed to be
  * a value so cross-file schema re-exports still register.
  */
+/**
+ * Whether the symbol is exported through a type-only specifier or declaration
+ * (`export type { x }`, `export { type x }`, with or without a `from` clause).
+ * Such exports never produce a runtime binding, even when the target module is
+ * not loaded here, so they must be rejected before the unresolved-alias path.
+ */
+function isTypeOnlyReExport(symbol: ts.Symbol): boolean {
+  return (symbol.declarations ?? []).some((declaration) => {
+    if (!ts.isExportSpecifier(declaration)) {
+      return false;
+    }
+    return declaration.isTypeOnly || declaration.parent.parent.isTypeOnly;
+  });
+}
+
 function isRuntimeValueExport(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  if (isTypeOnlyReExport(symbol)) {
+    return false;
+  }
+
   let resolved = symbol;
   if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
     // Only called when the Alias flag is set, so this never throws.

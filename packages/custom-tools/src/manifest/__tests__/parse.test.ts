@@ -226,6 +226,18 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './reexport.ts').hasInputSchema).toBe(true);
   });
 
+  it('does not treat a type-only cross-module re-export (`export type { ... } from`) as present', () => {
+    const source = `${META}\nexport type { inputSchema } from './schema.js';\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './reexport-type.ts').hasInputSchema).toBe(false);
+  });
+
+  it('does not treat a specifier type-only cross-module re-export (`export { type ... } from`) as present', () => {
+    const source = `${META}\nexport { type inputSchema } from './schema.js';\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+    expect(parseToolMetadata(source, './reexport-type-spec.ts').hasInputSchema).toBe(false);
+  });
+
   it('reports no inputSchema export for a non-module script with directives', () => {
     const source = `${META}\nconst inputSchema = 1;\nvoid inputSchema;\n`;
 
