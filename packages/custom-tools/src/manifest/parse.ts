@@ -4,7 +4,8 @@
  * Extracts the `@toolbox-tool` directives from a user-provided `.ts` / `.js`
  * source string. This module never evaluates the file — it reads the JSDoc
  * comment block and uses the TypeScript parser to note whether an `inputSchema`
- * binding is exported, so the importer (P3-02) can validate it later.
+ * binding and a callable default export are present, so the importer (P3-02)
+ * can validate the tool's shape later.
  */
 
 import ts from 'typescript';
@@ -33,6 +34,12 @@ export interface ParsedToolMetadata {
   readonly namespace: string;
   /** Whether the source exports an `inputSchema` binding (not evaluated). */
   readonly hasInputSchema: boolean;
+  /**
+   * Whether the source has a default export whose type is callable (a function
+   * handler). Resolved with the type checker, not evaluated. `async` is not
+   * required statically — the runtime (P3-03) awaits the result regardless.
+   */
+  readonly hasDefaultFunctionExport: boolean;
   readonly warnings: readonly ParseWarning[];
 }
 
@@ -144,7 +151,34 @@ function isRuntimeValueExport(checker: ts.TypeChecker, symbol: ts.Symbol): boole
 }
 
 /**
- * Reports whether the source exports a runtime binding named `inputSchema`.
+ * Whether the default export's type is callable (a function handler). Aliases
+ * (`export { handler as default }`, `export default handler`) are followed to
+ * their target when resolvable, then the type's call signatures decide. A
+ * non-function default (`export default 42`) has no call signatures and fails.
+ */
+function isFunctionExport(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  let resolved = symbol;
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if ((aliased.declarations?.length ?? 0) > 0) {
+      resolved = aliased;
+    }
+  }
+  const declaration = resolved.valueDeclaration ?? resolved.declarations?.[0];
+  if (declaration === undefined) {
+    return false;
+  }
+  return checker.getTypeOfSymbolAtLocation(resolved, declaration).getCallSignatures().length > 0;
+}
+
+export interface ExportAnalysis {
+  readonly hasInputSchema: boolean;
+  readonly hasDefaultFunctionExport: boolean;
+}
+
+/**
+ * Reports whether the source exports a runtime binding named `inputSchema` and
+ * whether it has a callable default export.
  *
  * Uses the TypeScript type checker rather than a text scan, so comments, string
  * / template / regex literals that merely contain the text never count, and the
@@ -156,7 +190,7 @@ function isRuntimeValueExport(checker: ts.TypeChecker, symbol: ts.Symbol): boole
  * bound but never evaluated. TypeScript is a superset of JavaScript, so parsing
  * as `ScriptKind.TS` covers both `.ts` and `.js` tool files.
  */
-function hasInputSchemaExport(source: string): boolean {
+function analyzeExports(source: string): ExportAnalysis {
   const sourceFile = ts.createSourceFile(
     PROGRAM_FILE_NAME,
     source,
@@ -168,13 +202,18 @@ function hasInputSchemaExport(source: string): boolean {
   const checker = createSingleFileProgram(sourceFile).getTypeChecker();
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
   if (moduleSymbol === undefined) {
-    return false; // not an ES module — no exports
+    return { hasInputSchema: false, hasDefaultFunctionExport: false }; // not an ES module
   }
 
-  const exported = checker
-    .getExportsOfModule(moduleSymbol)
-    .find((symbol) => symbol.name === 'inputSchema');
-  return exported !== undefined && isRuntimeValueExport(checker, exported);
+  const exports = checker.getExportsOfModule(moduleSymbol);
+  const inputSchema = exports.find((symbol) => symbol.name === 'inputSchema');
+  const defaultExport = exports.find((symbol) => symbol.name === 'default');
+
+  return {
+    hasInputSchema: inputSchema !== undefined && isRuntimeValueExport(checker, inputSchema),
+    hasDefaultFunctionExport:
+      defaultExport !== undefined && isFunctionExport(checker, defaultExport),
+  };
 }
 
 function lineAt(source: string, index: number): number {
@@ -290,13 +329,15 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
   }
 
   const read = (key: RequiredDirective): string => values.get(key) ?? '';
+  const exports = analyzeExports(source);
 
   return {
     name: read('name'),
     title: read('title'),
     description: read('description'),
     namespace: read('namespace'),
-    hasInputSchema: hasInputSchemaExport(source),
+    hasInputSchema: exports.hasInputSchema,
+    hasDefaultFunctionExport: exports.hasDefaultFunctionExport,
     warnings,
   };
 }

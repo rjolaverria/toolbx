@@ -38,6 +38,7 @@ describe('parseToolMetadata', () => {
     expect(result.description).toBe('Summarize text and send it to a configured Slack channel.');
     expect(result.namespace).toBe('personal');
     expect(result.hasInputSchema).toBe(true);
+    expect(result.hasDefaultFunctionExport).toBe(true);
     expect(result.warnings).toEqual([]);
   });
 
@@ -330,5 +331,43 @@ export default async function f() {
 
     expect(thrown).toBeInstanceOf(ToolMetadataParseError);
     expect((thrown as ToolMetadataParseError).message).toContain('no @toolbox-tool directives');
+  });
+
+  describe('hasDefaultFunctionExport', () => {
+    it('detects a default-exported async function declaration', () => {
+      const source = `${META}\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+      expect(parseToolMetadata(source, './fn.ts').hasDefaultFunctionExport).toBe(true);
+    });
+
+    it('detects a default-exported arrow function', () => {
+      const source = `${META}\nexport default async () => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './arrow.ts').hasDefaultFunctionExport).toBe(true);
+    });
+
+    it('detects a default export aliased from a local function', () => {
+      const source = `${META}\nasync function handler() {\n  return { content: [] };\n}\nexport { handler as default };\n`;
+
+      expect(parseToolMetadata(source, './aliased.ts').hasDefaultFunctionExport).toBe(true);
+    });
+
+    it('reports a non-function default export as not callable', () => {
+      const source = `${META}\nexport default 42;\n`;
+
+      expect(parseToolMetadata(source, './value.ts').hasDefaultFunctionExport).toBe(false);
+    });
+
+    it('reports the absence of any default export', () => {
+      const source = `${META}\nexport async function handler() {\n  return { content: [] };\n}\n`;
+
+      expect(parseToolMetadata(source, './none.ts').hasDefaultFunctionExport).toBe(false);
+    });
+
+    it('does not treat a default export inside a string as callable', () => {
+      const source = `${META}\nconst help = 'export default function f() {}';\nexport default 1 satisfies number;\nvoid help;\n`;
+
+      expect(parseToolMetadata(source, './strdefault.ts').hasDefaultFunctionExport).toBe(false);
+    });
   });
 });
