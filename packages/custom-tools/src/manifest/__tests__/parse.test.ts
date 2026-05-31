@@ -351,6 +351,55 @@ export default async function f() {
     expect((thrown as ToolMetadataParseError).message).toContain('no @toolbox-tool directives');
   });
 
+  describe('relativeImports', () => {
+    it('reports a relative import specifier', () => {
+      const source = `${META}\nimport { z } from 'zod';\nimport { helper } from './util.js';\nexport const inputSchema = z.object({});\nexport default async function f() {\n  return helper();\n}\n`;
+
+      expect(parseToolMetadata(source, './rel.ts').relativeImports).toEqual(['./util.js']);
+    });
+
+    it('reports a relative export-from re-export', () => {
+      const source = `${META}\nexport { inputSchema } from './schema.js';\nexport default async function f() {\n  return { content: [] };\n}\n`;
+
+      expect(parseToolMetadata(source, './reexp.ts').relativeImports).toEqual(['./schema.js']);
+    });
+
+    it('reports a parent-relative and absolute specifier', () => {
+      const source = `${META}\nimport a from '../a.js';\nimport b from '/abs/b.js';\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\n`;
+
+      expect(parseToolMetadata(source, './rel2.ts').relativeImports).toEqual([
+        '../a.js',
+        '/abs/b.js',
+      ]);
+    });
+
+    it('does not report bare package or node specifiers as relative', () => {
+      const source = `${META}\nimport { z } from 'zod';\nimport { readFile } from 'node:fs/promises';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\nvoid readFile;\n`;
+
+      expect(parseToolMetadata(source, './bare.ts').relativeImports).toEqual([]);
+    });
+
+    it('reports a relative dynamic import', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => {\n  const m = await import('./lazy.js');\n  return m.run();\n};\n`;
+
+      expect(parseToolMetadata(source, './dyn.ts').relativeImports).toEqual(['./lazy.js']);
+    });
+  });
+
+  describe('syntaxErrors', () => {
+    it('reports no syntax errors for valid source', () => {
+      expect(parseToolMetadata(SPEC_EXAMPLE, './ok.ts').syntaxErrors).toEqual([]);
+    });
+
+    it('reports a syntactic error in malformed source', () => {
+      const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({ ;\nexport default async () => ({ content: [] });\n`;
+
+      const result = parseToolMetadata(source, './bad.ts');
+      expect(result.syntaxErrors.length).toBeGreaterThan(0);
+      expect(result.syntaxErrors[0]?.line).toBeGreaterThan(0);
+    });
+  });
+
   describe('hasDefaultFunctionExport', () => {
     it('detects a default-exported async function declaration', () => {
       const source = `${META}\nexport default async function f() {\n  return { content: [] };\n}\n`;

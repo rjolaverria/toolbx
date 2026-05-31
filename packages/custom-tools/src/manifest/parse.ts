@@ -45,6 +45,15 @@ export interface ParsedToolMetadata {
    * required statically — the runtime (P3-03) awaits the result regardless.
    */
   readonly hasDefaultFunctionExport: boolean;
+  /**
+   * Relative / absolute module specifiers the file imports or re-exports (e.g.
+   * `./util.js`, `../x`, `/abs`). The importer copies only the entry file, so
+   * these would dangle after relocation; it rejects a tool that has any. Bare
+   * package and `node:` specifiers are not listed.
+   */
+  readonly relativeImports: readonly string[];
+  /** Syntactic (parse) errors in the source; a tool with any cannot run. */
+  readonly syntaxErrors: readonly ParseIssue[];
   readonly warnings: readonly ParseWarning[];
 }
 
@@ -214,14 +223,71 @@ function isFunctionExport(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
   return checker.getTypeOfSymbolAtLocation(resolved, declaration).getCallSignatures().length > 0;
 }
 
-export interface ExportAnalysis {
+export interface StaticAnalysis {
   readonly hasInputSchema: boolean;
   readonly hasDefaultFunctionExport: boolean;
+  readonly relativeImports: readonly string[];
+  readonly syntaxErrors: readonly ParseIssue[];
+}
+
+/** A module specifier is relative/absolute (vs. a bare package or `node:`). */
+function isRelativeSpecifier(specifier: string): boolean {
+  return specifier.startsWith('.') || specifier.startsWith('/');
 }
 
 /**
- * Reports whether the source exports a runtime binding named `inputSchema` and
- * whether it has a callable default export.
+ * Collects relative / absolute module specifiers from static `import` /
+ * `export ... from` declarations and dynamic `import('...')` / `require('...')`
+ * calls. Bare package and `node:` specifiers are excluded — they resolve from
+ * `node_modules` at runtime and survive relocation.
+ */
+function collectRelativeImports(sourceFile: ts.SourceFile): string[] {
+  const found: string[] = [];
+
+  const record = (node: ts.Expression | undefined): void => {
+    if (node !== undefined && ts.isStringLiteralLike(node) && isRelativeSpecifier(node.text)) {
+      found.push(node.text);
+    }
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined
+    ) {
+      record(node.moduleSpecifier);
+    } else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      record(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return found;
+}
+
+/** Maps the source file's syntactic (parse) diagnostics to 1-based issues. */
+function syntacticIssues(program: ts.Program, sourceFile: ts.SourceFile): ParseIssue[] {
+  return program.getSyntacticDiagnostics(sourceFile).map((diagnostic) => {
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+    if (diagnostic.start === undefined) {
+      return { message };
+    }
+    return {
+      line: sourceFile.getLineAndCharacterOfPosition(diagnostic.start).line + 1,
+      message,
+    };
+  });
+}
+
+/**
+ * Static analysis of the tool source: whether it exports a schema-shaped
+ * `inputSchema` and a callable default export, the relative module specifiers it
+ * references, and any syntactic (parse) errors.
  *
  * Uses the TypeScript type checker rather than a text scan, so comments, string
  * / template / regex literals that merely contain the text never count, and the
@@ -233,7 +299,7 @@ export interface ExportAnalysis {
  * bound but never evaluated. TypeScript is a superset of JavaScript, so parsing
  * as `ScriptKind.TS` covers both `.ts` and `.js` tool files.
  */
-function analyzeExports(source: string): ExportAnalysis {
+function analyzeExports(source: string): StaticAnalysis {
   const sourceFile = ts.createSourceFile(
     PROGRAM_FILE_NAME,
     source,
@@ -242,10 +308,20 @@ function analyzeExports(source: string): ExportAnalysis {
     ts.ScriptKind.TS,
   );
 
-  const checker = createSingleFileProgram(sourceFile).getTypeChecker();
+  const program = createSingleFileProgram(sourceFile);
+  const checker = program.getTypeChecker();
+  const relativeImports = collectRelativeImports(sourceFile);
+  const syntaxErrors = syntacticIssues(program, sourceFile);
+
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
   if (moduleSymbol === undefined) {
-    return { hasInputSchema: false, hasDefaultFunctionExport: false }; // not an ES module
+    // Not an ES module — no exports, but still surface imports / syntax errors.
+    return {
+      hasInputSchema: false,
+      hasDefaultFunctionExport: false,
+      relativeImports,
+      syntaxErrors,
+    };
   }
 
   const exports = checker.getExportsOfModule(moduleSymbol);
@@ -259,6 +335,8 @@ function analyzeExports(source: string): ExportAnalysis {
       !isPrimitiveTypedExport(checker, inputSchema),
     hasDefaultFunctionExport:
       defaultExport !== undefined && isFunctionExport(checker, defaultExport),
+    relativeImports,
+    syntaxErrors,
   };
 }
 
@@ -384,6 +462,8 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     namespace: read('namespace'),
     hasInputSchema: exports.hasInputSchema,
     hasDefaultFunctionExport: exports.hasDefaultFunctionExport,
+    relativeImports: exports.relativeImports,
+    syntaxErrors: exports.syntaxErrors,
     warnings,
   };
 }

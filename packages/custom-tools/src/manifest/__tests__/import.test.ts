@@ -278,6 +278,53 @@ describe('importTool', () => {
       await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
     });
 
+    it('rejects a tool with relative imports it cannot relocate', async () => {
+      const withRelative = SPEC_EXAMPLE.replace(
+        "import { z } from 'zod';",
+        "import { z } from 'zod';\nimport { helper } from './helper.js';",
+      ).replace('return {', 'void helper;\n  return {');
+      const sourcePath = await writeSource('send_slack_summary.ts', withRelative);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'relative-import',
+      });
+      await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
+    });
+
+    it('rejects a tool that re-exports inputSchema from a relative module', async () => {
+      const reexport = `/**
+ * @toolbox-tool name send_slack_summary
+ * @toolbox-tool title Send Slack Summary
+ * @toolbox-tool description Summarize text and send it to a configured Slack channel.
+ * @toolbox-tool namespace personal
+ */
+export { inputSchema } from './schema.js';
+export default async function f() {
+  return { content: [] };
+}
+`;
+      const sourcePath = await writeSource('send_slack_summary.ts', reexport);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'relative-import',
+      });
+    });
+
+    it('rejects a tool with a syntax error', async () => {
+      const broken = SPEC_EXAMPLE.replace(
+        'export const inputSchema = z.object({',
+        'export const inputSchema = z.object({ ;',
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', broken);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'syntax-error',
+      });
+    });
+
     it('rejects an unsupported file extension', async () => {
       const sourcePath = await writeSource('send_slack_summary.py', SPEC_EXAMPLE);
 

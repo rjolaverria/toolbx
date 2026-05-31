@@ -75,6 +75,8 @@ export type ToolImportErrorCode =
   | 'unsupported-extension'
   | 'invalid-identifier'
   | 'invalid-shape'
+  | 'syntax-error'
+  | 'relative-import'
   | 'namespace-collision'
   | 'tool-exists'
   | 'invalid-manifest';
@@ -164,6 +166,26 @@ export async function importTool(
   // parseToolMetadata throws ToolMetadataParseError for metadata problems; let
   // that propagate unwrapped so its line-anchored detail survives.
   const metadata = parseToolMetadata(source, sourcePath);
+
+  if (metadata.syntaxErrors.length > 0) {
+    const first = metadata.syntaxErrors[0];
+    const where = first?.line !== undefined ? ` (line ${first.line})` : '';
+    throw new ToolImportError(
+      'syntax-error',
+      sourcePath,
+      `the tool file has a syntax error${where}: ${first?.message ?? 'unknown'}`,
+    );
+  }
+
+  // Only the entry file is copied (bundling the dependency graph is out of
+  // scope), so a relative import / re-export would dangle after relocation.
+  if (metadata.relativeImports.length > 0) {
+    throw new ToolImportError(
+      'relative-import',
+      sourcePath,
+      `tool files must be self-contained; relative imports cannot be relocated: ${metadata.relativeImports.join(', ')}`,
+    );
+  }
 
   const separator = options.separator ?? DEFAULT_SEPARATOR;
 
