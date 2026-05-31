@@ -34,6 +34,12 @@ export default defineConfig({
           functions: 88,
           lines: 88,
         },
+        'packages/custom-tools/src/**': {
+          statements: 98,
+          branches: 76,
+          functions: 98,
+          lines: 98,
+        },
       },
     },
   },
