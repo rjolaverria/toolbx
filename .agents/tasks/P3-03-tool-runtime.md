@@ -12,6 +12,7 @@ Run an imported custom tool when it's called, with timeouts, audit logs, and a b
 - `packages/custom-tools/src/sandbox/runner.ts` exporting `runTool(manifest, args)`:
   - Loads the tool source through a Node `worker_thread` (preferred) or child process.
   - Enforces the per-tool timeout from the manifest.
+  - Validates that the loaded `inputSchema` export is actually a Zod schema (or compatible JSON Schema) at load time — P3-02 only confirms statically that a non-primitive `inputSchema` is exported, since it never evaluates the file; the runtime is the first point the schema value exists and can be checked. Reject the tool with a clear error if it is not.
   - Validates `args` against the tool's `inputSchema` before invocation.
   - Applies permissions: `network` (false → block `fetch`/`net`/`http(s)` by injecting throwing globals/agents), `filesystem` (false → wrap `fs` with throwing proxies), `env` (allowlist).
   - Emits an audit log entry per call: `{ tool, durationMs, outcome, errorCode? }`.

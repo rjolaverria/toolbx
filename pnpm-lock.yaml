@@ -110,9 +110,15 @@ importers:
 
   packages/custom-tools:
     dependencies:
+      '@toolbox/core':
+        specifier: workspace:*
+        version: link:../core
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: latest
