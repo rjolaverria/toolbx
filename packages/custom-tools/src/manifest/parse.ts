@@ -465,7 +465,9 @@ function analyzeExports(source: string, filename: string): StaticAnalysis {
       isRuntimeValueExport(checker, inputSchema) &&
       !isPrimitiveTypedExport(checker, inputSchema),
     hasDefaultFunctionExport:
-      defaultExport !== undefined && isFunctionExport(checker, defaultExport),
+      defaultExport !== undefined &&
+      isRuntimeValueExport(checker, defaultExport) &&
+      isFunctionExport(checker, defaultExport),
     relativeImports,
     dynamicImports,
     syntaxErrors,

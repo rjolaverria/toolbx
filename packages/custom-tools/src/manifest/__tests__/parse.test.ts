@@ -535,6 +535,14 @@ export default async function f() {
       expect(parseToolMetadata(source, './aliased.ts').hasDefaultFunctionExport).toBe(true);
     });
 
+    it('does not treat an ambient declared default export as a runtime function', () => {
+      const source = `${META}\ndeclare function handler(): unknown;\nexport { handler as default };\n`;
+
+      expect(parseToolMetadata(source, './ambient-default.ts').hasDefaultFunctionExport).toBe(
+        false,
+      );
+    });
+
     it('reports a non-function default export as not callable', () => {
       const source = `${META}\nexport default 42;\n`;
 
