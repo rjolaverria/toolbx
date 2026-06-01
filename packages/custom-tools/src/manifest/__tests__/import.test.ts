@@ -155,12 +155,12 @@ describe('importTool', () => {
       });
     });
 
-    it('names the colliding exposed name in the error', async () => {
+    it('names the colliding tool in the error', async () => {
       const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
       await importTool(sourcePath, { configDir });
 
       await expect(importTool(sourcePath, { configDir })).rejects.toThrow(
-        /personal__send_slack_summary/,
+        /personal\/send_slack_summary/,
       );
     });
 
@@ -179,6 +179,20 @@ describe('importTool', () => {
       const manifest = await readManifestFile();
       expect(manifest).toHaveLength(1);
       expect(manifest[0]?.description).toBe('Updated description.');
+    });
+
+    it('detects an existing tool by namespace+name regardless of the separator', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+      await importTool(sourcePath, { configDir });
+
+      // Same namespace + name, different separator — still the same tool.
+      await expect(importTool(sourcePath, { configDir, separator: '.' })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'tool-exists',
+      });
+
+      const manifest = await readManifestFile();
+      expect(manifest).toHaveLength(1);
     });
 
     it('rejects a namespace that collides with a configured upstream server name', async () => {

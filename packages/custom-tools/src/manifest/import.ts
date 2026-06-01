@@ -263,12 +263,17 @@ export async function importTool(
   const manifestPath = path.join(toolsDir, MANIFEST_FILENAME);
   const manifest = await readManifest(manifestPath, sourcePath);
 
-  const existingIndex = manifest.findIndex((entry) => entry.exposedName === exposedName);
+  // Identity is namespace + name, not exposedName: the separator is configurable
+  // and the stored file path (`tools/<namespace>/<name>.<ext>`) ignores it, so a
+  // different separator must not slip past as a "new" tool.
+  const existingIndex = manifest.findIndex(
+    (entry) => entry.namespace === metadata.namespace && entry.name === metadata.name,
+  );
   if (existingIndex !== -1 && options.force !== true) {
     throw new ToolImportError(
       'tool-exists',
       sourcePath,
-      `a custom tool "${exposedName}" already exists; pass force to overwrite it`,
+      `a custom tool "${metadata.namespace}/${metadata.name}" already exists; pass force to overwrite it`,
     );
   }
 
