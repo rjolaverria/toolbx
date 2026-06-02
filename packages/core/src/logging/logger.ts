@@ -15,6 +15,11 @@ export interface CreateLoggerOptions {
   format?: LogFormat;
   destination?: LogDestination;
   bindings?: LogBindings;
+  /**
+   * Structured-field paths to redact, passed through to pino's `redact`. Path-based:
+   * it scrubs the value at a known field path, not secret substrings inside free text.
+   */
+  redact?: string[] | pino.redactOptions;
 }
 
 function resolveDestination(dest: LogDestination): NodeJS.WritableStream {
@@ -41,6 +46,10 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
     base,
     timestamp: pino.stdTimeFunctions.isoTime,
   };
+
+  if (options.redact !== undefined) {
+    pinoOptions.redact = options.redact;
+  }
 
   if (format === 'pretty') {
     // pino-pretty's `colorize` is gated on `process.stdout.isTTY === true` per
