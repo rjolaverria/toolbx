@@ -197,7 +197,16 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
-  const validation = validator.validate(request.args);
+  // `@cfworker` can construct a Validator for a schema that still errors at use time
+  // (e.g. an invalid `pattern` regex compiled lazily during validation). Without this
+  // guard the throw would crash the child and surface as a generic `load-error`.
+  let validation;
+  try {
+    validation = validator.validate(request.args);
+  } catch (error) {
+    await fail('invalid-schema', error instanceof Error ? error.message : String(error));
+    return;
+  }
   if (!validation.valid) {
     const first = validation.errors[0];
     const detail = first === undefined ? '' : `${first.instanceLocation} ${first.error}`;

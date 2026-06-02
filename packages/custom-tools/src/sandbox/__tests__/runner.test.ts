@@ -129,6 +129,14 @@ describe('runTool', () => {
     }
   });
 
+  it('reports invalid-schema when the schema errors at validation time', async () => {
+    const outcome = await runTool(manifest('bad-pattern-schema.ts'), { x: 'abc' });
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('invalid-schema');
+    }
+  });
+
   it('reports load-error when the entry file cannot be imported', async () => {
     const outcome = await runTool(manifest('does-not-exist.ts'), {});
     expect(outcome.outcome).toBe('error');
