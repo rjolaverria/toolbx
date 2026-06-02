@@ -1,37 +1,33 @@
 /**
  * Custom tool runtime (P3-03). Runs one imported tool per call in an isolated Node
  * child process, enforcing the per-tool timeout, the network/env permission model, and
- * JSON-Schema arg validation, then emits a single secret-redacted audit entry. A child
- * process (not a worker thread) keeps the boundary wrappable by an OS sandbox later.
+ * JSON-Schema arg validation (inside the child via @cfworker/json-schema), then emits a
+ * single secret-redacted audit entry. A child process (not a worker thread) keeps the
+ * boundary wrappable by an OS sandbox later.
  *
  * The child runs under --disallow-code-generation-from-strings so that eval/Function-
- * based import bypasses (e.g. `Function('return import("node:fs")')()`) are blocked
- * by the engine. Ajv compiles validators with new Function, so JSON-Schema validation
- * is performed here in the trusted parent process instead of inside the child.
+ * based import bypasses (e.g. `Function('return import("node:fs")')()`) are blocked by
+ * the engine. @cfworker/json-schema is interpreter-based (no codegen), so validation
+ * can run safely inside the child — a pathological schema cannot block the parent event
+ * loop because the parent can SIGKILL the child when the timeout fires.
  */
 
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { Ajv } from 'ajv';
-import type { ValidateFunction } from 'ajv';
-
 import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import { redactSecrets } from './redact.js';
-import type {
-  RunOutcome,
-  SandboxInvokeCommand,
-  SandboxMessage,
-  SandboxRequest,
-} from './protocol.js';
+import type { RunOutcome, SandboxRequest, SandboxResponse } from './protocol.js';
 
 /**
  * Node runtime-control variables that must never reach the sandboxed child, even when a
  * tool allowlists them: they are honored by the child Node process before the harness
  * installs its gates (e.g. NODE_OPTIONS='--require evil.js' would run arbitrary code).
+ * Stored uppercase so the comparison can be case-insensitive (Windows env names are
+ * case-insensitive, so 'node_options' must also be blocked).
  */
 const FORBIDDEN_CHILD_ENV = new Set(['NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE']);
 
@@ -61,7 +57,7 @@ function buildEnv(allowlist: readonly string[]): {
   const env: NodeJS.ProcessEnv = {};
   const secretValues: string[] = [];
   for (const key of allowlist) {
-    if (FORBIDDEN_CHILD_ENV.has(key)) {
+    if (FORBIDDEN_CHILD_ENV.has(key.toUpperCase())) {
       continue;
     }
     const value = process.env[key];
@@ -103,8 +99,7 @@ export async function runTool(
     const child = spawn(
       process.execPath,
       // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
-      // (e.g. `Function('return import("node:fs")')()`) in the sandboxed child. Ajv needs
-      // codegen so JSON-Schema validation is done in this parent process, not the child.
+      // (e.g. `Function('return import("node:fs")')()`) in the sandboxed child.
       // --experimental-transform-types is a superset of --experimental-strip-types and
       // also handles non-erasable TS constructs (enum, namespace) so a valid TS tool
       // doesn't import-OK then fail at call time. Requires Node >= 22.7.0.
@@ -139,60 +134,13 @@ export async function runTool(
       finish({ outcome: 'timeout' });
     }, manifest.timeoutMs);
 
-    child.on('message', (message: SandboxMessage) => {
-      if (message.phase === 'load-error') {
-        finish({
-          outcome: 'error',
-          code: 'load-error',
-          message: redactSecrets(message.message, secretValues),
-        });
-        return;
-      }
-      if (message.phase === 'loaded') {
-        if (!message.hasHandler) {
-          finish({
-            outcome: 'error',
-            code: 'invalid-handler',
-            message: 'tool default export is not a function',
-          });
-          return;
-        }
-        let validate: ValidateFunction;
-        try {
-          const ajv = new Ajv({ allErrors: true, strict: false });
-          validate = ajv.compile(message.inputSchema as object);
-        } catch (error) {
-          finish({
-            outcome: 'error',
-            code: 'invalid-schema',
-            message: error instanceof Error ? error.message : String(error),
-          });
-          return;
-        }
-        if (!validate(args)) {
-          const ajvErrors = validate.errors;
-          const detail =
-            ajvErrors === null || ajvErrors === undefined
-              ? ''
-              : ajvErrors.map((e) => `${e.instancePath} ${e.message}`).join('; ');
-          finish({
-            outcome: 'error',
-            code: 'invalid-args',
-            message: `arguments do not match inputSchema: ${detail}`,
-          });
-          return;
-        }
-        const invoke: SandboxInvokeCommand = { phase: 'invoke' };
-        child.send(invoke);
-        return;
-      }
-      // phase === 'result'
+    child.on('message', (message: SandboxResponse) => {
       if (message.ok) {
         finish({ outcome: 'ok', result: message.result });
       } else {
         finish({
           outcome: 'error',
-          code: 'tool-error',
+          code: message.code,
           message: redactSecrets(message.message, secretValues),
         });
       }

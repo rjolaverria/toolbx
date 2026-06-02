@@ -231,6 +231,49 @@ export default function echo(input) {
     }
   });
 
+  it('strips forbidden Node env vars regardless of key case', async () => {
+    process.env.node_options = '--max-old-space-size=64';
+    process.env.SLACK_BOT_TOKEN = 'tok-allow';
+    try {
+      const outcome = await runTool(
+        manifest('reads-env.ts', {
+          permissions: {
+            network: false,
+            filesystem: false,
+            env: ['node_options', 'SLACK_BOT_TOKEN'],
+          },
+        }),
+        {},
+      );
+      expect(outcome.outcome).toBe('ok');
+      const keys = JSON.parse(
+        (outcome as { result: { content: { text: string }[] } }).result.content[0]!.text,
+      ) as string[];
+      expect(keys.map((k) => k.toUpperCase())).not.toContain('NODE_OPTIONS');
+    } finally {
+      delete process.env.node_options;
+      delete process.env.SLACK_BOT_TOKEN;
+    }
+  });
+
+  it('redacts allowlisted secrets that appear in schema-derived error messages', async () => {
+    process.env.SLACK_BOT_TOKEN = 'xoxb-secret-PATTERN';
+    try {
+      const outcome = await runTool(
+        manifest('schema-leaks-secret.ts', {
+          permissions: { network: false, filesystem: false, env: ['SLACK_BOT_TOKEN'] },
+        }),
+        { x: 'does-not-match' },
+      );
+      expect(outcome.outcome).toBe('error');
+      if (outcome.outcome === 'error') {
+        expect(outcome.message).not.toContain('xoxb-secret-PATTERN');
+      }
+    } finally {
+      delete process.env.SLACK_BOT_TOKEN;
+    }
+  });
+
   it('rejects when the entry is relative and no configDir is given', async () => {
     const m = manifest('returns.ts', { entry: 'tools/test/returns.ts' });
     await expect(runTool(m, { who: 'x' })).rejects.toThrow(/configDir/);

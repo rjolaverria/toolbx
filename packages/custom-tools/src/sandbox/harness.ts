@@ -1,15 +1,14 @@
 /**
  * Custom tool child-process harness (P3-03). Runs in a Node child process spawned by
  * the runner. Seals Node runtime escape hatches (process.getBuiltinModule, binding, etc.),
- * applies the network permission gate, loads the pure tool, reports the schema to the
- * parent, awaits an 'invoke' command, invokes the handler, and reports the outcome over
- * IPC.
+ * applies the network permission gate, loads the tool module, validates the args against
+ * inputSchema using @cfworker/json-schema (interpreter-based, no Function/eval codegen),
+ * invokes the handler, and reports the outcome over IPC in a single response message.
  *
- * Ajv is intentionally absent from this harness: the child runs under
- * --disallow-code-generation-from-strings, which blocks eval/Function-based codegen
- * (including the bypass `Function('return import("node:fs")()')`), but Ajv compiles
- * validators via new Function. JSON-Schema validation is therefore performed in the
- * trusted parent process (runner.ts).
+ * @cfworker/json-schema is codegen-free, so it runs safely under
+ * --disallow-code-generation-from-strings. Because validation happens here, a
+ * pathological schema cannot block the parent event loop — the parent can SIGKILL this
+ * child when the timeout fires, and all error messages are redacted by the runner.
  *
  * The `env` permission is enforced by the parent (the child is spawned with only
  * allowlisted vars), so it needs no handling here.
@@ -21,14 +20,16 @@
 
 import { pathToFileURL } from 'node:url';
 
-import type { SandboxInvokeCommand, SandboxMessage, SandboxRequest } from './protocol.js';
+import { Validator } from '@cfworker/json-schema';
+
+import type { SandboxRequest, SandboxResponse } from './protocol.js';
 
 /**
  * Sends one message and resolves only once it has flushed. `process.send` is
  * asynchronous, so the caller must await this before letting the process exit —
  * otherwise `process.exit` can drop the message before the parent receives it.
  */
-function send(message: SandboxMessage): Promise<void> {
+function send(message: SandboxResponse): Promise<void> {
   return new Promise((resolve) => {
     if (process.send === undefined) {
       resolve();
@@ -38,6 +39,13 @@ function send(message: SandboxMessage): Promise<void> {
       resolve();
     });
   });
+}
+
+async function fail(
+  code: SandboxResponse & { ok: false } extends { code: infer C } ? C : never,
+  message: string,
+): Promise<void> {
+  await send({ ok: false, code, message });
 }
 
 /**
@@ -80,42 +88,44 @@ async function run(request: SandboxRequest): Promise<void> {
   try {
     mod = (await import(pathToFileURL(request.entry).href)) as Record<string, unknown>;
   } catch (error) {
-    await send({
-      phase: 'load-error',
-      message: error instanceof Error ? error.message : String(error),
-    });
-    process.exit(0);
+    await fail('load-error', error instanceof Error ? error.message : String(error));
     return;
   }
 
-  await send({
-    phase: 'loaded',
-    inputSchema: mod.inputSchema,
-    hasHandler: typeof mod.default === 'function',
-  });
+  const schema = mod.inputSchema;
+  if (typeof schema !== 'object' || schema === null) {
+    await fail('invalid-schema', 'inputSchema must be a JSON Schema object');
+    return;
+  }
 
-  // Wait for the parent's validation verdict. If validation fails, the parent kills the
-  // child without sending 'invoke', so this listener simply never fires.
-  process.once('message', (command: SandboxInvokeCommand) => {
-    void (async () => {
-      if (command.phase !== 'invoke') {
-        process.exit(0);
-        return;
-      }
-      try {
-        const handler = mod.default as (input: unknown) => unknown;
-        const result = await handler(request.args);
-        await send({ phase: 'result', ok: true, result });
-      } catch (error) {
-        await send({
-          phase: 'result',
-          ok: false,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-      process.exit(0);
-    })();
-  });
+  let validator: Validator;
+  try {
+    validator = new Validator(schema);
+  } catch (error) {
+    await fail('invalid-schema', error instanceof Error ? error.message : String(error));
+    return;
+  }
+
+  if (typeof mod.default !== 'function') {
+    await fail('invalid-handler', 'tool default export is not a function');
+    return;
+  }
+
+  const validation = validator.validate(request.args);
+  if (!validation.valid) {
+    const first = validation.errors[0];
+    const detail = first === undefined ? '' : `${first.instanceLocation} ${first.error}`;
+    await fail('invalid-args', `arguments do not match inputSchema: ${detail}`);
+    return;
+  }
+
+  try {
+    const handler = mod.default as (input: unknown) => unknown;
+    const result = await handler(request.args);
+    await send({ ok: true, result });
+  } catch (error) {
+    await fail('tool-error', error instanceof Error ? error.message : String(error));
+  }
 }
 
 // Keep the IPC channel referenced so the event loop stays alive for the duration of the
@@ -125,5 +135,7 @@ async function run(request: SandboxRequest): Promise<void> {
 process.channel?.ref();
 
 process.once('message', (message: SandboxRequest) => {
-  void run(message);
+  void run(message).finally(() => {
+    process.exit(0);
+  });
 });

@@ -17,23 +17,10 @@ export type RunErrorCode =
   | 'load-error'
   | 'tool-error';
 
-/** Child → parent: result of attempting to load the tool module. */
-export type SandboxLoadMessage =
-  | { readonly phase: 'loaded'; readonly inputSchema: unknown; readonly hasHandler: boolean }
-  | { readonly phase: 'load-error'; readonly message: string };
-
-/** Child → parent: result of invoking the handler (sent only after an 'invoke' command). */
-export type SandboxResultMessage =
-  | { readonly phase: 'result'; readonly ok: true; readonly result: unknown }
-  | { readonly phase: 'result'; readonly ok: false; readonly message: string };
-
-/** Any message the child can send. */
-export type SandboxMessage = SandboxLoadMessage | SandboxResultMessage;
-
-/** Parent → child: validation passed; run the handler. */
-export interface SandboxInvokeCommand {
-  readonly phase: 'invoke';
-}
+/** Response the child harness sends back over IPC. */
+export type SandboxResponse =
+  | { readonly ok: true; readonly result: unknown }
+  | { readonly ok: false; readonly code: RunErrorCode; readonly message: string };
 
 /** Final outcome `runTool` resolves to. `message` is already secret-redacted. */
 export type RunOutcome =
