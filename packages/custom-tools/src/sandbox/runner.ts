@@ -15,6 +15,13 @@ import type { ToolManifest } from '../manifest/import.js';
 import { redactSecrets } from './redact.js';
 import type { RunOutcome, SandboxRequest, SandboxResponse } from './protocol.js';
 
+/**
+ * Node runtime-control variables that must never reach the sandboxed child, even when a
+ * tool allowlists them: they are honored by the child Node process before the harness
+ * installs its gates (e.g. NODE_OPTIONS='--require evil.js' would run arbitrary code).
+ */
+const FORBIDDEN_CHILD_ENV = new Set(['NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE']);
+
 export interface RunToolOptions {
   /** Logger for the audit entry. Defaults to a no-op logger. */
   readonly logger?: Logger;
@@ -41,6 +48,9 @@ function buildEnv(allowlist: readonly string[]): {
   const env: NodeJS.ProcessEnv = {};
   const secretValues: string[] = [];
   for (const key of allowlist) {
+    if (FORBIDDEN_CHILD_ENV.has(key)) {
+      continue;
+    }
     const value = process.env[key];
     if (value !== undefined) {
       env[key] = value;

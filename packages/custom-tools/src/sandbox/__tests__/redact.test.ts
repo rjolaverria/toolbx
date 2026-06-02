@@ -19,4 +19,16 @@ describe('redactSecrets', () => {
   it('returns the input unchanged when there are no secrets', () => {
     expect(redactSecrets('nothing to hide', [])).toBe('nothing to hide');
   });
+
+  it('redacts a longer secret fully even when a shorter secret is a prefix', () => {
+    expect(redactSecrets('token=abc123', ['abc', 'abc123'])).toBe('token=***');
+  });
+
+  it('redacts both overlapping secrets across the string', () => {
+    expect(redactSecrets('x abc123 y abc z', ['abc', 'abc123'])).toBe('x *** y *** z');
+  });
+
+  it('dedupes repeated secret values', () => {
+    expect(redactSecrets('a=SECRET b=SECRET', ['SECRET', 'SECRET'])).toBe('a=*** b=***');
+  });
 });

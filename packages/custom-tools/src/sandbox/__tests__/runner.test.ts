@@ -205,6 +205,32 @@ export default function echo(input) {
     });
   });
 
+  it('never forwards NODE_OPTIONS to the child even when allowlisted', async () => {
+    process.env.NODE_OPTIONS = '--max-old-space-size=64';
+    process.env.SLACK_BOT_TOKEN = 'tok-allow';
+    try {
+      const outcome = await runTool(
+        manifest('reads-env.ts', {
+          permissions: {
+            network: false,
+            filesystem: false,
+            env: ['NODE_OPTIONS', 'SLACK_BOT_TOKEN'],
+          },
+        }),
+        {},
+      );
+      expect(outcome.outcome).toBe('ok');
+      const keys = JSON.parse(
+        (outcome as { result: { content: { text: string }[] } }).result.content[0]!.text,
+      ) as string[];
+      expect(keys).not.toContain('NODE_OPTIONS');
+      expect(keys).toContain('SLACK_BOT_TOKEN');
+    } finally {
+      delete process.env.NODE_OPTIONS;
+      delete process.env.SLACK_BOT_TOKEN;
+    }
+  });
+
   it('rejects when the entry is relative and no configDir is given', async () => {
     const m = manifest('returns.ts', { entry: 'tools/test/returns.ts' });
     await expect(runTool(m, { who: 'x' })).rejects.toThrow(/configDir/);
