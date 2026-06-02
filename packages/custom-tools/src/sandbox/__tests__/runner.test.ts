@@ -112,6 +112,22 @@ describe('runTool', () => {
     }
   });
 
+  it('reports invalid-schema when inputSchema is not a valid JSON Schema', async () => {
+    const outcome = await runTool(manifest('invalid-schema.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('invalid-schema');
+    }
+  });
+
+  it('reports load-error when the entry file cannot be imported', async () => {
+    const outcome = await runTool(manifest('does-not-exist.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('load-error');
+    }
+  });
+
   it('emits one audit entry with tool, durationMs, and outcome', async () => {
     const records: Record<string, unknown>[] = [];
     const logger = {
