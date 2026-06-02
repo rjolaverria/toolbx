@@ -119,8 +119,7 @@ const toolManifestSchema = z.looseObject({
   entry: z.string(),
   runtime: z.literal('node'),
   enabled: z.boolean(),
-  // Older entries written before timeoutMs was added default to the standard value.
-  timeoutMs: z.number().default(DEFAULT_TIMEOUT_MS),
+  timeoutMs: z.number(),
   permissions: permissionsSchema,
 });
 

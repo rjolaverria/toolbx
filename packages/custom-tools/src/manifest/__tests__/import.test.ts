@@ -480,6 +480,7 @@ export default async function f() {
         entry: 'tools/personal/other_tool.ts',
         runtime: 'node',
         enabled: true,
+        timeoutMs: 30000,
         permissions: { network: false, filesystem: false, env: [], futurePerm: 'keep-too' },
         futureField: 'keep-me',
       };
