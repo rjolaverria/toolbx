@@ -442,10 +442,12 @@ export default async function f() {
       expect(parseToolMetadata(source, './defplus.ts').relativeImports).toEqual(['./d.js']);
     });
 
-    it('does not report bare package or node specifiers as relative', () => {
+    it('reports bare package and node specifiers in bareImports, not relativeImports', () => {
       const source = `${META}\nimport { z } from 'zod';\nimport { readFile } from 'node:fs/promises';\nexport const inputSchema = z.object({});\nexport default async () => ({ content: [] });\nvoid readFile;\n`;
 
-      expect(parseToolMetadata(source, './bare.ts').relativeImports).toEqual([]);
+      const result = parseToolMetadata(source, './bare.ts');
+      expect(result.relativeImports).toEqual([]);
+      expect(result.bareImports).toEqual(['zod', 'node:fs/promises']);
     });
 
     it('reports a relative dynamic import', () => {
@@ -460,10 +462,18 @@ export default async function f() {
       expect(parseToolMetadata(source, './eqreq.ts').relativeImports).toEqual(['./helper']);
     });
 
-    it('does not report a bare `import = require(...)` reference', () => {
+    it('reports a bare `import = require(...)` reference in bareImports', () => {
       const source = `${META}\nimport zod = require('zod');\nexport const inputSchema = zod.object({});\nexport default async () => ({ content: [] });\n`;
 
-      expect(parseToolMetadata(source, './eqreqbare.ts').relativeImports).toEqual([]);
+      const result = parseToolMetadata(source, './eqreqbare.ts');
+      expect(result.relativeImports).toEqual([]);
+      expect(result.bareImports).toEqual(['zod']);
+    });
+
+    it('does not report erased type-only bare imports in bareImports', () => {
+      const source = `${META}\nimport type { Foo } from 'zod';\nexport const inputSchema = { type: 'object' };\nexport default async () => ({ content: [] });\nexport type Bar = Foo;\n`;
+
+      expect(parseToolMetadata(source, './typebare.ts').bareImports).toEqual([]);
     });
   });
 
@@ -480,12 +490,13 @@ export default async function f() {
       expect(parseToolMetadata(source, './compreq.ts').dynamicImports.length).toBeGreaterThan(0);
     });
 
-    it('does not flag a literal bare dynamic import', () => {
+    it('reports a literal bare dynamic import in bareImports', () => {
       const source = `${META}\nimport { z } from 'zod';\nexport const inputSchema = z.object({});\nexport default async () => {\n  const m = await import('node:os');\n  return m.platform();\n};\n`;
 
       const result = parseToolMetadata(source, './litdyn.ts');
       expect(result.dynamicImports).toEqual([]);
       expect(result.relativeImports).toEqual([]);
+      expect(result.bareImports).toEqual(['zod', 'node:os']);
     });
   });
 
