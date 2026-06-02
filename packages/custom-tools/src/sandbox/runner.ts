@@ -13,11 +13,13 @@
  */
 
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createNoopLogger, type Logger } from '@toolbox/core';
 
+import { analyzeToolImports } from '../manifest/parse.js';
 import type { ToolManifest } from '../manifest/import.js';
 import { redactSecrets } from './redact.js';
 import type { RunOutcome, SandboxRequest, SandboxResponse } from './protocol.js';
@@ -84,6 +86,61 @@ function resolveEntry(entry: string, configDir: string | undefined): string {
   return path.join(configDir, entry);
 }
 
+/**
+ * Re-validates a stored tool's purity at execution time. The on-disk file is mutable
+ * after import, so a hand edit could add a static `import 'node:fs'` that Node would
+ * resolve when the child loads the module — bypassing the in-child permission gates.
+ * Returns an error outcome to run, or `undefined` when the file is clean.
+ */
+async function checkStoredToolPurity(entryPath: string): Promise<RunOutcome | undefined> {
+  let source: string;
+  try {
+    source = await fs.readFile(entryPath, 'utf8');
+  } catch (error) {
+    return {
+      outcome: 'error',
+      code: 'load-error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  let analysis;
+  try {
+    analysis = analyzeToolImports(source, entryPath);
+  } catch (error) {
+    return {
+      outcome: 'error',
+      code: 'load-error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  if (analysis.syntaxErrors.length > 0) {
+    return {
+      outcome: 'error',
+      code: 'load-error',
+      message: `stored tool has a syntax error: ${analysis.syntaxErrors[0]?.message ?? 'unknown'}`,
+    };
+  }
+
+  const runtimeImports = [
+    ...analysis.relativeImports,
+    ...analysis.bareImports,
+    ...analysis.dynamicImports.map((issue) =>
+      issue.line !== undefined ? `dynamic import (line ${issue.line})` : 'dynamic import',
+    ),
+  ];
+  if (runtimeImports.length > 0) {
+    return {
+      outcome: 'error',
+      code: 'forbidden-import',
+      message: `stored tool contains forbidden runtime imports: ${runtimeImports.join(', ')}`,
+    };
+  }
+
+  return undefined;
+}
+
 export async function runTool(
   manifest: ToolManifest,
   args: unknown,
@@ -95,76 +152,80 @@ export async function runTool(
 
   const absoluteEntry = resolveEntry(manifest.entry, options.configDir);
 
-  const outcome = await new Promise<RunOutcome>((resolve) => {
-    const child = spawn(
-      process.execPath,
-      // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
-      // (e.g. `Function('return import("node:fs")')()`) in the sandboxed child.
-      // --experimental-transform-types is a superset of --experimental-strip-types and
-      // also handles non-erasable TS constructs (enum, namespace) so a valid TS tool
-      // doesn't import-OK then fail at call time. Requires Node >= 22.7.0.
-      [
-        '--disallow-code-generation-from-strings',
-        '--experimental-transform-types',
-        '--no-warnings',
-        harnessPath(),
-      ],
-      { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
-    );
+  const purityFailure = await checkStoredToolPurity(absoluteEntry);
 
-    let settled = false;
+  const outcome =
+    purityFailure ??
+    (await new Promise<RunOutcome>((resolve) => {
+      const child = spawn(
+        process.execPath,
+        // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
+        // (e.g. `Function('return import("node:fs")')()`) in the sandboxed child.
+        // --experimental-transform-types is a superset of --experimental-strip-types and
+        // also handles non-erasable TS constructs (enum, namespace) so a valid TS tool
+        // doesn't import-OK then fail at call time. Requires Node >= 22.7.0.
+        [
+          '--disallow-code-generation-from-strings',
+          '--experimental-transform-types',
+          '--no-warnings',
+          harnessPath(),
+        ],
+        { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+      );
 
-    function finish(value: RunOutcome): void {
-      if (settled) {
-        return;
+      let settled = false;
+
+      function finish(value: RunOutcome): void {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        child.removeAllListeners();
+        child.on('error', () => {
+          // Absorb a stray EPIPE from an in-flight send after we have already settled.
+        });
+        if (!child.killed) {
+          child.kill('SIGKILL');
+        }
+        resolve(value);
       }
-      settled = true;
-      clearTimeout(timer);
-      child.removeAllListeners();
-      child.on('error', () => {
-        // Absorb a stray EPIPE from an in-flight send after we have already settled.
+
+      const timer = setTimeout(() => {
+        finish({ outcome: 'timeout' });
+      }, manifest.timeoutMs);
+
+      child.on('message', (message: SandboxResponse) => {
+        if (message.ok) {
+          finish({ outcome: 'ok', result: message.result });
+        } else {
+          finish({
+            outcome: 'error',
+            code: message.code,
+            message: redactSecrets(message.message, secretValues),
+          });
+        }
       });
-      if (!child.killed) {
-        child.kill('SIGKILL');
-      }
-      resolve(value);
-    }
 
-    const timer = setTimeout(() => {
-      finish({ outcome: 'timeout' });
-    }, manifest.timeoutMs);
+      child.on('error', (error) => {
+        finish({ outcome: 'error', code: 'load-error', message: error.message });
+      });
 
-    child.on('message', (message: SandboxResponse) => {
-      if (message.ok) {
-        finish({ outcome: 'ok', result: message.result });
-      } else {
+      child.on('close', () => {
         finish({
           outcome: 'error',
-          code: message.code,
-          message: redactSecrets(message.message, secretValues),
+          code: 'load-error',
+          message: 'tool process exited without producing a result',
         });
-      }
-    });
-
-    child.on('error', (error) => {
-      finish({ outcome: 'error', code: 'load-error', message: error.message });
-    });
-
-    child.on('close', () => {
-      finish({
-        outcome: 'error',
-        code: 'load-error',
-        message: 'tool process exited without producing a result',
       });
-    });
 
-    const request: SandboxRequest = {
-      entry: absoluteEntry,
-      permissions: manifest.permissions,
-      args,
-    };
-    child.send(request);
-  });
+      const request: SandboxRequest = {
+        entry: absoluteEntry,
+        permissions: manifest.permissions,
+        args,
+      };
+      child.send(request);
+    }));
 
   const durationMs = Date.now() - start;
   if (outcome.outcome === 'error') {

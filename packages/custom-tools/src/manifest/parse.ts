@@ -265,6 +265,40 @@ export interface StaticAnalysis {
 }
 
 /**
+ * Import lists and syntax errors for a tool source file, without requiring
+ * `@toolbox-tool` metadata directives. Used by the runner to re-validate
+ * stored-tool purity at execution time — the on-disk file may have been edited
+ * after import to add a static `import 'node:fs'` that would bypass the child
+ * permission gates.
+ */
+export interface ToolImportAnalysis {
+  readonly relativeImports: readonly string[];
+  readonly bareImports: readonly string[];
+  readonly dynamicImports: readonly ParseIssue[];
+  readonly syntaxErrors: readonly ParseIssue[];
+}
+
+/**
+ * Parses a tool source file for runtime imports and syntax errors without
+ * requiring the `@toolbox-tool` JSDoc metadata directives. Works on any tool
+ * fixture or stored tool file regardless of whether metadata is present.
+ */
+export function analyzeToolImports(source: string, filename: string): ToolImportAnalysis {
+  const programFile = programFileFor(filename);
+  const sourceFile = ts.createSourceFile(
+    programFile.name,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    programFile.scriptKind,
+  );
+  const program = createSingleFileProgram(sourceFile, programFile.name);
+  const { relativeImports, bareImports, dynamicImports } = collectModuleReferences(sourceFile);
+  const syntaxErrors = syntacticIssues(program, sourceFile);
+  return { relativeImports, bareImports, dynamicImports, syntaxErrors };
+}
+
+/**
  * A module specifier points at the local filesystem (vs. a bare package or
  * `node:`): relative (`./`, `../`), a POSIX or Windows absolute path
  * (`/abs`, `C:/abs`, `\\unc`), or a `file:` URL. All reference files outside the

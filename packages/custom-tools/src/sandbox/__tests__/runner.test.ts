@@ -308,4 +308,18 @@ export default function echo(input) {
       expect(outcome.message).toContain('Code generation from strings disallowed');
     }
   });
+
+  it('refuses to run a stored tool that was edited to add a static builtin import', async () => {
+    const outcome = await runTool(manifest('static-builtin-import.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('forbidden-import');
+      expect(outcome.message).toContain('node:fs');
+    }
+  });
+
+  it('does not false-positive on a clean tool with no imports', async () => {
+    const outcome = await runTool(manifest('returns.ts'), { who: 'world' });
+    expect(outcome.outcome).toBe('ok');
+  });
 });

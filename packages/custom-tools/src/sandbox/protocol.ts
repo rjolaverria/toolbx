@@ -15,6 +15,7 @@ export type RunErrorCode =
   | 'invalid-handler'
   | 'invalid-args'
   | 'load-error'
+  | 'forbidden-import'
   | 'tool-error';
 
 /** Response the child harness sends back over IPC. */

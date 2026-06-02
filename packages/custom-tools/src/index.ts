@@ -1,7 +1,9 @@
 export {
   parseToolMetadata,
+  analyzeToolImports,
   ToolMetadataParseError,
   type ParsedToolMetadata,
+  type ToolImportAnalysis,
   type ParseIssue,
   type ParseWarning,
 } from './manifest/parse.js';

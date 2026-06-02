@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseToolMetadata, ToolMetadataParseError } from '../parse.js';
+import { analyzeToolImports, parseToolMetadata, ToolMetadataParseError } from '../parse.js';
 
 // The canonical example from SPECS §6.2.
 const SPEC_EXAMPLE = `/**
@@ -524,6 +524,39 @@ export default async function f() {
       const result = parseToolMetadata(source, './bad.ts');
       expect(result.syntaxErrors.length).toBeGreaterThan(0);
       expect(result.syntaxErrors[0]?.line).toBeGreaterThan(0);
+    });
+  });
+
+  describe('analyzeToolImports', () => {
+    it('returns empty lists for a clean source with no imports', () => {
+      const source = `export default function f() {\n  return { content: [] };\n}\n`;
+      const result = analyzeToolImports(source, './clean.ts');
+      expect(result.relativeImports).toEqual([]);
+      expect(result.bareImports).toEqual([]);
+      expect(result.dynamicImports).toEqual([]);
+      expect(result.syntaxErrors).toEqual([]);
+    });
+
+    it('detects a bare node: builtin import without requiring @toolbox-tool metadata', () => {
+      const source = `import { readFileSync } from 'node:fs';\nexport default function f() {\n  return { content: [] };\n}\n`;
+      const result = analyzeToolImports(source, './bare-builtin.ts');
+      expect(result.bareImports).toContain('node:fs');
+      expect(result.relativeImports).toEqual([]);
+      expect(result.dynamicImports).toEqual([]);
+    });
+
+    it('detects a relative import without requiring @toolbox-tool metadata', () => {
+      const source = `import { helper } from './util.js';\nexport default function f() {\n  return { content: [] };\n}\n`;
+      const result = analyzeToolImports(source, './with-rel.ts');
+      expect(result.relativeImports).toContain('./util.js');
+      expect(result.bareImports).toEqual([]);
+    });
+
+    it('returns empty lists for a source that only has type-only imports', () => {
+      const source = `import type { Foo } from './types.js';\nexport default function f(): Foo {\n  return { content: [] } as unknown as Foo;\n}\n`;
+      const result = analyzeToolImports(source, './typeonly.ts');
+      expect(result.relativeImports).toEqual([]);
+      expect(result.bareImports).toEqual([]);
     });
   });
 
