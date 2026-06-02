@@ -18,6 +18,12 @@ import type { RunOutcome, SandboxRequest, SandboxResponse } from './protocol.js'
 export interface RunToolOptions {
   /** Logger for the audit entry. Defaults to a no-op logger. */
   readonly logger?: Logger;
+  /**
+   * Absolute ToolBox config directory used to resolve a relative `manifest.entry`
+   * (`tools/<namespace>/<name>.<ext>`). Required unless `manifest.entry` is already
+   * absolute (e.g. test fixtures).
+   */
+  readonly configDir?: string;
 }
 
 /** Resolves the harness file next to this module, matching its extension (.ts/.js). */
@@ -44,6 +50,21 @@ function buildEnv(allowlist: readonly string[]): {
   return { env, secretValues };
 }
 
+/**
+ * Returns an absolute path for the tool entry.
+ * If `entry` is already absolute (e.g. test fixtures) it is returned unchanged.
+ * Otherwise `configDir` must be provided to resolve it relative to the config directory.
+ */
+function resolveEntry(entry: string, configDir: string | undefined): string {
+  if (path.isAbsolute(entry)) {
+    return entry;
+  }
+  if (configDir === undefined) {
+    throw new Error(`runTool requires a configDir to resolve the relative tool entry "${entry}"`);
+  }
+  return path.join(configDir, entry);
+}
+
 export async function runTool(
   manifest: ToolManifest,
   args: unknown,
@@ -52,6 +73,8 @@ export async function runTool(
   const logger = options.logger ?? createNoopLogger();
   const { env, secretValues } = buildEnv(manifest.permissions.env);
   const start = Date.now();
+
+  const absoluteEntry = resolveEntry(manifest.entry, options.configDir);
 
   const outcome = await new Promise<RunOutcome>((resolve) => {
     const child = spawn(
@@ -107,7 +130,7 @@ export async function runTool(
     });
 
     const request: SandboxRequest = {
-      entry: manifest.entry,
+      entry: absoluteEntry,
       permissions: manifest.permissions,
       args,
     };

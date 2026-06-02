@@ -137,6 +137,53 @@ describe('runTool', () => {
     }
   });
 
+  it('runs a tool imported by importTool, resolving the relative entry via configDir', async () => {
+    const os = await import('node:os');
+    const fs = await import('node:fs/promises');
+    const { importTool } = await import('../../manifest/import.js');
+
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-runtime-cfg-'));
+    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-runtime-src-'));
+    try {
+      const source = `/**
+ * @toolbox-tool name echo
+ * @toolbox-tool title Echo
+ * @toolbox-tool description Echoes a message.
+ * @toolbox-tool namespace personal
+ */
+export const inputSchema = {
+  type: 'object',
+  properties: { message: { type: 'string' } },
+  required: ['message'],
+  additionalProperties: false,
+};
+export default function echo(input) {
+  return { content: [{ type: 'text', text: input.message }] };
+}
+`;
+      const srcPath = path.join(srcDir, 'echo.ts');
+      await fs.writeFile(srcPath, source, 'utf8');
+
+      const { manifest: imported } = await importTool(srcPath, { configDir });
+      // entry is stored relative to the config dir, e.g. tools/personal/echo.ts
+      expect(path.isAbsolute(imported.entry)).toBe(false);
+
+      const outcome = await runTool(imported, { message: 'hi there' }, { configDir });
+      expect(outcome).toEqual({
+        outcome: 'ok',
+        result: { content: [{ type: 'text', text: 'hi there' }] },
+      });
+    } finally {
+      await fs.rm(configDir, { recursive: true, force: true });
+      await fs.rm(srcDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects when the entry is relative and no configDir is given', async () => {
+    const m = manifest('returns.ts', { entry: 'tools/test/returns.ts' });
+    await expect(runTool(m, { who: 'x' })).rejects.toThrow(/configDir/);
+  });
+
   it('emits one audit entry with tool, durationMs, and outcome', async () => {
     const records: Record<string, unknown>[] = [];
     const logger = {
