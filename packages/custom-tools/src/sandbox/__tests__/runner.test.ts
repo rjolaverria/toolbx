@@ -89,8 +89,17 @@ describe('runTool', () => {
         expect(outcome.message).not.toContain('xoxb-12345-secret');
         expect(outcome.message).toContain('***');
       }
-      const serialized = JSON.stringify(records);
-      expect(serialized).not.toContain('xoxb-12345-secret');
+      // The audit record must carry only safe fields — never the raw (or even redacted)
+      // tool message — so a secret cannot leak through the structured log at all.
+      expect(records).toHaveLength(1);
+      const record = records[0] ?? {};
+      expect(JSON.stringify(record)).not.toContain('xoxb-12345-secret');
+      expect(record).not.toHaveProperty('message');
+      expect(record).toMatchObject({
+        tool: 'test__leaks-secret',
+        outcome: 'error',
+        errorCode: 'tool-error',
+      });
     } finally {
       delete process.env.SLACK_BOT_TOKEN;
     }

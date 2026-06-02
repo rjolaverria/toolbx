@@ -57,7 +57,7 @@ export async function runTool(
     const child = spawn(
       process.execPath,
       ['--experimental-strip-types', '--no-warnings', harnessPath()],
-      { env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] },
+      { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
     );
 
     let settled = false;
@@ -69,6 +69,9 @@ export async function runTool(
       settled = true;
       clearTimeout(timer);
       child.removeAllListeners();
+      child.on('error', () => {
+        // Absorb a stray EPIPE from an in-flight send after we have already settled.
+      });
       if (!child.killed) {
         child.kill('SIGKILL');
       }
@@ -95,7 +98,7 @@ export async function runTool(
       finish({ outcome: 'error', code: 'load-error', message: error.message });
     });
 
-    child.on('exit', () => {
+    child.on('close', () => {
       finish({
         outcome: 'error',
         code: 'load-error',
