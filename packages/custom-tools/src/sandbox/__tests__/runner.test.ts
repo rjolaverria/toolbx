@@ -179,6 +179,32 @@ export default function echo(input) {
     }
   });
 
+  it('blocks filesystem access via process.getBuiltinModule when filesystem is denied', async () => {
+    const outcome = await runTool(manifest('builtin-fs.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('tool-error');
+      expect(outcome.message).toContain('disabled');
+    }
+  });
+
+  it('blocks network access via process.getBuiltinModule when network is denied', async () => {
+    const outcome = await runTool(manifest('builtin-http.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('tool-error');
+      expect(outcome.message).toContain('disabled');
+    }
+  });
+
+  it('runs a tool using non-erasable TypeScript (enum) via transform-types', async () => {
+    const outcome = await runTool(manifest('uses-enum.ts'), {});
+    expect(outcome).toEqual({
+      outcome: 'ok',
+      result: { content: [{ type: 'text', text: 'mode=1' }] },
+    });
+  });
+
   it('rejects when the entry is relative and no configDir is given', async () => {
     const m = manifest('returns.ts', { entry: 'tools/test/returns.ts' });
     await expect(runTool(m, { who: 'x' })).rejects.toThrow(/configDir/);

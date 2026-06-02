@@ -79,7 +79,10 @@ export async function runTool(
   const outcome = await new Promise<RunOutcome>((resolve) => {
     const child = spawn(
       process.execPath,
-      ['--experimental-strip-types', '--no-warnings', harnessPath()],
+      // --experimental-transform-types is a superset of --experimental-strip-types and
+      // also handles non-erasable TS constructs (enum, namespace) so a valid TS tool
+      // doesn't import-OK then fail at call time. Requires Node >= 22.7.0.
+      ['--experimental-transform-types', '--no-warnings', harnessPath()],
       { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
     );
 
