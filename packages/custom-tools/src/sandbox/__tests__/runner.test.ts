@@ -322,4 +322,25 @@ export default function echo(input) {
     const outcome = await runTool(manifest('returns.ts'), { who: 'world' });
     expect(outcome.outcome).toBe('ok');
   });
+
+  it('stubs process.kill so a tool cannot signal the parent', async () => {
+    const outcome = await runTool(manifest('calls-process-kill.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('tool-error');
+      expect(outcome.message).toContain('disabled');
+    }
+    // The parent (this test process) is still alive to make this assertion.
+    expect(process.pid).toBeGreaterThan(0);
+  });
+
+  it('removes process.send so a tool cannot spoof a result', async () => {
+    const outcome = await runTool(manifest('spoofs-ipc.ts'), {});
+    // The top-level proc.send?.(...) is a no-op (send removed), so the real flow runs and
+    // returns the genuine handler result — never the spoofed { spoofed: true }.
+    expect(outcome).toEqual({
+      outcome: 'ok',
+      result: { content: [{ type: 'text', text: 'real' }] },
+    });
+  });
 });

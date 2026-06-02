@@ -1,9 +1,11 @@
 /**
  * Custom tool child-process harness (P3-03). Runs in a Node child process spawned by
  * the runner. Seals Node runtime escape hatches (process.getBuiltinModule, binding, etc.),
- * applies the network permission gate, loads the tool module, validates the args against
- * inputSchema using @cfworker/json-schema (interpreter-based, no Function/eval codegen),
- * invokes the handler, and reports the outcome over IPC in a single response message.
+ * removes process.send from tool-visible scope (anti-spoof), applies the network permission
+ * gate, re-validates tool purity from disk (so an edited file cannot sneak in a static
+ * import), loads the tool module, validates the args against inputSchema using
+ * @cfworker/json-schema (interpreter-based, no Function/eval codegen), invokes the handler,
+ * and reports the outcome over IPC in a single response message.
  *
  * @cfworker/json-schema is codegen-free, so it runs safely under
  * --disallow-code-generation-from-strings. Because validation happens here, a
@@ -18,53 +20,81 @@
  * model meaningful while that stronger sandbox is not yet in place.
  */
 
-import { pathToFileURL } from 'node:url';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Validator } from '@cfworker/json-schema';
 
-import type { SandboxRequest, SandboxResponse } from './protocol.js';
+import type { ToolImportAnalysis } from '../manifest/parse.js';
+import type { RunErrorCode, SandboxRequest, SandboxResponse } from './protocol.js';
 
 /**
- * Sends one message and resolves only once it has flushed. `process.send` is
- * asynchronous, so the caller must await this before letting the process exit —
- * otherwise `process.exit` can drop the message before the parent receives it.
+ * Dynamically imports `analyzeToolImports` from parse, resolving the correct extension
+ * (.ts in development/test, .js in production) by matching the harness's own extension.
+ * A static import of `parse.js` would fail at test time when the harness runs as `.ts`
+ * because Node's `--experimental-transform-types` does not auto-rewrite `.js` → `.ts`.
+ */
+async function loadAnalyzeToolImports(): Promise<
+  (source: string, filename: string) => ToolImportAnalysis
+> {
+  const here = fileURLToPath(import.meta.url);
+  const ext = path.extname(here);
+  const parseUrl = pathToFileURL(
+    path.join(path.dirname(here), '..', 'manifest', `parse${ext}`),
+  ).href;
+  const mod = (await import(parseUrl)) as {
+    analyzeToolImports: (s: string, f: string) => ToolImportAnalysis;
+  };
+  return mod.analyzeToolImports;
+}
+
+// Capture trusted IPC and exit references at module load, before any tool code can tamper
+// with them. The harness uses these private references for all its own IPC/exit calls.
+const realSend = process.send?.bind(process);
+const realExit = process.exit.bind(process);
+
+/**
+ * Sends one message and resolves only once it has flushed. Uses the captured IPC reference
+ * so tool code that deletes or replaces process.send cannot suppress the response.
+ * `process.send` is asynchronous — the caller must await this before letting the process
+ * exit, otherwise `process.exit` can drop the message before the parent receives it.
  */
 function send(message: SandboxResponse): Promise<void> {
   return new Promise((resolve) => {
-    if (process.send === undefined) {
+    if (realSend === undefined) {
       resolve();
       return;
     }
-    process.send(message, () => {
+    realSend(message, () => {
       resolve();
     });
   });
 }
 
-async function fail(
-  code: SandboxResponse & { ok: false } extends { code: infer C } ? C : never,
-  message: string,
-): Promise<void> {
-  await send({ ok: false, code, message });
+function fail(code: RunErrorCode, message: string): Promise<void> {
+  return send({ ok: false, code, message });
 }
 
 /**
- * Neutralizes Node escape hatches a pure tool never legitimately needs, so the
- * network/filesystem permission gates cannot be bypassed by pulling a builtin module
- * at runtime (e.g. `process.getBuiltinModule('node:fs')`). This is best-effort
- * in-process hardening, not a true sandbox: the child also runs under
- * --disallow-code-generation-from-strings which blocks eval/Function-based import bypasses.
- * The deferred OS-level sandbox (srt) is the real boundary.
+ * Neutralizes Node escape hatches and process-control APIs a pure tool never legitimately
+ * needs, and removes the IPC sender so tool code cannot spoof a response. Best-effort
+ * in-process hardening; the deferred OS sandbox (srt) is the real boundary.
  */
 function sealEscapeHatches(): void {
   const blocked = (name: string) => (): never => {
     throw new Error(`${name} is disabled for custom tools`);
   };
   const proc = process as unknown as Record<string, unknown>;
-  for (const key of ['getBuiltinModule', 'binding', '_linkedBinding', 'dlopen']) {
+  for (const key of ['getBuiltinModule', 'binding', '_linkedBinding', 'dlopen', 'kill', 'abort']) {
     if (typeof proc[key] === 'function') {
       proc[key] = blocked(`process.${key}`);
     }
+  }
+  // Remove IPC reach so tool code cannot spoof a result or tear down the channel.
+  delete proc['send'];
+  if (typeof proc['disconnect'] === 'function') {
+    proc['disconnect'] = blocked('process.disconnect');
   }
 }
 
@@ -83,6 +113,41 @@ function applyNetworkGate(networkAllowed: boolean): void {
 async function run(request: SandboxRequest): Promise<void> {
   sealEscapeHatches();
   applyNetworkGate(request.permissions.network);
+
+  // Re-validate purity in the child before importing the mutable on-disk file. This runs
+  // inside the timeout-killable child, so a pathological file cannot block the parent.
+  let source: string;
+  try {
+    source = await fs.readFile(request.entry, 'utf8');
+  } catch (error) {
+    await fail('load-error', error instanceof Error ? error.message : String(error));
+    return;
+  }
+
+  const analyzeToolImports = await loadAnalyzeToolImports();
+  const analysis = analyzeToolImports(source, request.entry);
+  if (analysis.syntaxErrors.length > 0) {
+    await fail(
+      'load-error',
+      `stored tool has a syntax error: ${analysis.syntaxErrors[0]?.message ?? 'unknown'}`,
+    );
+    return;
+  }
+
+  const runtimeImports = [
+    ...analysis.relativeImports,
+    ...analysis.bareImports,
+    ...analysis.dynamicImports.map((issue) =>
+      issue.line !== undefined ? `dynamic import (line ${issue.line})` : 'dynamic import',
+    ),
+  ];
+  if (runtimeImports.length > 0) {
+    await fail(
+      'forbidden-import',
+      `stored tool contains forbidden runtime imports: ${runtimeImports.join(', ')}`,
+    );
+    return;
+  }
 
   let mod: Record<string, unknown>;
   try {
@@ -136,6 +201,6 @@ process.channel?.ref();
 
 process.once('message', (message: SandboxRequest) => {
   void run(message).finally(() => {
-    process.exit(0);
+    realExit(0);
   });
 });
