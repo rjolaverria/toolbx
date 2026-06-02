@@ -118,3 +118,4 @@ Phase 2 is complete: every task below (P2-01 through P2-06) is closed. The SPECS
 - [x] **P3-03** — [Custom tool runtime with timeouts and permissions](tasks/P3-03-tool-runtime.md) — closed by 5ddbe8c (branch `p3-03-tool-runtime`)
 - [ ] **P3-04** — [`tlbx tool` CLI commands (import/list/inspect/enable/disable/remove)](tasks/P3-04-cli-tool-commands.md)
 - [ ] **P3-05** — [Expose custom tools through the MCP gateway and `tlbx run`](tasks/P3-05-expose-custom-tools.md)
+- [ ] **P3-06** — [OS-level sandbox for custom tools](tasks/P3-06-os-level-sandbox.md) — filed from P3-03 review; stronger isolation deferred per SPECS §6.6
