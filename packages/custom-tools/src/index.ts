@@ -15,3 +15,12 @@ export {
   type ToolManifest,
   type ToolPermissions,
 } from './manifest/import.js';
+
+export { runTool, type RunToolOptions } from './sandbox/runner.js';
+export {
+  type RunOutcome,
+  type RunErrorCode,
+  type SandboxRequest,
+  type SandboxResponse,
+} from './sandbox/protocol.js';
+export { redactSecrets } from './sandbox/redact.js';
