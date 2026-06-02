@@ -21,6 +21,7 @@ export {
   type RunOutcome,
   type RunErrorCode,
   type SandboxRequest,
-  type SandboxResponse,
+  type SandboxMessage,
+  type SandboxInvokeCommand,
 } from './sandbox/protocol.js';
 export { redactSecrets } from './sandbox/redact.js';

@@ -247,4 +247,22 @@ export default function echo(input) {
     expect(records[0]).toMatchObject({ tool: 'test__returns', outcome: 'ok' });
     expect(typeof records[0]?.durationMs).toBe('number');
   });
+
+  it('blocks a generated dynamic import of node:http (string codegen disabled)', async () => {
+    const outcome = await runTool(manifest('codegen-http.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('tool-error');
+      expect(outcome.message).toContain('Code generation from strings disallowed');
+    }
+  });
+
+  it('blocks a generated dynamic import of node:fs (string codegen disabled)', async () => {
+    const outcome = await runTool(manifest('codegen-fs.ts'), {});
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('tool-error');
+      expect(outcome.message).toContain('Code generation from strings disallowed');
+    }
+  });
 });
