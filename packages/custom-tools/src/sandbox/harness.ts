@@ -86,6 +86,12 @@ async function run(request: SandboxRequest): Promise<void> {
   }
 }
 
+// Keep the IPC channel referenced so the event loop stays alive for the duration of the
+// tool call — without this, a tool that returns a never-resolving promise causes Node.js
+// to exit once no other handles remain active (process.once consumes the listener, leaving
+// the channel unreferenced).
+process.channel?.ref();
+
 process.once('message', (message: SandboxRequest) => {
   void run(message).finally(() => {
     process.exit(0);
