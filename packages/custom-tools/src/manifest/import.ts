@@ -286,6 +286,16 @@ export async function importTool(
   await fs.mkdir(path.dirname(entryPath), { recursive: true });
   await fs.writeFile(entryPath, source, 'utf8');
 
+  // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
+  // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
+  // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
+  const toolsPackageJsonPath = path.join(toolsDir, 'package.json');
+  await fs.writeFile(
+    toolsPackageJsonPath,
+    `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
+    'utf8',
+  );
+
   const entryManifest: ToolManifest = {
     name: metadata.name,
     namespace: metadata.namespace,

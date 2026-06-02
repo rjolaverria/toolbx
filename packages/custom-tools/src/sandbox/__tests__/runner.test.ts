@@ -179,6 +179,47 @@ export default function echo(input) {
     }
   });
 
+  it('runs an imported ESM .js tool (tools/ is marked type:module)', async () => {
+    const os = await import('node:os');
+    const fs = await import('node:fs/promises');
+    const { importTool } = await import('../../manifest/import.js');
+
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-js-cfg-'));
+    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-js-src-'));
+    try {
+      const source = `/**
+ * @toolbox-tool name jsgreet
+ * @toolbox-tool title JsGreet
+ * @toolbox-tool description ESM JS tool.
+ * @toolbox-tool namespace personal
+ */
+export const inputSchema = {
+  type: 'object',
+  properties: { who: { type: 'string' } },
+  required: ['who'],
+  additionalProperties: false,
+};
+export default function jsgreet(input) {
+  return { content: [{ type: 'text', text: 'js ' + input.who }] };
+}
+`;
+      const srcPath = path.join(srcDir, 'jsgreet.js');
+      await fs.writeFile(srcPath, source, 'utf8');
+
+      const { manifest: imported } = await importTool(srcPath, { configDir });
+      expect(imported.entry.endsWith('.js')).toBe(true);
+
+      const outcome = await runTool(imported, { who: 'world' }, { configDir });
+      expect(outcome).toEqual({
+        outcome: 'ok',
+        result: { content: [{ type: 'text', text: 'js world' }] },
+      });
+    } finally {
+      await fs.rm(configDir, { recursive: true, force: true });
+      await fs.rm(srcDir, { recursive: true, force: true });
+    }
+  });
+
   it('blocks filesystem access via process.getBuiltinModule when filesystem is denied', async () => {
     const outcome = await runTool(manifest('builtin-fs.ts'), {});
     expect(outcome.outcome).toBe('error');
