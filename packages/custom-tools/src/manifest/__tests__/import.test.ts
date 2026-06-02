@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { importTool, ToolImportError, type ToolManifest } from '../import.js';
 
-/** The SPECS §6.2 example tool source. */
+/** The SPECS §6.2 example tool source (pure: no imports, JSON Schema input). */
 const SPEC_EXAMPLE = `/**
  * @toolbox-tool name send_slack_summary
  * @toolbox-tool title Send Slack Summary
@@ -14,14 +14,17 @@ const SPEC_EXAMPLE = `/**
  * @toolbox-tool namespace personal
  */
 
-import { z } from 'zod';
+export const inputSchema = {
+  type: 'object',
+  properties: {
+    channel: { type: 'string' },
+    summary: { type: 'string' },
+  },
+  required: ['channel', 'summary'],
+  additionalProperties: false,
+};
 
-export const inputSchema = z.object({
-  channel: z.string().describe('Slack channel ID or name'),
-  summary: z.string().describe('Summary text to send'),
-});
-
-export default async function sendSlackSummary(input: { channel: string; summary: string }) {
+export default async function sendSlackSummary(input) {
   return {
     content: [
       {
@@ -72,6 +75,7 @@ describe('importTool', () => {
       entry: 'tools/personal/send_slack_summary.ts',
       runtime: 'node',
       enabled: false,
+      timeoutMs: 30000,
       permissions: { network: false, filesystem: false, env: [] },
     });
     expect(result.warnings).toEqual([]);
@@ -122,8 +126,8 @@ describe('importTool', () => {
   });
 
   it('preserves the file extension for .js tools', async () => {
-    const js = SPEC_EXAMPLE.replace(': { channel: string; summary: string }', '');
-    const sourcePath = await writeSource('send_slack_summary.js', js);
+    // The pure SPEC_EXAMPLE has no TypeScript-only syntax, so it is valid JavaScript as-is.
+    const sourcePath = await writeSource('send_slack_summary.js', SPEC_EXAMPLE);
 
     const result = await importTool(sourcePath, { configDir });
 
@@ -235,7 +239,7 @@ describe('importTool', () => {
 
     it('rejects a tool whose inputSchema export is a primitive, not a schema', async () => {
       const primitive = SPEC_EXAMPLE.replace(
-        /export const inputSchema = z\.object\(\{[\s\S]*?\}\);/,
+        /export const inputSchema = \{[\s\S]*?\};/,
         'export const inputSchema = 42;',
       );
       const sourcePath = await writeSource('send_slack_summary.ts', primitive);
@@ -292,21 +296,47 @@ describe('importTool', () => {
       await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
     });
 
-    it('rejects a tool with relative imports it cannot relocate', async () => {
+    it('rejects a tool with a relative import it cannot relocate', async () => {
       const withRelative = SPEC_EXAMPLE.replace(
-        "import { z } from 'zod';",
-        "import { z } from 'zod';\nimport { helper } from './helper.js';",
-      ).replace('return {', 'void helper;\n  return {');
+        'export const inputSchema',
+        "import { helper } from './helper.js';\nvoid helper;\nexport const inputSchema",
+      );
       const sourcePath = await writeSource('send_slack_summary.ts', withRelative);
 
       await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
         name: 'ToolImportError',
-        code: 'relative-import',
+        code: 'imports-not-allowed',
       });
       await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
     });
 
-    it('rejects a tool that re-exports inputSchema from a relative module', async () => {
+    it('rejects a tool that imports a bare package', async () => {
+      const withBare = SPEC_EXAMPLE.replace(
+        'export const inputSchema',
+        "import { z } from 'zod';\nvoid z;\nexport const inputSchema",
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', withBare);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'imports-not-allowed',
+      });
+    });
+
+    it('rejects a tool that imports a node: builtin', async () => {
+      const withNode = SPEC_EXAMPLE.replace(
+        'export const inputSchema',
+        "import { readFile } from 'node:fs/promises';\nvoid readFile;\nexport const inputSchema",
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', withNode);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'imports-not-allowed',
+      });
+    });
+
+    it('rejects a tool that re-exports inputSchema from another module', async () => {
       const reexport = `/**
  * @toolbox-tool name send_slack_summary
  * @toolbox-tool title Send Slack Summary
@@ -322,20 +352,20 @@ export default async function f() {
 
       await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
         name: 'ToolImportError',
-        code: 'relative-import',
+        code: 'imports-not-allowed',
       });
     });
 
-    it('rejects a tool using `import = require(...)` for a relative module', async () => {
+    it('rejects a tool using `import = require(...)`', async () => {
       const eqReq = SPEC_EXAMPLE.replace(
-        "import { z } from 'zod';",
-        "import { z } from 'zod';\nimport helper = require('./helper');",
-      ).replace('return {', 'void helper;\n  return {');
+        'export const inputSchema',
+        "import helper = require('./helper');\nvoid helper;\nexport const inputSchema",
+      );
       const sourcePath = await writeSource('send_slack_summary.ts', eqReq);
 
       await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
         name: 'ToolImportError',
-        code: 'relative-import',
+        code: 'imports-not-allowed',
       });
     });
 
@@ -348,49 +378,41 @@ export default async function f() {
 
       await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
         name: 'ToolImportError',
-        code: 'dynamic-import',
+        code: 'imports-not-allowed',
       });
     });
 
-    it('imports a tool that only has a type-only relative import', async () => {
-      const withTypeImport = SPEC_EXAMPLE.replace(
-        "import { z } from 'zod';",
-        "import type { Foo } from './types.js';\nimport { z } from 'zod';",
+    it('rejects a tool importing from a file: URL', async () => {
+      const withFileUrl = SPEC_EXAMPLE.replace(
+        'export const inputSchema',
+        "import helper from 'file:///etc/helper.js';\nvoid helper;\nexport const inputSchema",
       );
+      const sourcePath = await writeSource('send_slack_summary.ts', withFileUrl);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'imports-not-allowed',
+      });
+    });
+
+    it('imports a tool that only has an erased type-only import', async () => {
+      const withTypeImport = SPEC_EXAMPLE.replace(
+        'export const inputSchema',
+        "import type { Foo } from './types.js';\nexport const inputSchema",
+      ).replace('export default', 'export type Bar = Foo;\nexport default');
       const sourcePath = await writeSource('send_slack_summary.ts', withTypeImport);
 
       const result = await importTool(sourcePath, { configDir });
       expect(result.manifest.exposedName).toBe('personal__send_slack_summary');
     });
 
-    it('imports a tool whose only relative import is inline type-only', async () => {
-      const withInlineType = SPEC_EXAMPLE.replace(
-        "import { z } from 'zod';",
-        "import { type Foo } from './types.js';\nimport { z } from 'zod';",
-      );
-      const sourcePath = await writeSource('send_slack_summary.ts', withInlineType);
-
-      const result = await importTool(sourcePath, { configDir });
-      expect(result.manifest.exposedName).toBe('personal__send_slack_summary');
-    });
-
-    it('rejects a tool importing from a file: URL', async () => {
-      const withFileUrl = SPEC_EXAMPLE.replace(
-        "import { z } from 'zod';",
-        "import { z } from 'zod';\nimport helper from 'file:///etc/helper.js';",
-      ).replace('return {', 'void helper;\n  return {');
-      const sourcePath = await writeSource('send_slack_summary.ts', withFileUrl);
-
-      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
-        name: 'ToolImportError',
-        code: 'relative-import',
-      });
-    });
-
     it('rejects a .js tool that contains TypeScript-only syntax', async () => {
-      // SPEC_EXAMPLE has a type annotation on the handler parameter, which is
-      // valid TS but not valid JS.
-      const sourcePath = await writeSource('send_slack_summary.js', SPEC_EXAMPLE);
+      // A type annotation on the handler parameter is valid TS but not valid JS.
+      const withTypeAnnotation = SPEC_EXAMPLE.replace(
+        'sendSlackSummary(input)',
+        'sendSlackSummary(input: { channel: string; summary: string })',
+      );
+      const sourcePath = await writeSource('send_slack_summary.js', withTypeAnnotation);
 
       await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
         name: 'ToolImportError',
@@ -400,8 +422,8 @@ export default async function f() {
 
     it('rejects a tool with a syntax error', async () => {
       const broken = SPEC_EXAMPLE.replace(
-        'export const inputSchema = z.object({',
-        'export const inputSchema = z.object({ ;',
+        'export const inputSchema = {',
+        'export const inputSchema = { ;',
       );
       const sourcePath = await writeSource('send_slack_summary.ts', broken);
 

@@ -28,6 +28,9 @@ const DEFAULT_SEPARATOR = '__';
 const TOOLS_DIR = 'tools';
 const MANIFEST_FILENAME = 'manifest.json';
 
+/** Default per-tool execution timeout in milliseconds (SPECS §6.6). */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 export interface ToolPermissions {
   readonly network: boolean;
   readonly filesystem: boolean;
@@ -44,6 +47,8 @@ export interface ToolManifest {
   readonly entry: string;
   readonly runtime: 'node';
   readonly enabled: boolean;
+  /** Per-tool execution timeout in milliseconds, enforced by the runtime. */
+  readonly timeoutMs: number;
   readonly permissions: ToolPermissions;
 }
 
@@ -76,8 +81,7 @@ export type ToolImportErrorCode =
   | 'invalid-identifier'
   | 'invalid-shape'
   | 'syntax-error'
-  | 'relative-import'
-  | 'dynamic-import'
+  | 'imports-not-allowed'
   | 'namespace-collision'
   | 'tool-exists'
   | 'invalid-manifest';
@@ -115,6 +119,8 @@ const toolManifestSchema = z.looseObject({
   entry: z.string(),
   runtime: z.literal('node'),
   enabled: z.boolean(),
+  // Older entries written before timeoutMs was added default to the standard value.
+  timeoutMs: z.number().default(DEFAULT_TIMEOUT_MS),
   permissions: permissionsSchema,
 });
 
@@ -183,23 +189,21 @@ export async function importTool(
     );
   }
 
-  // Only the entry file is copied (bundling the dependency graph is out of
-  // scope), so a relative import / re-export would dangle after relocation.
-  if (metadata.relativeImports.length > 0) {
+  // Pure custom tools allow no runtime imports: only the entry file is stored, and a
+  // pure tool keeps the execution sandbox enforceable. Erased type-only imports are
+  // already excluded by the parser, so they are permitted.
+  const runtimeImports = [
+    ...metadata.relativeImports,
+    ...metadata.bareImports,
+    ...metadata.dynamicImports.map((issue) =>
+      issue.line !== undefined ? `dynamic import (line ${issue.line})` : 'dynamic import',
+    ),
+  ];
+  if (runtimeImports.length > 0) {
     throw new ToolImportError(
-      'relative-import',
+      'imports-not-allowed',
       sourcePath,
-      `tool files must be self-contained; relative imports cannot be relocated: ${metadata.relativeImports.join(', ')}`,
-    );
-  }
-  if (metadata.dynamicImports.length > 0) {
-    const lines = metadata.dynamicImports
-      .map((issue) => (issue.line !== undefined ? `line ${issue.line}` : 'unknown line'))
-      .join(', ');
-    throw new ToolImportError(
-      'dynamic-import',
-      sourcePath,
-      `tool files must be self-contained; dynamic import()/require() with a computed specifier cannot be verified (${lines})`,
+      `custom tools must be self-contained with no runtime imports; found: ${runtimeImports.join(', ')}`,
     );
   }
 
@@ -292,6 +296,7 @@ export async function importTool(
     entry,
     runtime: 'node',
     enabled: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
     permissions: { network: false, filesystem: false, env: [] },
   };
 
