@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@toolbox/core": "workspace:*",
+    "ajv": "^8.0.0",
     "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },

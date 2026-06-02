@@ -113,6 +113,9 @@ importers:
       '@toolbox/core':
         specifier: workspace:*
         version: link:../core
+      ajv:
+        specifier: ^8.0.0
+        version: 8.20.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
