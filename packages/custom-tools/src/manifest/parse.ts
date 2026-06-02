@@ -57,8 +57,9 @@ export interface ParsedToolMetadata {
   /**
    * Runtime (non-erased) bare package and `node:` module specifiers the file
    * imports, re-exports, or dynamically `import()`s / `require()`s with a literal
-   * specifier. Pure custom tools allow no runtime imports, so the importer rejects
-   * a tool that has any. Erased type-only imports are excluded.
+   * specifier. Despite the name, bare `export … from` re-export specifiers are
+   * included here as well. Pure custom tools allow no runtime imports, so the
+   * importer rejects a tool that has any. Erased type-only imports are excluded.
    */
   readonly bareImports: readonly string[];
   /**
@@ -335,8 +336,9 @@ interface ModuleReferences {
  * relocated: literal relative / absolute specifiers (from static `import` /
  * `export ... from`, `import x = require('...')`, and literal dynamic
  * `import()` / `require()`), plus dynamic `import()` / `require()` with a
- * computed (non-literal) specifier. Bare package and `node:` specifiers resolve
- * from `node_modules` at runtime and are ignored.
+ * computed (non-literal) specifier. Bare package and `node:` specifiers are
+ * returned in `bareImports`; relative/absolute ones in `relativeImports`;
+ * computed dynamic calls in `dynamicImports`.
  */
 function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
   const relativeImports: string[] = [];
@@ -346,8 +348,8 @@ function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
   const lineOf = (node: ts.Node): number =>
     sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 
-  // A statically-required string-literal specifier: route relative ones to
-  // relativeImports, bare package / node: ones to bareImports.
+  // A string-literal specifier: route relative ones to relativeImports, bare
+  // package / node: ones to bareImports.
   const recordLiteral = (specifier: ts.Expression | undefined): void => {
     if (specifier === undefined || !ts.isStringLiteralLike(specifier)) {
       return;
