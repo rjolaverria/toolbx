@@ -239,7 +239,7 @@ describe('importTool', () => {
 
     it('rejects a tool whose inputSchema export is a primitive, not a schema', async () => {
       const primitive = SPEC_EXAMPLE.replace(
-        /export const inputSchema = \{[\s\S]*?\};/,
+        /export const inputSchema = \{[\s\S]*?\n\};/,
         'export const inputSchema = 42;',
       );
       const sourcePath = await writeSource('send_slack_summary.ts', primitive);
@@ -399,6 +399,7 @@ export default async function f() {
       const withTypeImport = SPEC_EXAMPLE.replace(
         'export const inputSchema',
         "import type { Foo } from './types.js';\nexport const inputSchema",
+        // consume Foo so the type-only import isn't flagged as unused
       ).replace('export default', 'export type Bar = Foo;\nexport default');
       const sourcePath = await writeSource('send_slack_summary.ts', withTypeImport);
 

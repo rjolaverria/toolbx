@@ -192,8 +192,8 @@ export async function importTool(
   // pure tool keeps the execution sandbox enforceable. Erased type-only imports are
   // already excluded by the parser, so they are permitted.
   const runtimeImports = [
-    ...metadata.relativeImports,
-    ...metadata.bareImports,
+    ...metadata.relativeImports.map((specifier) => `relative import '${specifier}'`),
+    ...metadata.bareImports.map((specifier) => `bare import '${specifier}'`),
     ...metadata.dynamicImports.map((issue) =>
       issue.line !== undefined ? `dynamic import (line ${issue.line})` : 'dynamic import',
     ),
