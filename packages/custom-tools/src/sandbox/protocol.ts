@@ -7,6 +7,12 @@ export interface SandboxRequest {
   readonly permissions: ToolPermissions;
   /** Arguments to validate against `inputSchema` and pass to the handler. */
   readonly args: unknown;
+  /**
+   * Unguessable per-call nonce. The harness echoes it in every response; the parent
+   * ignores any child message whose nonce does not match, so a tool that forges an IPC
+   * message (via any process internal) cannot spoof a result — it never sees the nonce.
+   */
+  readonly nonce: string;
 }
 
 /** Error codes the runtime can report for a single call. */
@@ -22,6 +28,9 @@ export type RunErrorCode =
 export type SandboxResponse =
   | { readonly ok: true; readonly result: unknown }
   | { readonly ok: false; readonly code: RunErrorCode; readonly message: string };
+
+/** Child → parent IPC message: a response authenticated with the per-call nonce. */
+export type SandboxEnvelope = SandboxResponse & { readonly nonce: string };
 
 /** Final outcome `runTool` resolves to. `message` is already secret-redacted. */
 export type RunOutcome =

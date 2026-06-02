@@ -18,6 +18,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,7 +26,7 @@ import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import { redactSecrets } from './redact.js';
-import type { RunOutcome, SandboxRequest, SandboxResponse } from './protocol.js';
+import type { RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
 
 /**
  * Node runtime-control variables that must never reach the sandboxed child, even when a
@@ -100,6 +101,11 @@ export async function runTool(
 
   const absoluteEntry = resolveEntry(manifest.entry, options.configDir);
 
+  // Per-call nonce that authenticates the child's response. Tool code never sees it (the
+  // request is consumed by the harness's process.once('message') before the tool runs), so
+  // a forged IPC message cannot carry the matching nonce and is ignored by the parent.
+  const nonce = randomUUID();
+
   const outcome = await new Promise<RunOutcome>((resolve) => {
     const child = spawn(
       process.execPath,
@@ -139,7 +145,11 @@ export async function runTool(
       finish({ outcome: 'timeout' });
     }, manifest.timeoutMs);
 
-    child.on('message', (message: SandboxResponse) => {
+    child.on('message', (message: SandboxEnvelope) => {
+      if (message.nonce !== nonce) {
+        // Forged or stale message (a tool cannot know the nonce) — ignore it.
+        return;
+      }
       if (message.ok) {
         finish({ outcome: 'ok', result: message.result });
       } else {
@@ -167,6 +177,7 @@ export async function runTool(
       entry: absoluteEntry,
       permissions: manifest.permissions,
       args,
+      nonce,
     };
     child.send(request);
   });

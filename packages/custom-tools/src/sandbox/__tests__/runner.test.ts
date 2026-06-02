@@ -384,4 +384,14 @@ export default function jsgreet(input) {
       result: { content: [{ type: 'text', text: 'real' }] },
     });
   });
+
+  it('ignores forged IPC messages from tool code (nonce-authenticated)', async () => {
+    const outcome = await runTool(manifest('forges-ipc.ts'), {});
+    // Any forged message carries a wrong/guessed nonce and is ignored; only the harness's
+    // genuine nonce-authenticated result is accepted.
+    expect(outcome).toEqual({
+      outcome: 'ok',
+      result: { content: [{ type: 'text', text: 'genuine' }] },
+    });
+  });
 });

@@ -27,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Validator } from '@cfworker/json-schema';
 
 import type { ToolImportAnalysis } from '../manifest/parse.js';
-import type { RunErrorCode, SandboxRequest, SandboxResponse } from './protocol.js';
+import type { RunErrorCode, SandboxEnvelope, SandboxRequest, SandboxResponse } from './protocol.js';
 
 /**
  * Dynamically imports `analyzeToolImports` from parse, resolving the correct extension
@@ -51,29 +51,42 @@ async function loadAnalyzeToolImports(): Promise<
 
 // Capture trusted IPC and exit references at module load, before any tool code can tamper
 // with them. The harness uses these private references for all its own IPC/exit calls.
-const realSend = process.send?.bind(process);
+//
+// We capture the low-level `process._send` (not `process.send`): the public `process.send`
+// wrapper delegates to `this._send` at call time, so once `sealEscapeHatches` deletes
+// `_send` from tool view the public wrapper would throw. Binding `_send` directly keeps the
+// harness's own send path working after both senders are removed from the tool's reach.
+// `_send(message, handle, options, callback)` is the documented internal signature.
+type LowLevelSend = (
+  message: unknown,
+  handle: undefined,
+  options: undefined,
+  callback: () => void,
+) => void;
+const realSend = (process as unknown as { _send?: LowLevelSend })._send?.bind(process);
 const realExit = process.exit.bind(process);
 
 /**
- * Sends one message and resolves only once it has flushed. Uses the captured IPC reference
- * so tool code that deletes or replaces process.send cannot suppress the response.
- * `process.send` is asynchronous — the caller must await this before letting the process
- * exit, otherwise `process.exit` can drop the message before the parent receives it.
+ * Sends one response over the captured IPC reference, stamped with the per-call nonce, and
+ * resolves only once it has flushed. The nonce authenticates the message to the parent: a
+ * tool that forges an IPC message cannot supply it (the request is consumed by
+ * `process.once('message')` before any tool code runs, and the nonce lives only in this
+ * closure). Using the captured reference also means tool code that deletes or replaces
+ * the IPC senders cannot suppress the response. The send is asynchronous — the caller must
+ * await this before letting the process exit, otherwise `process.exit` can drop the message
+ * before the parent receives it.
  */
-function send(message: SandboxResponse): Promise<void> {
+function sendWithNonce(nonce: string, response: SandboxResponse): Promise<void> {
   return new Promise((resolve) => {
     if (realSend === undefined) {
       resolve();
       return;
     }
-    realSend(message, () => {
+    const envelope: SandboxEnvelope = { ...response, nonce };
+    realSend(envelope, undefined, undefined, () => {
       resolve();
     });
   });
-}
-
-function fail(code: RunErrorCode, message: string): Promise<void> {
-  return send({ ok: false, code, message });
 }
 
 /**
@@ -91,8 +104,11 @@ function sealEscapeHatches(): void {
       proc[key] = blocked(`process.${key}`);
     }
   }
-  // Remove IPC reach so tool code cannot spoof a result or tear down the channel.
+  // Remove IPC reach so tool code cannot spoof a result or tear down the channel. The
+  // per-call nonce is the real defense (a forged message cannot carry it); deleting the
+  // senders is belt-and-suspenders against the more obvious IPC paths.
   delete proc['send'];
+  delete proc['_send'];
   if (typeof proc['disconnect'] === 'function') {
     proc['disconnect'] = blocked('process.disconnect');
   }
@@ -111,6 +127,11 @@ function applyNetworkGate(networkAllowed: boolean): void {
 }
 
 async function run(request: SandboxRequest): Promise<void> {
+  const nonce = request.nonce;
+  const send = (response: SandboxResponse): Promise<void> => sendWithNonce(nonce, response);
+  const fail = (code: RunErrorCode, message: string): Promise<void> =>
+    send({ ok: false, code, message });
+
   sealEscapeHatches();
   applyNetworkGate(request.permissions.network);
 
