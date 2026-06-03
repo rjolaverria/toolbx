@@ -128,6 +128,33 @@ describe('setToolEnabled', () => {
       code: 'tool-not-found',
     });
   });
+
+  it('refuses to enable a tool whose entry path is tampered', async () => {
+    await importExample();
+    const entries = await readToolManifest(configDir);
+    const tampered = entries.map((entry) => ({ ...entry, entry: '../../evil.ts' }));
+    await writeToolManifest(configDir, tampered);
+
+    await expect(
+      setToolEnabled(configDir, 'personal__send_slack_summary', true),
+    ).rejects.toMatchObject({ code: 'invalid-manifest' });
+    // It stays disabled — the tampered entry was never marked enabled.
+    const after = await readToolManifest(configDir);
+    expect(after[0]?.enabled).toBe(false);
+  });
+
+  it('still allows disabling a tool whose entry path is tampered', async () => {
+    await importExample();
+    await setToolEnabled(configDir, 'personal__send_slack_summary', true);
+    const entries = await readToolManifest(configDir);
+    const tampered = entries.map((entry) => ({ ...entry, entry: '../../evil.ts' }));
+    await writeToolManifest(configDir, tampered);
+
+    const result = await setToolEnabled(configDir, 'personal__send_slack_summary', false);
+    expect(result.changed).toBe(true);
+    const after = await readToolManifest(configDir);
+    expect(after[0]?.enabled).toBe(false);
+  });
 });
 
 describe('removeTool', () => {

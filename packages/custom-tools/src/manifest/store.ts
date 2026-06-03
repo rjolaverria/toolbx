@@ -134,6 +134,12 @@ export interface SetEnabledResult {
 /**
  * Toggles a custom tool's `enabled` flag and persists the manifest. Throws
  * `ToolManifestError('tool-not-found')` when no tool has the exposed name.
+ *
+ * Enabling validates the entry against the storage convention (the same check
+ * `inspect` / `remove` apply), so a tampered entry cannot be marked enabled for
+ * a later exposure/call path to act on. Disabling skips the check: turning a
+ * tool off is the safe direction and must always be possible, even for an entry
+ * that is already malformed.
  */
 export async function setToolEnabled(
   configDir: string,
@@ -146,6 +152,10 @@ export async function setToolEnabled(
     throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
   }
   const current = entries[index] as ToolManifest;
+  if (enabled) {
+    // Throws ToolManifestError('invalid-manifest') for a tampered entry path.
+    resolveToolEntryPath(configDir, current);
+  }
   if (current.enabled === enabled) {
     return { manifest: current, changed: false };
   }
