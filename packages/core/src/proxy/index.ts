@@ -7,6 +7,7 @@ export type {
 } from './session-view.js';
 export {
   routeToolCall,
+  type CustomToolExecutor,
   type RouteIssue,
   type RouteResult,
   type RouteToolCallParams,

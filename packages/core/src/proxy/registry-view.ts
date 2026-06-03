@@ -11,6 +11,13 @@ export interface RegisteredToolView {
   readonly serverName: string;
   readonly upstreamName: string;
   readonly tool: Tool;
+  /**
+   * Where the tool comes from. `'upstream'` (the default when absent) is a
+   * proxied tool routed to an upstream session; `'custom'` is an imported
+   * custom tool routed to the local custom-tool runtime (P3-05). The router
+   * dispatches on this rather than on the presence of a session.
+   */
+  readonly source?: 'upstream' | 'custom';
 }
 
 /**

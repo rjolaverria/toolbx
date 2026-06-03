@@ -113,6 +113,7 @@ export {
   readAuthExpiredMeta,
   routeToolCall,
   type AuthExpiredMeta,
+  type CustomToolExecutor,
   type RegisteredToolView,
   type RegistryView,
   type RoutedCallToolResult,
@@ -146,6 +147,7 @@ export {
   ToolCacheMissingError,
   writeToolCache,
   type CachedTool,
+  type CachedToolInput,
   type ToolCacheFile,
   type WriteToolCacheInput,
 } from './tool-cache/index.js';

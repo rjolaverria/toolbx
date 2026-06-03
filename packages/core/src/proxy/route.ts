@@ -3,8 +3,23 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { parseExposedName, type NamespaceOptions } from '../namespace/index.js';
 import type { ServerStatus } from '../server-status/types.js';
 
-import type { RegistryView } from './registry-view.js';
+import type { RegisteredToolView, RegistryView } from './registry-view.js';
 import type { RoutedCallToolResult, SessionLookup } from './session-view.js';
+
+/**
+ * Executes a custom (`source: 'custom'`) tool. The router delegates here instead
+ * of consulting the session lookup. The gateway supplies an implementation that
+ * runs the tool through the custom-tool sandbox and maps its outcome to a
+ * {@link RouteResult}. `@toolbox/core` cannot depend on `@toolbox/custom-tools`
+ * (the dependency runs the other way), so the executor is injected as a seam.
+ */
+export interface CustomToolExecutor {
+  run(
+    view: RegisteredToolView,
+    args: Record<string, unknown> | undefined,
+    signal?: AbortSignal,
+  ): Promise<RouteResult>;
+}
 
 export interface RouteIssue {
   readonly path: readonly (string | number)[];
@@ -72,6 +87,12 @@ export interface RouteToolCallParams {
    * client's own timeout enforcement runs as a fallback.
    */
   readonly timeoutMs?: number;
+  /**
+   * Runs `source: 'custom'` tools. Required for custom tools to be callable; a
+   * custom registry entry with no executor wired resolves to `unknown_tool`
+   * (the tool effectively cannot be dispatched). Upstream tools never touch it.
+   */
+  readonly customExecutor?: CustomToolExecutor;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -158,7 +179,8 @@ function describeUpstreamError(
  *    `timeout` variant.
  */
 export async function routeToolCall(params: RouteToolCallParams): Promise<RouteResult> {
-  const { exposedName, args, registry, sessions, namespacing, signal, timeoutMs } = params;
+  const { exposedName, args, registry, sessions, namespacing, signal, timeoutMs, customExecutor } =
+    params;
 
   let parsed: ReturnType<typeof parseExposedName>;
   try {
@@ -171,6 +193,24 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
   }
 
   const entry = registry.find(exposedName);
+
+  // Custom tools never reach an upstream session: they are dispatched to the
+  // injected executor (P3-05). Validate the argument shape first (same guard as
+  // the upstream path), then delegate. A custom entry with no executor wired is
+  // not dispatchable, so it surfaces as `unknown_tool`.
+  if (entry?.source === 'custom') {
+    if (customExecutor === undefined) {
+      return { kind: 'unknown_tool' };
+    }
+    if (args !== undefined && !isPlainObject(args)) {
+      return {
+        kind: 'invalid_args',
+        issues: [{ path: [], message: 'arguments must be an object' }],
+      };
+    }
+    return customExecutor.run(entry, args, signal);
+  }
+
   let serverName: string;
   let upstreamName: string;
   if (entry === undefined) {

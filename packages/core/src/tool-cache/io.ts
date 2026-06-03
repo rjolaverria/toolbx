@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { resolveToolCachePath } from './paths.js';
-import { ToolCacheFileSchema, type CachedTool, type ToolCacheFile } from './schema.js';
+import { ToolCacheFileSchema, type CachedToolInput, type ToolCacheFile } from './schema.js';
 
 export class ToolCacheError extends Error {
   override readonly name: string = 'ToolCacheError';
@@ -24,7 +24,7 @@ export class ToolCacheMissingError extends ToolCacheError {
 }
 
 export interface WriteToolCacheInput {
-  readonly tools: readonly CachedTool[];
+  readonly tools: readonly CachedToolInput[];
   /** Override `Date.now()` for deterministic tests. */
   readonly now?: Date;
 }
@@ -34,8 +34,12 @@ export async function writeToolCache(input: WriteToolCacheInput, filePath?: stri
   const dir = path.dirname(target);
   await fs.mkdir(dir, { recursive: true });
 
-  const payload: ToolCacheFile = {
-    version: 1,
+  // Not annotated as `ToolCacheFile`: that is the parsed (read) shape where
+  // `source` is required, while writers may omit it (defaulted on read). The
+  // object is only serialized here, never validated, so the write-side shape is
+  // sufficient and honest about the optional field.
+  const payload = {
+    version: 1 as const,
     updatedAt: (input.now ?? new Date()).toISOString(),
     tools: [...input.tools],
   };
