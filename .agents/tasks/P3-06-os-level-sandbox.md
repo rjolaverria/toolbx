@@ -51,7 +51,7 @@ redaction — those remain in ToolBox and are complementary.
 
 ## Notes
 
-This task was filed from P3-03's roborev review, which repeatedly surfaced in-process
+This task was filed from P3-03's security review, which repeatedly surfaced in-process
 escape vectors — the expected signal that genuine isolation needs an OS boundary. The
 recurring "backfill missing `timeoutMs`" review finding is intentionally **not** carried
 here: it is declined under the repo's pre-release no-backward-compatibility policy.
