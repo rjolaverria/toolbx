@@ -10,13 +10,30 @@ export {
 
 export {
   importTool,
+  planImport,
+  commitImport,
   ToolImportError,
   type ImportToolOptions,
   type ImportedTool,
+  type ImportPlan,
   type ToolImportErrorCode,
   type ToolManifest,
   type ToolPermissions,
 } from './manifest/import.js';
+
+export {
+  readToolManifest,
+  writeToolManifest,
+  findToolByExposedName,
+  setToolEnabled,
+  removeTool,
+  toolsDirPath,
+  toolsManifestPath,
+  ToolManifestError,
+  type ToolManifestErrorCode,
+  type SetEnabledResult,
+  type RemoveToolResult,
+} from './manifest/store.js';
 
 export { runTool, type RunToolOptions } from './sandbox/runner.js';
 export {

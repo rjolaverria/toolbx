@@ -7,5 +7,9 @@
     "composite": true
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/mcp-gateway" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/custom-tools" },
+    { "path": "../../packages/mcp-gateway" }
+  ]
 }

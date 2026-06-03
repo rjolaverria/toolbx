@@ -56,6 +56,9 @@ importers:
       '@toolbox/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@toolbox/custom-tools':
+        specifier: workspace:*
+        version: link:../../packages/custom-tools
       '@toolbox/mcp-gateway':
         specifier: workspace:*
         version: link:../../packages/mcp-gateway

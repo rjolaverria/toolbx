@@ -7,5 +7,9 @@
     "rootDir": "."
   },
   "include": ["src", "test", "vitest.config.ts"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/mcp-gateway" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/custom-tools" },
+    { "path": "../../packages/mcp-gateway" }
+  ]
 }

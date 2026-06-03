@@ -25,8 +25,8 @@ const IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 const DEFAULT_SEPARATOR = '__';
 
 /** Sub-directory of the config directory that holds imported tools. */
-const TOOLS_DIR = 'tools';
-const MANIFEST_FILENAME = 'manifest.json';
+export const TOOLS_DIR = 'tools';
+export const MANIFEST_FILENAME = 'manifest.json';
 
 /** Default per-tool execution timeout in milliseconds (SPECS §6.6). */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -76,6 +76,31 @@ export interface ImportedTool {
   readonly warnings: readonly ParseWarning[];
 }
 
+/**
+ * A validated, not-yet-written import. `planImport` produces it without touching
+ * the filesystem so a caller (the CLI) can render a metadata + permission preview
+ * and prompt before `commitImport` persists the tool. The leading fields are the
+ * public preview; the trailing fields carry the state `commitImport` needs so it
+ * does not have to re-read or re-validate the source.
+ */
+export interface ImportPlan {
+  /** The manifest entry that will be written. Imported tools start disabled. */
+  readonly manifest: ToolManifest;
+  /** Absolute path the tool source will be written to. */
+  readonly entryPath: string;
+  /** Absolute path of the central manifest file. */
+  readonly manifestPath: string;
+  readonly warnings: readonly ParseWarning[];
+  /** True when committing will overwrite an existing tool (requires `force`). */
+  readonly replacesExisting: boolean;
+  /** Source contents to persist. */
+  readonly source: string;
+  /** The current manifest entries, used to compute the next manifest. */
+  readonly currentEntries: readonly ToolManifest[];
+  /** Index of the entry being replaced in `currentEntries`, or `-1`. */
+  readonly existingIndex: number;
+}
+
 export type ToolImportErrorCode =
   | 'unsupported-extension'
   | 'invalid-identifier'
@@ -123,7 +148,7 @@ const toolManifestSchema = z.looseObject({
   permissions: permissionsSchema,
 });
 
-const manifestFileSchema = z.array(toolManifestSchema);
+export const manifestFileSchema = z.array(toolManifestSchema);
 
 /** Reads and validates the central manifest, returning [] when absent. */
 async function readManifest(manifestPath: string, sourcePath: string): Promise<ToolManifest[]> {
@@ -159,10 +184,17 @@ async function readManifest(manifestPath: string, sourcePath: string): Promise<T
   return result.data;
 }
 
-export async function importTool(
+/**
+ * Validates a tool file and computes the manifest entry it would produce,
+ * without writing anything. Throws `ToolMetadataParseError` / `ToolImportError`
+ * for any metadata, shape, purity, identifier, namespace, or manifest problem —
+ * the same checks `importTool` enforces — so a preview that succeeds guarantees
+ * the matching `commitImport` will too (barring concurrent on-disk changes).
+ */
+export async function planImport(
   sourcePath: string,
   options: ImportToolOptions,
-): Promise<ImportedTool> {
+): Promise<ImportPlan> {
   const extension = path.extname(sourcePath);
   if (!SUPPORTED_EXTENSIONS.has(extension)) {
     throw new ToolImportError(
@@ -283,19 +315,6 @@ export async function importTool(
   const entry = `${TOOLS_DIR}/${metadata.namespace}/${metadata.name}${extension}`;
   const entryPath = path.join(options.configDir, entry);
 
-  await fs.mkdir(path.dirname(entryPath), { recursive: true });
-  await fs.writeFile(entryPath, source, 'utf8');
-
-  // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
-  // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
-  // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
-  const toolsPackageJsonPath = path.join(toolsDir, 'package.json');
-  await fs.writeFile(
-    toolsPackageJsonPath,
-    `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
-    'utf8',
-  );
-
   const entryManifest: ToolManifest = {
     name: metadata.name,
     namespace: metadata.namespace,
@@ -309,12 +328,57 @@ export async function importTool(
     permissions: { network: false, filesystem: false, env: [] },
   };
 
+  return {
+    manifest: entryManifest,
+    entryPath,
+    manifestPath,
+    warnings: metadata.warnings,
+    replacesExisting: existingIndex !== -1,
+    source,
+    currentEntries: manifest,
+    existingIndex,
+  };
+}
+
+/**
+ * Persists a planned import: copies the tool source into the tools directory,
+ * marks the directory as ESM, and writes the entry into the central manifest
+ * (appending, or replacing the existing entry when the plan is an overwrite).
+ */
+export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
+  await fs.mkdir(path.dirname(plan.entryPath), { recursive: true });
+  await fs.writeFile(plan.entryPath, plan.source, 'utf8');
+
+  // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
+  // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
+  // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
+  const toolsPackageJsonPath = path.join(path.dirname(plan.manifestPath), 'package.json');
+  await fs.writeFile(
+    toolsPackageJsonPath,
+    `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
+    'utf8',
+  );
+
   const nextManifest =
-    existingIndex === -1
-      ? [...manifest, entryManifest]
-      : manifest.map((entry, index) => (index === existingIndex ? entryManifest : entry));
+    plan.existingIndex === -1
+      ? [...plan.currentEntries, plan.manifest]
+      : plan.currentEntries.map((entry, index) =>
+          index === plan.existingIndex ? plan.manifest : entry,
+        );
 
-  await fs.writeFile(manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`, 'utf8');
+  await fs.writeFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`, 'utf8');
 
-  return { manifest: entryManifest, entryPath, manifestPath, warnings: metadata.warnings };
+  return {
+    manifest: plan.manifest,
+    entryPath: plan.entryPath,
+    manifestPath: plan.manifestPath,
+    warnings: plan.warnings,
+  };
+}
+
+export async function importTool(
+  sourcePath: string,
+  options: ImportToolOptions,
+): Promise<ImportedTool> {
+  return commitImport(await planImport(sourcePath, options));
 }
