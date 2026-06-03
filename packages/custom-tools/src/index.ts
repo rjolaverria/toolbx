@@ -36,9 +36,10 @@ export {
   type RemoveToolResult,
 } from './manifest/store.js';
 
-export { runTool, type RunToolOptions } from './sandbox/runner.js';
+export { runTool, describeTool, type RunToolOptions } from './sandbox/runner.js';
 export {
   type RunOutcome,
+  type DescribeOutcome,
   type RunErrorCode,
   type SandboxRequest,
   type SandboxResponse,

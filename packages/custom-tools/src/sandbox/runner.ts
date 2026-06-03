@@ -26,7 +26,7 @@ import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import { redactSecrets } from './redact.js';
-import type { RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
+import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
 
 /**
  * Node runtime-control variables that must never reach the sandboxed child, even when a
@@ -90,14 +90,19 @@ function resolveEntry(entry: string, configDir: string | undefined): string {
   return path.join(configDir, entry);
 }
 
-export async function runTool(
+/**
+ * Spawns the sandbox child for one operation — a normal call or a describe — and
+ * resolves the raw {@link RunOutcome}. Shared by {@link runTool} and
+ * {@link describeTool}; the audit log lives in `runTool` so describe stays quiet.
+ * Error messages are secret-redacted here using the allowlisted env values.
+ */
+async function executeSandbox(
   manifest: ToolManifest,
   args: unknown,
-  options: RunToolOptions = {},
+  options: RunToolOptions,
+  describe: boolean,
 ): Promise<RunOutcome> {
-  const logger = options.logger ?? createNoopLogger();
   const { env, secretValues } = buildEnv(manifest.permissions.env);
-  const start = Date.now();
 
   const absoluteEntry = resolveEntry(manifest.entry, options.configDir);
 
@@ -106,7 +111,7 @@ export async function runTool(
   // a forged IPC message cannot carry the matching nonce and is ignored by the parent.
   const nonce = randomUUID();
 
-  const outcome = await new Promise<RunOutcome>((resolve) => {
+  return new Promise<RunOutcome>((resolve) => {
     const child = spawn(
       process.execPath,
       // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
@@ -178,10 +183,20 @@ export async function runTool(
       permissions: manifest.permissions,
       args,
       nonce,
+      ...(describe ? { describe: true } : {}),
     };
     child.send(request);
   });
+}
 
+export async function runTool(
+  manifest: ToolManifest,
+  args: unknown,
+  options: RunToolOptions = {},
+): Promise<RunOutcome> {
+  const logger = options.logger ?? createNoopLogger();
+  const start = Date.now();
+  const outcome = await executeSandbox(manifest, args, options, false);
   const durationMs = Date.now() - start;
   if (outcome.outcome === 'error') {
     logger.warn(
@@ -193,6 +208,23 @@ export async function runTool(
       { tool: manifest.exposedName, durationMs, outcome: outcome.outcome },
       'custom tool call',
     );
+  }
+  return outcome;
+}
+
+/**
+ * Resolves a custom tool's `inputSchema` by loading its module in the sandbox
+ * without invoking the handler (P3-05). The gateway calls this to advertise the
+ * tool in `tools/list`. Shares the runner's spawn/timeout/redaction plumbing; the
+ * `ok` outcome carries the schema, and failures mirror {@link runTool}.
+ */
+export async function describeTool(
+  manifest: ToolManifest,
+  options: RunToolOptions = {},
+): Promise<DescribeOutcome> {
+  const outcome = await executeSandbox(manifest, undefined, options, true);
+  if (outcome.outcome === 'ok') {
+    return { outcome: 'ok', inputSchema: outcome.result };
   }
   return outcome;
 }
