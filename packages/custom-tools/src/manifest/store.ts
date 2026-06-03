@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { atomicWriteFile } from './atomic-write.js';
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
 
-export type ToolManifestErrorCode = 'invalid-manifest' | 'tool-not-found';
+export type ToolManifestErrorCode = 'invalid-manifest' | 'tool-not-found' | 'source-missing';
 
 /** Raised when the manifest cannot be read or a named tool is absent. */
 export class ToolManifestError extends Error {
@@ -136,10 +136,11 @@ export interface SetEnabledResult {
  * `ToolManifestError('tool-not-found')` when no tool has the exposed name.
  *
  * Enabling validates the entry against the storage convention (the same check
- * `inspect` / `remove` apply), so a tampered entry cannot be marked enabled for
- * a later exposure/call path to act on. Disabling skips the check: turning a
- * tool off is the safe direction and must always be possible, even for an entry
- * that is already malformed.
+ * `inspect` / `remove` apply) and confirms the source file is present and
+ * readable, so a tampered or dangling entry cannot be marked enabled for a later
+ * exposure/call path to act on. Disabling skips both checks: turning a tool off
+ * is the safe direction and must always be possible, even for an entry that is
+ * already malformed or whose source is gone.
  */
 export async function setToolEnabled(
   configDir: string,
@@ -154,7 +155,15 @@ export async function setToolEnabled(
   const current = entries[index] as ToolManifest;
   if (enabled) {
     // Throws ToolManifestError('invalid-manifest') for a tampered entry path.
-    resolveToolEntryPath(configDir, current);
+    const entryPath = resolveToolEntryPath(configDir, current);
+    try {
+      await fs.access(entryPath);
+    } catch {
+      throw new ToolManifestError(
+        'source-missing',
+        `cannot enable "${exposedName}": its source file is missing or unreadable at ${entryPath}`,
+      );
+    }
   }
   if (current.enabled === enabled) {
     return { manifest: current, changed: false };
@@ -169,15 +178,28 @@ export interface RemoveToolResult {
   readonly manifest: ToolManifest;
   /** Absolute path of the source file that was removed. */
   readonly entryPath: string;
-  /** False when the source file was already gone. */
+  /** False when the source file was already gone or could not be deleted. */
   readonly sourceRemoved: boolean;
+  /**
+   * The reason the source file could not be deleted, for a failure other than
+   * "already gone". Present only when `sourceRemoved` is false for that reason;
+   * the manifest entry is dropped regardless, so the leftover is a benign orphan.
+   */
+  readonly sourceError?: string;
 }
 
 /**
- * Removes a custom tool: deletes its source file and drops its manifest entry.
- * Throws `ToolManifestError('tool-not-found')` when no tool has the exposed
- * name. A missing source file is not an error — the manifest entry is still
- * dropped so the manifest cannot keep a dangling reference.
+ * Removes a custom tool: drops its manifest entry, then deletes its source file.
+ * Throws `ToolManifestError('tool-not-found')` when no tool has the exposed name.
+ *
+ * The manifest is written before the file is deleted so a delete failure can
+ * never leave a manifest entry pointing at a missing source (an actively broken,
+ * exposable tool). A delete failure — the file already gone, or an unexpected
+ * error like a permission/EISDIR — is therefore non-fatal: removal as a registry
+ * operation has already succeeded, and the worst case is a benign orphan file
+ * under `tools/` that nothing references. The reason is reported via
+ * `sourceRemoved` / `sourceError` rather than thrown, so the caller is never
+ * left unable to retry a removal whose record is already gone.
  */
 export async function removeTool(
   configDir: string,
@@ -193,23 +215,21 @@ export async function removeTool(
   // a tampered entry pointing elsewhere is rejected, not followed.
   const entryPath = resolveToolEntryPath(configDir, target);
 
-  // Persist the manifest without the entry first, then delete the source file.
-  // If the unlink fails the manifest no longer references it, so the worst case
-  // is a harmless orphan file under tools/ — never a manifest entry pointing at
-  // a missing source (which the reverse order could leave behind).
   const next = entries.filter((_, i) => i !== index);
   await writeToolManifest(configDir, next);
 
-  let sourceRemoved = true;
   try {
     await fs.rm(entryPath);
+    return { manifest: target, entryPath, sourceRemoved: true };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      sourceRemoved = false;
-    } else {
-      throw error;
+      return { manifest: target, entryPath, sourceRemoved: false };
     }
+    return {
+      manifest: target,
+      entryPath,
+      sourceRemoved: false,
+      sourceError: (error as Error).message,
+    };
   }
-
-  return { manifest: target, entryPath, sourceRemoved };
 }

@@ -69,7 +69,13 @@ export async function runToolRemove(
 
   try {
     const result = await removeTool(configDir, exposedName);
-    const suffix = result.sourceRemoved ? '' : ' (source file was already missing)';
+    let suffix = '';
+    if (!result.sourceRemoved) {
+      suffix =
+        result.sourceError !== undefined
+          ? ` (source file could not be deleted: ${result.sourceError}; left an orphan at ${result.entryPath})`
+          : ' (source file was already missing)';
+    }
     deps.stdout(`Removed custom tool "${exposedName}"${suffix}.\n`);
     return 0;
   } catch (error) {

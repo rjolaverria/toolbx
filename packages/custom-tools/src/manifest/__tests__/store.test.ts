@@ -155,6 +155,26 @@ describe('setToolEnabled', () => {
     const after = await readToolManifest(configDir);
     expect(after[0]?.enabled).toBe(false);
   });
+
+  it('refuses to enable a tool whose source file is missing', async () => {
+    await importExample();
+    await fs.rm(path.join(configDir, 'tools', 'personal', 'send_slack_summary.ts'));
+
+    await expect(
+      setToolEnabled(configDir, 'personal__send_slack_summary', true),
+    ).rejects.toMatchObject({ code: 'source-missing' });
+    const after = await readToolManifest(configDir);
+    expect(after[0]?.enabled).toBe(false);
+  });
+
+  it('still allows disabling a tool whose source file is missing', async () => {
+    await importExample();
+    await setToolEnabled(configDir, 'personal__send_slack_summary', true);
+    await fs.rm(path.join(configDir, 'tools', 'personal', 'send_slack_summary.ts'));
+
+    const result = await setToolEnabled(configDir, 'personal__send_slack_summary', false);
+    expect(result.changed).toBe(true);
+  });
 });
 
 describe('removeTool', () => {
@@ -183,6 +203,22 @@ describe('removeTool', () => {
 
   it('throws tool-not-found for an unknown name', async () => {
     await expect(removeTool(configDir, 'nope__missing')).rejects.toBeInstanceOf(ToolManifestError);
+  });
+
+  it('drops the entry and reports an orphan when the source cannot be deleted', async () => {
+    const exposedName = await importExample();
+    const entryPath = path.join(configDir, 'tools', 'personal', 'send_slack_summary.ts');
+    // Replace the source file with a directory so fs.rm (no recursive) fails with
+    // a non-ENOENT error, simulating an undeletable source.
+    await fs.rm(entryPath);
+    await fs.mkdir(entryPath);
+
+    const result = await removeTool(configDir, exposedName);
+
+    expect(result.sourceRemoved).toBe(false);
+    expect(result.sourceError).toBeDefined();
+    // The registry operation still succeeded: the manifest no longer lists it.
+    await expect(readToolManifest(configDir)).resolves.toEqual([]);
   });
 
   it('refuses to delete a file a tampered entry points outside tools/', async () => {
