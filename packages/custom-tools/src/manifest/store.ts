@@ -10,6 +10,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { atomicWriteFile } from './atomic-write.js';
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
 
 export type ToolManifestErrorCode = 'invalid-manifest' | 'tool-not-found';
@@ -94,14 +95,12 @@ export async function readToolManifest(configDir: string): Promise<ToolManifest[
   return result.data;
 }
 
-/** Persists the manifest entries, pretty-printed with a trailing newline. */
+/** Persists the manifest entries atomically, pretty-printed with a trailing newline. */
 export async function writeToolManifest(
   configDir: string,
   entries: readonly ToolManifest[],
 ): Promise<void> {
-  const manifestPath = toolsManifestPath(configDir);
-  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
-  await fs.writeFile(manifestPath, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+  await atomicWriteFile(toolsManifestPath(configDir), `${JSON.stringify(entries, null, 2)}\n`);
 }
 
 /** Finds a manifest entry by its exposed (namespaced) name. */

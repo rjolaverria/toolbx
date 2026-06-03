@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { ServerNameSchema } from '@toolbox/core';
 import { z } from 'zod';
 
+import { atomicWriteFile } from './atomic-write.js';
 import { parseToolMetadata, type ParseWarning } from './parse.js';
 
 /** Tool source files ToolBox can import, keyed to their stored runtime. */
@@ -394,7 +395,7 @@ export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
       ? [...manifest, plan.manifest]
       : manifest.map((entry, index) => (index === existingIndex ? plan.manifest : entry));
 
-  await fs.writeFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`, 'utf8');
+  await atomicWriteFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
 
   return {
     manifest: plan.manifest,

@@ -78,6 +78,20 @@ describe('readToolManifest', () => {
   });
 });
 
+describe('writeToolManifest', () => {
+  it('writes atomically, leaving no temp files behind', async () => {
+    await importExample();
+    await setToolEnabled(configDir, 'personal__send_slack_summary', true);
+
+    const toolsDir = path.join(configDir, 'tools');
+    const leftovers = (await fs.readdir(toolsDir)).filter((name) => name.includes('.tmp'));
+    expect(leftovers).toEqual([]);
+    // The manifest is still well-formed after the rename-based write.
+    const entries = await readToolManifest(configDir);
+    expect(entries[0]?.enabled).toBe(true);
+  });
+});
+
 describe('findToolByExposedName', () => {
   it('finds an entry by exposed name', async () => {
     await importExample();
