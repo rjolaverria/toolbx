@@ -27,6 +27,7 @@ export {
   findToolByExposedName,
   setToolEnabled,
   removeTool,
+  resolveToolEntryPath,
   toolsDirPath,
   toolsManifestPath,
   ToolManifestError,

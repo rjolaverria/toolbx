@@ -9,6 +9,7 @@ import {
   findToolByExposedName,
   readToolManifest,
   removeTool,
+  resolveToolEntryPath,
   setToolEnabled,
   ToolManifestError,
   toolsManifestPath,
@@ -141,5 +142,52 @@ describe('removeTool', () => {
 
   it('throws tool-not-found for an unknown name', async () => {
     await expect(removeTool(configDir, 'nope__missing')).rejects.toBeInstanceOf(ToolManifestError);
+  });
+
+  it('refuses to delete a file a tampered entry points outside tools/', async () => {
+    // A hand-edited manifest with a traversal entry must not let remove delete
+    // a file outside the tools directory.
+    const foreign = path.join(configDir, 'victim.ts');
+    await fs.writeFile(foreign, 'do not delete me', 'utf8');
+    await writeToolManifest(configDir, [
+      {
+        name: 'evil',
+        namespace: 'personal',
+        exposedName: 'personal__evil',
+        title: 'Evil',
+        description: 'Traversal attempt.',
+        entry: '../victim.ts',
+        runtime: 'node',
+        enabled: false,
+        timeoutMs: 30000,
+        permissions: { network: false, filesystem: false, env: [] },
+      },
+    ]);
+
+    await expect(removeTool(configDir, 'personal__evil')).rejects.toMatchObject({
+      code: 'invalid-manifest',
+    });
+    // The foreign file is untouched and the manifest entry is left in place.
+    await expect(fs.readFile(foreign, 'utf8')).resolves.toBe('do not delete me');
+    await expect(readToolManifest(configDir)).resolves.toHaveLength(1);
+  });
+});
+
+describe('resolveToolEntryPath', () => {
+  it('resolves a normal entry inside the tools directory', () => {
+    const resolved = resolveToolEntryPath(configDir, 'tools/personal/my_tool.ts');
+    expect(resolved).toBe(path.join(configDir, 'tools', 'personal', 'my_tool.ts'));
+  });
+
+  it('rejects a parent-traversal entry', () => {
+    expect(() => resolveToolEntryPath(configDir, '../escape.ts')).toThrow(ToolManifestError);
+  });
+
+  it('rejects an absolute entry', () => {
+    expect(() => resolveToolEntryPath(configDir, '/etc/passwd')).toThrow(ToolManifestError);
+  });
+
+  it('rejects an entry that resolves to the tools directory itself', () => {
+    expect(() => resolveToolEntryPath(configDir, 'tools')).toThrow(ToolManifestError);
   });
 });

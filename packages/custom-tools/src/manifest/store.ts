@@ -36,6 +36,28 @@ export function toolsManifestPath(configDir: string): string {
 }
 
 /**
+ * Resolves a manifest `entry` to an absolute path, refusing any value that
+ * escapes the tools directory. The importer only ever writes
+ * `tools/<namespace>/<name>.<ext>`, but a hand-edited or corrupt manifest could
+ * carry an absolute path or `..` traversal; resolving it blindly would let a
+ * read (`inspect`) or delete (`remove`) touch files outside `tools/`. Throws
+ * `ToolManifestError('invalid-manifest')` when the entry does not land strictly
+ * inside `toolsDirPath(configDir)`.
+ */
+export function resolveToolEntryPath(configDir: string, entry: string): string {
+  const toolsDir = toolsDirPath(configDir);
+  const resolved = path.resolve(configDir, entry);
+  const relative = path.relative(toolsDir, resolved);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new ToolManifestError(
+      'invalid-manifest',
+      `tool entry "${entry}" resolves outside the tools directory`,
+    );
+  }
+  return resolved;
+}
+
+/**
  * Reads and validates the central manifest, returning `[]` when no tools have
  * been imported yet. Throws `ToolManifestError` when the file exists but is not
  * valid JSON or does not match the manifest schema.
@@ -144,7 +166,8 @@ export async function removeTool(
     throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
   }
   const target = entries[index] as ToolManifest;
-  const entryPath = path.join(configDir, target.entry);
+  // Refuse to delete anything the manifest points outside tools/ (tampered entry).
+  const entryPath = resolveToolEntryPath(configDir, target.entry);
 
   let sourceRemoved = true;
   try {

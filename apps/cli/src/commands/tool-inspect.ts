@@ -1,10 +1,10 @@
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
   findToolByExposedName,
   readToolManifest,
+  resolveToolEntryPath,
   ToolManifestError,
   type ToolManifest,
 } from '@toolbox/custom-tools';
@@ -87,7 +87,15 @@ export async function runToolInspect(
     return 1;
   }
 
-  const entryPath = path.join(configDir, entry.entry);
+  let entryPath: string;
+  try {
+    entryPath = resolveToolEntryPath(configDir, entry.entry);
+  } catch (error) {
+    if (error instanceof ToolManifestError) {
+      return reportManifestError(error, deps);
+    }
+    throw error;
+  }
   const preview = await readSourceHead(entryPath);
 
   if (options.json === true) {
