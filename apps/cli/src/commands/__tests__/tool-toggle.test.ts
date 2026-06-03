@@ -72,4 +72,11 @@ describe('runToolEnable / runToolDisable', () => {
     expect(code).toBe(1);
     expect(stderr.value).toContain('no custom tool named "nope__missing"');
   });
+
+  it('reports a missing config and tells the user to init', async () => {
+    const { deps, stderr } = makeHarness(path.join(harness.dir, 'missing', 'config.json'));
+    const code = await runToolEnable('personal__my_tool', {}, deps);
+    expect(code).toBe(1);
+    expect(stderr.value).toContain('tlbx init');
+  });
 });

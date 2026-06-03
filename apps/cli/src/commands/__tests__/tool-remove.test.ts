@@ -102,6 +102,32 @@ describe('runToolRemove', () => {
     const { deps, stderr } = makeRemoveHarness(true);
     const code = await runToolRemove('nope__missing', { yes: true }, deps);
     expect(code).toBe(1);
-    expect(stderr.value).toContain('no custom tool named "nope__missing"');
+    expect(stderr.value).toContain('No custom tool named "nope__missing"');
+  });
+
+  it('reports an unknown tool as tool-not-found before prompting, even non-interactively', async () => {
+    // Non-interactive + no --yes used to hit the confirmation-refusal path (exit
+    // 2); the existence check now runs first, so an unknown tool is exit 1.
+    const { deps, stderr, confirm } = makeRemoveHarness(true, false);
+    const code = await runToolRemove('nope__missing', {}, deps);
+    expect(code).toBe(1);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(stderr.value).toContain('No custom tool named "nope__missing"');
+  });
+
+  it('does not prompt to remove a tool that does not exist', async () => {
+    const { deps, confirm } = makeRemoveHarness(true);
+    const code = await runToolRemove('nope__missing', {}, deps);
+    expect(code).toBe(1);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing config and tells the user to init', async () => {
+    const missingTarget = path.join(harness.dir, 'missing', 'config.json');
+    const base = makeHarness(missingTarget);
+    const deps: ToolRemoveDeps = { ...base.deps, isTty: () => true, confirm: vi.fn() };
+    const code = await runToolRemove('personal__my_tool', { yes: true }, deps);
+    expect(code).toBe(1);
+    expect(base.stderr.value).toContain('tlbx init');
   });
 });

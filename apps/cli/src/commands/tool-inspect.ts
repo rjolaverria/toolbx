@@ -12,7 +12,7 @@ import {
 import {
   defaultToolCommandDeps,
   reportManifestError,
-  resolveConfigDir,
+  resolveValidatedConfigDir,
   type ToolCommandDeps,
 } from './tool-shared.js';
 
@@ -70,7 +70,10 @@ export async function runToolInspect(
   options: ToolInspectOptions,
   deps: ToolCommandDeps,
 ): Promise<number> {
-  const configDir = resolveConfigDir(deps, options.config);
+  const configDir = await resolveValidatedConfigDir(deps, options.config);
+  if (configDir === null) {
+    return 1;
+  }
   let entries: ToolManifest[];
   try {
     entries = await readToolManifest(configDir);

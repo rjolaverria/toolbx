@@ -102,6 +102,13 @@ describe('runToolInspect', () => {
     expect(stderr.value).toContain('No custom tool named "nope__missing"');
   });
 
+  it('reports a missing config and tells the user to init', async () => {
+    const { deps, stderr } = makeHarness(path.join(harness.dir, 'missing', 'config.json'));
+    const code = await runToolInspect('personal__my_tool', {}, deps);
+    expect(code).toBe(1);
+    expect(stderr.value).toContain('tlbx init');
+  });
+
   it('refuses to read a tampered entry that escapes the tools directory', async () => {
     await seedTool();
     const entries = await readToolManifest(harness.dir);

@@ -1,11 +1,16 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { removeTool, ToolManifestError } from '@toolbox/custom-tools';
+import {
+  findToolByExposedName,
+  readToolManifest,
+  removeTool,
+  ToolManifestError,
+} from '@toolbox/custom-tools';
 
 import {
   defaultConfirmDeps,
   defaultToolCommandDeps,
   reportManifestError,
-  resolveConfigDir,
+  resolveValidatedConfigDir,
   type ConfirmDeps,
   type ToolCommandDeps,
 } from './tool-shared.js';
@@ -26,7 +31,27 @@ export async function runToolRemove(
   options: ToolRemoveOptions,
   deps: ToolRemoveDeps,
 ): Promise<number> {
-  const configDir = resolveConfigDir(deps, options.config);
+  const configDir = await resolveValidatedConfigDir(deps, options.config);
+  if (configDir === null) {
+    return 1;
+  }
+
+  // Verify the tool exists before prompting, so an unknown tool reports
+  // tool-not-found regardless of interactivity rather than hitting the
+  // confirmation path or letting a user confirm an impossible removal.
+  let entries;
+  try {
+    entries = await readToolManifest(configDir);
+  } catch (error) {
+    if (error instanceof ToolManifestError) {
+      return reportManifestError(error, deps);
+    }
+    throw error;
+  }
+  if (findToolByExposedName(entries, exposedName) === undefined) {
+    deps.stderr(`No custom tool named "${exposedName}".\n`);
+    return 1;
+  }
 
   if (options.yes !== true) {
     if (!deps.isTty()) {

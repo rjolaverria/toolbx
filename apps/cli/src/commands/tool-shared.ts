@@ -5,6 +5,7 @@ import { ToolManifestError } from '@toolbox/custom-tools';
 
 import {
   defaultServerCommandDeps,
+  loadOrReportMissing,
   resolveTargetPath,
   type ServerCommandDeps,
 } from './server-shared.js';
@@ -21,9 +22,22 @@ export const defaultToolCommandDeps = defaultServerCommandDeps;
 
 export { resolveTargetPath };
 
-/** Resolves the ToolBox config directory that holds the `tools/` subtree. */
-export function resolveConfigDir(deps: ToolCommandDeps, override: string | undefined): string {
-  return path.dirname(resolveTargetPath(deps, override));
+/**
+ * Resolves the ToolBox config directory that holds the `tools/` subtree, after
+ * confirming a valid `config.json` exists there. Returns null (having reported
+ * the reason to stderr) when the config is missing or invalid, so commands do
+ * not read or mutate a manifest in a directory that is not a ToolBox config.
+ */
+export async function resolveValidatedConfigDir(
+  deps: ToolCommandDeps,
+  override: string | undefined,
+): Promise<string | null> {
+  const target = resolveTargetPath(deps, override);
+  const config = await loadOrReportMissing(target, deps);
+  if (config === null) {
+    return null;
+  }
+  return path.dirname(target);
 }
 
 export interface ConfirmDeps {

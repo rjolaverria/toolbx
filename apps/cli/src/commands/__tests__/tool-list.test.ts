@@ -71,6 +71,13 @@ describe('runToolList', () => {
     ]);
   });
 
+  it('reports a missing config and tells the user to init', async () => {
+    const { deps, stderr } = makeHarness(path.join(harness.dir, 'missing', 'config.json'));
+    const code = await runToolList({}, deps);
+    expect(code).toBe(1);
+    expect(stderr.value).toContain('tlbx init');
+  });
+
   it('reports a corrupt manifest as an error', async () => {
     const manifestPath = path.join(harness.dir, 'tools', 'manifest.json');
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });

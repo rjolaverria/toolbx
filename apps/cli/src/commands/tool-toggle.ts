@@ -4,7 +4,7 @@ import { setToolEnabled, ToolManifestError } from '@toolbox/custom-tools';
 import {
   defaultToolCommandDeps,
   reportManifestError,
-  resolveConfigDir,
+  resolveValidatedConfigDir,
   type ToolCommandDeps,
 } from './tool-shared.js';
 
@@ -18,7 +18,10 @@ async function applyEnabledChange(
   options: ToolToggleOptions,
   deps: ToolCommandDeps,
 ): Promise<number> {
-  const configDir = resolveConfigDir(deps, options.config);
+  const configDir = await resolveValidatedConfigDir(deps, options.config);
+  if (configDir === null) {
+    return 1;
+  }
   try {
     const result = await setToolEnabled(configDir, exposedName, desired);
     if (!result.changed) {
