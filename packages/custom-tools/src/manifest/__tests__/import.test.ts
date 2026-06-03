@@ -561,5 +561,34 @@ export default async function f() {
       });
       await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
     });
+
+    it('preserves a concurrent manifest change made between plan and commit', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+      const plan = await planImport(sourcePath, { configDir });
+
+      // Simulate another `tlbx tool` command landing a different tool while the
+      // import prompt is open: the commit must merge, not clobber, it.
+      const otherSource = SPEC_EXAMPLE.replace('send_slack_summary', 'other_tool');
+      await importTool(await writeSource('other_tool.ts', otherSource), { configDir });
+
+      await commitImport(plan);
+
+      const manifest = await readManifestFile();
+      const exposedNames = manifest.map((entry) => entry.exposedName).sort();
+      expect(exposedNames).toEqual(['personal__other_tool', 'personal__send_slack_summary']);
+    });
+
+    it('rejects at commit when the tool was concurrently imported and force is off', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+      const plan = await planImport(sourcePath, { configDir });
+
+      // The same tool is imported concurrently before this plan commits.
+      await importTool(sourcePath, { configDir });
+
+      await expect(commitImport(plan)).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'tool-exists',
+      });
+    });
   });
 });

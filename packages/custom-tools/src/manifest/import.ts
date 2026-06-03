@@ -80,8 +80,8 @@ export interface ImportedTool {
  * A validated, not-yet-written import. `planImport` produces it without touching
  * the filesystem so a caller (the CLI) can render a metadata + permission preview
  * and prompt before `commitImport` persists the tool. The leading fields are the
- * public preview; the trailing fields carry the state `commitImport` needs so it
- * does not have to re-read or re-validate the source.
+ * public preview; the trailing fields carry the state `commitImport` needs to
+ * re-validate against the latest manifest.
  */
 export interface ImportPlan {
   /** The manifest entry that will be written. Imported tools start disabled. */
@@ -91,14 +91,19 @@ export interface ImportPlan {
   /** Absolute path of the central manifest file. */
   readonly manifestPath: string;
   readonly warnings: readonly ParseWarning[];
-  /** True when committing will overwrite an existing tool (requires `force`). */
+  /**
+   * Whether an entry for this tool existed when the plan was made. A best-effort
+   * preview hint only — `commitImport` re-reads the manifest and decides the
+   * append-vs-replace afresh, so a manifest change during the prompt cannot make
+   * the commit act on a stale view.
+   */
   readonly replacesExisting: boolean;
   /** Source contents to persist. */
   readonly source: string;
-  /** The current manifest entries, used to compute the next manifest. */
-  readonly currentEntries: readonly ToolManifest[];
-  /** Index of the entry being replaced in `currentEntries`, or `-1`. */
-  readonly existingIndex: number;
+  /** Original source path, used for error messages at commit time. */
+  readonly sourcePath: string;
+  /** Whether overwriting an existing tool is permitted. */
+  readonly force: boolean;
 }
 
 export type ToolImportErrorCode =
@@ -149,6 +154,20 @@ const toolManifestSchema = z.looseObject({
 });
 
 export const manifestFileSchema = z.array(toolManifestSchema);
+
+/**
+ * Index of an existing entry for the same tool, or -1. Identity is namespace +
+ * name, not exposedName: the separator is configurable and the stored file path
+ * (`tools/<namespace>/<name>.<ext>`) ignores it, so a different separator must
+ * not slip past as a "new" tool.
+ */
+function findExistingIndex(
+  manifest: readonly ToolManifest[],
+  namespace: string,
+  name: string,
+): number {
+  return manifest.findIndex((entry) => entry.namespace === namespace && entry.name === name);
+}
 
 /** Reads and validates the central manifest, returning [] when absent. */
 async function readManifest(manifestPath: string, sourcePath: string): Promise<ToolManifest[]> {
@@ -298,12 +317,7 @@ export async function planImport(
   const manifestPath = path.join(toolsDir, MANIFEST_FILENAME);
   const manifest = await readManifest(manifestPath, sourcePath);
 
-  // Identity is namespace + name, not exposedName: the separator is configurable
-  // and the stored file path (`tools/<namespace>/<name>.<ext>`) ignores it, so a
-  // different separator must not slip past as a "new" tool.
-  const existingIndex = manifest.findIndex(
-    (entry) => entry.namespace === metadata.namespace && entry.name === metadata.name,
-  );
+  const existingIndex = findExistingIndex(manifest, metadata.namespace, metadata.name);
   if (existingIndex !== -1 && options.force !== true) {
     throw new ToolImportError(
       'tool-exists',
@@ -335,17 +349,33 @@ export async function planImport(
     warnings: metadata.warnings,
     replacesExisting: existingIndex !== -1,
     source,
-    currentEntries: manifest,
-    existingIndex,
+    sourcePath,
+    force: options.force === true,
   };
 }
 
 /**
  * Persists a planned import: copies the tool source into the tools directory,
- * marks the directory as ESM, and writes the entry into the central manifest
- * (appending, or replacing the existing entry when the plan is an overwrite).
+ * marks the directory as ESM, and writes the entry into the central manifest.
+ *
+ * The manifest is re-read here, not taken from the plan: `planImport` may have
+ * run before an interactive preview/prompt, during which another `tlbx tool`
+ * command could have changed the manifest. Re-reading and re-checking the
+ * tool-exists guard against the latest entries means a concurrent change is
+ * merged with, not clobbered by, this write. The residual window is just the
+ * read-then-write, the same as a single-call import.
  */
 export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
+  const manifest = await readManifest(plan.manifestPath, plan.sourcePath);
+  const existingIndex = findExistingIndex(manifest, plan.manifest.namespace, plan.manifest.name);
+  if (existingIndex !== -1 && !plan.force) {
+    throw new ToolImportError(
+      'tool-exists',
+      plan.sourcePath,
+      `a custom tool "${plan.manifest.namespace}/${plan.manifest.name}" already exists; pass force to overwrite it`,
+    );
+  }
+
   await fs.mkdir(path.dirname(plan.entryPath), { recursive: true });
   await fs.writeFile(plan.entryPath, plan.source, 'utf8');
 
@@ -360,11 +390,9 @@ export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
   );
 
   const nextManifest =
-    plan.existingIndex === -1
-      ? [...plan.currentEntries, plan.manifest]
-      : plan.currentEntries.map((entry, index) =>
-          index === plan.existingIndex ? plan.manifest : entry,
-        );
+    existingIndex === -1
+      ? [...manifest, plan.manifest]
+      : manifest.map((entry, index) => (index === existingIndex ? plan.manifest : entry));
 
   await fs.writeFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`, 'utf8');
 
