@@ -46,6 +46,13 @@ export interface RunToolOptions {
    * absolute (e.g. test fixtures).
    */
   readonly configDir?: string;
+  /**
+   * Aborts the call: when it fires the child is SIGKILLed and the call resolves
+   * to an error outcome, instead of running to the per-tool timeout. The gateway
+   * forwards the downstream request's signal so a cancelled `tools/call` stops
+   * the tool promptly.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** Resolves the harness file next to this module, matching its extension (.ts/.js). */
@@ -129,6 +136,7 @@ async function executeSandbox(
     );
 
     let settled = false;
+    let detachAbort: (() => void) | undefined;
 
     function finish(value: RunOutcome): void {
       if (settled) {
@@ -136,6 +144,7 @@ async function executeSandbox(
       }
       settled = true;
       clearTimeout(timer);
+      detachAbort?.();
       child.removeAllListeners();
       child.on('error', () => {
         // Absorb a stray EPIPE from an in-flight send after we have already settled.
@@ -149,6 +158,21 @@ async function executeSandbox(
     const timer = setTimeout(() => {
       finish({ outcome: 'timeout' });
     }, manifest.timeoutMs);
+
+    // Caller abort (e.g. a cancelled downstream `tools/call`): kill the child and
+    // resolve immediately rather than waiting out the per-tool timeout.
+    const onAbort = (): void => {
+      finish({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
+    };
+    if (options.signal !== undefined) {
+      if (options.signal.aborted) {
+        onAbort();
+      } else {
+        const signal = options.signal;
+        signal.addEventListener('abort', onAbort, { once: true });
+        detachAbort = () => signal.removeEventListener('abort', onAbort);
+      }
+    }
 
     child.on('message', (message: SandboxEnvelope) => {
       if (message.nonce !== nonce) {
@@ -217,6 +241,14 @@ export async function runTool(
  * without invoking the handler (P3-05). The gateway calls this to advertise the
  * tool in `tools/list`. Shares the runner's spawn/timeout/redaction plumbing; the
  * `ok` outcome carries the schema, and failures mirror {@link runTool}.
+ *
+ * Reading `inputSchema` requires importing the module, so the tool's top-level
+ * code runs here even though the handler is never invoked. This runs in the same
+ * sandbox a call uses — sealed escape hatches, the network/env permission gate,
+ * `--disallow-code-generation-from-strings`, and the per-tool timeout with
+ * SIGKILL — so a top-level side effect is contained and a top-level hang resolves
+ * to `timeout` rather than blocking the gateway. The gateway skips a tool whose
+ * describe fails, so it is never exposed.
  */
 export async function describeTool(
   manifest: ToolManifest,

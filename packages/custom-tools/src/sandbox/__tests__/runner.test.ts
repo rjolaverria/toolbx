@@ -38,6 +38,33 @@ describe('runTool', () => {
     expect(outcome).toEqual({ outcome: 'timeout' });
   });
 
+  it('aborts a running tool when the signal fires, before the timeout', async () => {
+    const controller = new AbortController();
+    const promise = runTool(
+      manifest('hangs.ts', { timeoutMs: 5000 }),
+      {},
+      { signal: controller.signal },
+    );
+    setTimeout(() => controller.abort(), 50);
+    const outcome = await promise;
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.message).toContain('aborted');
+    }
+  });
+
+  it('returns an error immediately for an already-aborted signal', async () => {
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { signal: AbortSignal.abort() },
+    );
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.message).toContain('aborted');
+    }
+  });
+
   it('blocks fetch when network is denied', async () => {
     const outcome = await runTool(manifest('fetches.ts'), {});
     expect(outcome.outcome).toBe('error');

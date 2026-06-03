@@ -66,6 +66,14 @@ describe('describeTool', () => {
     }
   });
 
+  it('is bounded by the timeout when the module hangs at top level', async () => {
+    // Describe imports the module to read `inputSchema`, so top-level code runs
+    // in the sandbox. A top-level hang must be killed by the per-tool timeout
+    // rather than block the caller (the gateway) indefinitely.
+    const outcome = await describeTool(manifest('top-level-hang.ts', { timeoutMs: 500 }));
+    expect(outcome).toEqual({ outcome: 'timeout' });
+  });
+
   it('reports load-error when the entry file cannot be imported', async () => {
     const outcome = await describeTool(manifest('does-not-exist.ts'));
     expect(outcome.outcome).toBe('error');

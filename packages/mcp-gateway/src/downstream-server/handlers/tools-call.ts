@@ -237,7 +237,7 @@ export function registerToolsCallHandler(
     customExecutor,
   } = options;
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     requireReady(session);
 
     const { name, arguments: args } = request.params;
@@ -325,6 +325,9 @@ export function registerToolsCallHandler(
       registry,
       sessions: upstreams,
       namespacing,
+      // Forward the downstream request's abort signal so a cancelled
+      // `tools/call` stops the upstream call or custom-tool child promptly.
+      signal: extra.signal,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(customExecutor !== undefined ? { customExecutor } : {}),
     });

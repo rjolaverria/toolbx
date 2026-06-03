@@ -69,7 +69,7 @@ export interface CustomToolHostDeps {
   readonly run?: (
     manifest: ToolManifest,
     args: unknown,
-    options: { configDir: string; logger: Logger },
+    options: { configDir: string; logger: Logger; signal?: AbortSignal },
   ) => Promise<RunOutcome>;
 }
 
@@ -219,12 +219,16 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
   }
 
   const executor: CustomToolExecutor = {
-    async run(view, args) {
+    async run(view, args, signal) {
       const manifest = manifests.get(view.exposedName);
       if (manifest === undefined) {
         return { kind: 'unknown_tool' };
       }
-      const outcome = await run(manifest, args, { configDir: deps.configDir, logger: log });
+      const outcome = await run(manifest, args, {
+        configDir: deps.configDir,
+        logger: log,
+        ...(signal !== undefined ? { signal } : {}),
+      });
       return toRouteResult(view, manifest, outcome);
     },
   };

@@ -173,6 +173,21 @@ describe('createCustomToolHost', () => {
     );
   });
 
+  it('executor forwards the abort signal to run', async () => {
+    const runFn = vi.fn(
+      (): Promise<RunOutcome> => Promise.resolve({ outcome: 'ok', result: { content: [] } }),
+    );
+    const host = createCustomToolHost(deps({ run: runFn }));
+    const [input] = await host.load();
+    const controller = new AbortController();
+    await host.executor.run(view(manifest(), input!.tool), {}, controller.signal);
+    expect(runFn).toHaveBeenCalledWith(
+      expect.objectContaining({ exposedName: 'personal__echo' }),
+      {},
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it('executor maps a timeout outcome to an upstream_error timeout', async () => {
     const host = createCustomToolHost(
       deps({ run: vi.fn((): Promise<RunOutcome> => Promise.resolve({ outcome: 'timeout' })) }),
