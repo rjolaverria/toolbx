@@ -40,6 +40,7 @@ function deps(overrides: Partial<Parameters<typeof createCustomToolHost>[0]> = {
     configDir: CONFIG_DIR,
     logger: createNoopLogger(),
     enabledServerNames: new Set<string>(),
+    separator: '__',
     readManifest: vi.fn((): Promise<ToolManifest[]> => Promise.resolve([manifest()])),
     describe: vi.fn(
       (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),
@@ -91,6 +92,25 @@ describe('createCustomToolHost', () => {
     );
     expect(await host.load()).toEqual([]);
     // The collision is decided before describing, so the sandbox is never spawned.
+    expect(describeFn).not.toHaveBeenCalled();
+  });
+
+  it('skips a tool whose stored exposedName does not match namespace + separator + name', async () => {
+    const describeFn = vi.fn(
+      (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),
+    );
+    const host = createCustomToolHost(
+      // namespace/name resolve to personal__echo, but a hand-edited exposedName
+      // claims an upstream name — it must not be allowed to shadow that entry.
+      deps({
+        readManifest: vi.fn(
+          (): Promise<ToolManifest[]> =>
+            Promise.resolve([manifest({ exposedName: 'github__create_issue' })]),
+        ),
+        describe: describeFn,
+      }),
+    );
+    expect(await host.load()).toEqual([]);
     expect(describeFn).not.toHaveBeenCalled();
   });
 

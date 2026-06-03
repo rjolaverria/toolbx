@@ -141,6 +141,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
           configDir: deps.configDir,
           logger: log,
           enabledServerNames,
+          separator: deps.config.namespacing.separator,
         })
       : undefined;
 

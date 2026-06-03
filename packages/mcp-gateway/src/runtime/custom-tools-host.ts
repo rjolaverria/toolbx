@@ -50,6 +50,14 @@ export interface CustomToolHostDeps {
    * defense for a hand-edited config + manifest.
    */
   readonly enabledServerNames: ReadonlySet<string>;
+  /**
+   * Namespace separator from the active config. The exposed name a custom tool
+   * is published under is recomputed as `namespace + separator + name` and
+   * checked against the stored `exposedName`, so a hand-edited manifest cannot
+   * set `exposedName` to an unrelated value (e.g. an upstream tool name) and
+   * shadow that entry in the registry.
+   */
+  readonly separator: string;
   /** Test seam: read the manifest. Defaults to the real `readToolManifest`. */
   readonly readManifest?: (configDir: string) => Promise<ToolManifest[]>;
   /** Test seam: resolve a tool's schema. Defaults to the real `describeTool`. */
@@ -139,6 +147,18 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
         log.warn(
           { tool: entry.exposedName, namespace: entry.namespace },
           'custom tool namespace collides with an enabled server; skipping',
+        );
+        continue;
+      }
+      // The exposed name must be exactly namespace + separator + name. A manifest
+      // edited to claim a different exposedName (e.g. an upstream tool's name)
+      // would otherwise be published under that key and shadow the real entry in
+      // `registry.find()`.
+      const canonicalExposedName = `${entry.namespace}${deps.separator}${entry.name}`;
+      if (entry.exposedName !== canonicalExposedName) {
+        log.warn(
+          { tool: entry.exposedName, expected: canonicalExposedName },
+          'custom tool exposedName does not match its namespace/name; skipping',
         );
         continue;
       }

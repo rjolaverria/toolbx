@@ -193,20 +193,23 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
-  // Describe mode (P3-05): the gateway only needs the schema to advertise the
-  // tool in `tools/list`. Return it without constructing a validator or invoking
-  // the handler — exposure does not execute tool code, and a hanging or throwing
-  // handler must not block describing a tool that is otherwise well-formed.
-  if (request.describe === true) {
-    await send({ ok: true, result: schema });
-    return;
-  }
-
+  // Compile the schema before the describe-mode return so describe runs the same
+  // validation step as the call path — a schema that `new Validator` rejects is
+  // not advertised in `tools/list` only to fail later at call time.
   let validator: Validator;
   try {
     validator = new Validator(schema);
   } catch (error) {
     await fail('invalid-schema', error instanceof Error ? error.message : String(error));
+    return;
+  }
+
+  // Describe mode (P3-05): the gateway only needs the schema to advertise the
+  // tool in `tools/list`. Return it without validating args or invoking the
+  // handler — exposure does not execute tool code, and a hanging or throwing
+  // handler must not block describing a tool that is otherwise well-formed.
+  if (request.describe === true) {
+    await send({ ok: true, result: schema });
     return;
   }
 
