@@ -29,6 +29,11 @@ for both stores — not bolted onto one file.
 - Route `saveConfig`-based command mutations and the manifest mutators
   (`setToolEnabled`, `removeTool`, `commitImport`) through it.
 - Keep the existing atomic-write guarantee (no torn files) intact.
+- Consolidate on a single hardened atomic writer. `@toolbox/custom-tools`'s
+  `atomicWriteFile` relies on `rename`'s atomic replace and never unlinks the
+  target; `@toolbox/core`'s `saveConfig` still has an `unlink`-then-`rename`
+  fallback that briefly exposes a missing file. Reconcile both onto the
+  rename-only writer.
 
 ## Acceptance criteria
 

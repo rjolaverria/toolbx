@@ -4,15 +4,17 @@ import * as path from 'node:path';
 
 /**
  * Writes a file atomically: write to a unique temp file in the same directory,
- * fsync it, then rename over the target. A reader therefore sees either the old
- * file or the fully written new one, never a torn write — so a crash or a
- * concurrent reader cannot observe a half-written (corrupt) manifest.
+ * fsync it, then `rename` over the target. `rename` replaces an existing file
+ * atomically on POSIX and on modern Windows (libuv passes
+ * `MOVEFILE_REPLACE_EXISTING`), so a reader always sees either the old file or
+ * the fully written new one — never a torn write and never a missing target. If
+ * the rename fails the original target is left untouched and the error
+ * propagates, after the temp file is cleaned up.
  *
- * This mirrors how ToolBox persists `config.json` (see `@toolbox/core`'s
- * `saveConfig`). It guarantees write atomicity only; it does NOT serialize a
- * read-modify-write cycle, so two processes that read the same manifest and both
- * write can still lose an update. Cross-process serialization is a config-layer
- * wide concern tracked separately.
+ * This guarantees write atomicity only; it does NOT serialize a read-modify-write
+ * cycle, so two processes that read the same manifest and both write can still
+ * lose an update. Cross-process serialization is a config-layer-wide concern
+ * tracked separately (see task P3-07).
  */
 export async function atomicWriteFile(target: string, payload: string): Promise<void> {
   const dir = path.dirname(target);
@@ -33,22 +35,8 @@ export async function atomicWriteFile(target: string, payload: string): Promise<
   try {
     await fs.rename(tmp, target);
   } catch (error) {
-    if (isRenameOverwriteFailure(error)) {
-      try {
-        await fs.unlink(target);
-        await fs.rename(tmp, target);
-        return;
-      } catch (retryError) {
-        await fs.unlink(tmp).catch(() => undefined);
-        throw retryError;
-      }
-    }
+    // Leave the existing target in place; only the temp file is discarded.
     await fs.unlink(tmp).catch(() => undefined);
     throw error;
   }
-}
-
-function isRenameOverwriteFailure(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | null)?.code;
-  return code === 'EEXIST' || code === 'EPERM' || code === 'EACCES';
 }

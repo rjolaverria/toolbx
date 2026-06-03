@@ -168,6 +168,13 @@ export async function removeTool(
   // Refuse to delete anything the manifest points outside tools/ (tampered entry).
   const entryPath = resolveToolEntryPath(configDir, target.entry);
 
+  // Persist the manifest without the entry first, then delete the source file.
+  // If the unlink fails the manifest no longer references it, so the worst case
+  // is a harmless orphan file under tools/ — never a manifest entry pointing at
+  // a missing source (which the reverse order could leave behind).
+  const next = entries.filter((_, i) => i !== index);
+  await writeToolManifest(configDir, next);
+
   let sourceRemoved = true;
   try {
     await fs.rm(entryPath);
@@ -179,7 +186,5 @@ export async function removeTool(
     }
   }
 
-  const next = entries.filter((_, i) => i !== index);
-  await writeToolManifest(configDir, next);
   return { manifest: target, entryPath, sourceRemoved };
 }
