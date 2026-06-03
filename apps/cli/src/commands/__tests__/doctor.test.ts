@@ -380,6 +380,7 @@ describe('checkNamespaceCollisions', () => {
         exposedName: 'github__create_issue',
         serverName: 'github',
         upstreamName: 'create_issue',
+        source: 'upstream',
         tool: { name: 'create_issue' },
       },
     ];
@@ -422,12 +423,14 @@ describe('checkNamespaceCollisions', () => {
         exposedName: 'github__create_issue',
         serverName: 'github',
         upstreamName: 'create_issue',
+        source: 'upstream',
         tool: { name: 'create_issue' },
       },
       {
         exposedName: 'github__create_issue',
         serverName: 'github',
         upstreamName: 'create_issue',
+        source: 'upstream',
         tool: { name: 'create_issue' },
       },
     ];
@@ -648,6 +651,7 @@ describe('runDoctor', () => {
           exposedName: 'github__create_issue',
           serverName: 'github',
           upstreamName: 'create_issue',
+          source: 'upstream',
           tool: { name: 'create_issue' },
         },
       ],

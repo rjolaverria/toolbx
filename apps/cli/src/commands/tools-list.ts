@@ -37,12 +37,13 @@ function formatTable(rows: readonly ToolView[], emptyMessage: string): string {
   if (rows.length === 0) {
     return emptyMessage;
   }
-  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED'];
+  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SOURCE'];
   const cells = rows.map((row) => [
     row.exposedName,
     row.serverName,
     row.upstreamName,
     row.enabled ? 'yes' : 'no',
+    row.toolSource,
   ]);
   const widths = headers.map((h, i) =>
     Math.max(h.length, ...cells.map((cell) => (cell[i] ?? '').length)),
@@ -60,6 +61,7 @@ interface JsonRow {
   serverName: string;
   upstreamName: string;
   enabled: boolean;
+  source: 'upstream' | 'custom';
 }
 
 function buildJsonRows(rows: readonly ToolView[]): JsonRow[] {
@@ -68,6 +70,7 @@ function buildJsonRows(rows: readonly ToolView[]): JsonRow[] {
     serverName: row.serverName,
     upstreamName: row.upstreamName,
     enabled: row.enabled,
+    source: row.toolSource,
   }));
 }
 

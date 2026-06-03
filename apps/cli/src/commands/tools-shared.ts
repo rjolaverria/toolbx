@@ -26,7 +26,10 @@ export interface ToolView {
   serverName: string;
   upstreamName: string;
   enabled: boolean;
+  /** Where the listing data came from (the gateway cache vs. config synthesis). */
   source: 'cache' | 'config';
+  /** Whether the tool is a proxied upstream tool or an imported custom tool (P3-05). */
+  toolSource: 'upstream' | 'custom';
 }
 
 export type LoadToolsResult =
@@ -95,6 +98,7 @@ export async function loadTools(
         upstreamName: entry.upstreamName,
         enabled: config.tools[entry.exposedName]?.enabled !== false,
         source: 'cache',
+        toolSource: entry.source,
       }),
     )
     .sort((a, b) => {

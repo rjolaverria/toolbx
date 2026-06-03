@@ -5,7 +5,7 @@ import {
   type DaemonListToolsResult,
   type RegisteredToolView,
 } from '@toolbox/core';
-import { BOOTSTRAP_TOOL_META_KEY } from '@toolbox/mcp-gateway';
+import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runDiscovery } from '../run-discovery.js';
@@ -174,10 +174,50 @@ describe('runDiscovery — list', () => {
     const h = makeHarness();
     const code = await discover({}, { list: true }, h);
     expect(code).toBe(0);
-    expect(h.stdout).toMatch(/EXPOSED\s+SERVER\s+TOOL\s+ENABLED\s+DESCRIPTION/);
+    expect(h.stdout).toMatch(/EXPOSED\s+SERVER\s+TOOL\s+ENABLED\s+SOURCE\s+DESCRIPTION/);
     expect(h.stdout).toContain('github__create_issue');
     expect(h.stdout).toContain('Create a new GitHub issue');
     expect(h.stdout).not.toContain('toolbox__search_tools');
+  });
+
+  it('labels custom tools with source "custom" in list output', async () => {
+    const h = makeHarness({
+      tools: [
+        {
+          name: 'github__create_issue',
+          description: 'Create a GitHub issue.',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+        },
+        {
+          name: 'personal__echo',
+          description: 'Echo a message.',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+          _meta: { [CUSTOM_TOOL_META_KEY]: true },
+        },
+      ],
+    });
+
+    const code = await discover({}, { list: true, output: 'json' }, h);
+    expect(code).toBe(0);
+    const rows = JSON.parse(h.stdout) as { exposedName: string; source: string }[];
+    expect(rows.find((r) => r.exposedName === 'personal__echo')?.source).toBe('custom');
+    expect(rows.find((r) => r.exposedName === 'github__create_issue')?.source).toBe('upstream');
+  });
+
+  it('shows the source column for a custom tool in text list output', async () => {
+    const h = makeHarness({
+      tools: [
+        {
+          name: 'personal__echo',
+          description: 'Echo a message.',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+          _meta: { [CUSTOM_TOOL_META_KEY]: true },
+        },
+      ],
+    });
+    const code = await discover({}, { list: true }, h);
+    expect(code).toBe(0);
+    expect(h.stdout).toContain('custom');
   });
 
   it('keeps an unmarked upstream tool that shares a bootstrap name', async () => {

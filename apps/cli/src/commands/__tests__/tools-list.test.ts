@@ -82,8 +82,63 @@ describe('runToolsList', () => {
         serverName: 'github',
         upstreamName: 'create_issue',
         enabled: false,
+        source: 'upstream',
       },
     ]);
+  });
+
+  it('shows the source of each tool (upstream vs custom)', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+    await h.writeCache([
+      {
+        exposedName: 'github__create_issue',
+        serverName: 'github',
+        upstreamName: 'create_issue',
+        source: 'upstream',
+        tool: { name: 'github__create_issue' },
+      },
+      {
+        exposedName: 'personal__echo',
+        serverName: 'personal',
+        upstreamName: 'echo',
+        source: 'custom',
+        tool: { name: 'personal__echo' },
+      },
+    ]);
+
+    const code = await runToolsList({}, h.deps);
+    expect(code).toBe(0);
+    expect(h.stdout.value).toContain('SOURCE');
+    expect(h.stdout.value).toContain('custom');
+    expect(h.stdout.value).toContain('upstream');
+  });
+
+  it('includes the tool source in JSON output', async () => {
+    const cfg = await makeTempConfig(
+      configWith({ personal: { type: 'stdio', enabled: true, command: 'true', args: [] } }),
+    );
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+    await h.writeCache([
+      {
+        exposedName: 'personal__echo',
+        serverName: 'personal',
+        upstreamName: 'echo',
+        source: 'custom',
+        tool: { name: 'personal__echo' },
+      },
+    ]);
+
+    const code = await runToolsList({ json: true }, h.deps);
+    expect(code).toBe(0);
+    const payload = JSON.parse(h.stdout.value) as { tools: { source: string }[] };
+    expect(payload.tools[0]?.source).toBe('custom');
   });
 
   it('prints a guidance message when the cache is missing', async () => {

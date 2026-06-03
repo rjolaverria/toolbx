@@ -8,7 +8,7 @@ import {
   InMemoryTokenStore,
   saveConfig,
   writeToolCache,
-  type CachedTool,
+  type CachedToolInput,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
@@ -95,7 +95,7 @@ export interface ToolsCommandHarness {
   stdout: { value: string };
   stderr: { value: string };
   cachePath: string;
-  writeCache: (tools: readonly CachedTool[]) => Promise<void>;
+  writeCache: (tools: readonly CachedToolInput[]) => Promise<void>;
 }
 
 export function makeToolsHarness(target: string): ToolsCommandHarness {

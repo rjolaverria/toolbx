@@ -281,6 +281,10 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     config,
     logger,
     processEnv: deps.processEnv,
+    // Locate the custom-tool manifest (and resolve relative tool entry paths)
+    // alongside the resolved config so imported, enabled custom tools are
+    // exposed through the gateway (P3-05).
+    configDir: path.dirname(configPath),
   });
   const detachCacheWriter = startToolCacheWriter(runtime, configPath, deps, logger);
   runtime.startUpstreams();
@@ -432,6 +436,7 @@ function startToolCacheWriter(
       exposedName: tool.exposedName,
       serverName: tool.serverName,
       upstreamName: tool.upstreamName,
+      source: tool.source,
       tool: tool.tool,
     }));
     pending = writer({ tools }, cachePath)
