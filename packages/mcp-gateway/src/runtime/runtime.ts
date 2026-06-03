@@ -29,6 +29,12 @@ import type { RegisterDownstreamHandlers } from '../downstream-server/types.js';
 import { createToolRegistry, type ToolRegistry } from '../registry/index.js';
 import { createUpstreamSession, type UpstreamSession } from '../upstream-client/index.js';
 
+import {
+  createCustomToolHost,
+  type CustomToolHost,
+  type CustomToolHostDeps,
+} from './custom-tools-host.js';
+
 export interface CreateUpstreamSessionForRuntime {
   (
     serverName: string,
@@ -49,6 +55,15 @@ export interface CreateGatewayRuntimeDeps {
   tokenStore?: TokenStore;
   /** Test seam: override how upstream sessions are constructed. */
   createSession?: CreateUpstreamSessionForRuntime;
+  /**
+   * Absolute ToolBox config directory (parent of `tools/`). When provided, the
+   * runtime exposes imported, enabled custom tools (P3-05) alongside proxied
+   * upstream tools. Omitted ⇒ no custom tools are loaded. `tlbx serve` passes
+   * `dirname(configPath)`.
+   */
+  configDir?: string;
+  /** Test seam: override how the custom-tool host is constructed. */
+  createCustomToolHost?: (deps: CustomToolHostDeps) => CustomToolHost;
 }
 
 export interface GatewayRuntime {
@@ -109,6 +124,25 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   const upstreams: UpstreamSessionLookup = {
     get: (name) => sessions.get(name),
   };
+
+  // Custom tools (P3-05) are exposed only when a config directory is known —
+  // that is what locates the manifest and resolves relative tool entry paths.
+  // The host receives the enabled server-name set so it can skip (and warn on) a
+  // custom tool whose namespace collides with a configured server, keeping the
+  // flat exposed-name space unambiguous even for a hand-edited config + manifest.
+  const enabledServerNames = new Set(
+    Object.entries(deps.config.servers)
+      .filter(([, server]) => server.enabled)
+      .map(([name]) => name),
+  );
+  const customToolHost: CustomToolHost | undefined =
+    deps.configDir !== undefined
+      ? (deps.createCustomToolHost ?? createCustomToolHost)({
+          configDir: deps.configDir,
+          logger: log,
+          enabledServerNames,
+        })
+      : undefined;
 
   // Each downstream session registers a `schedule()` callback so
   // `notifyAllSessionsToolsChanged()` can fan visibility-change notifications
@@ -257,6 +291,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       visibility,
       isDisclosureEnabled,
       isToolEnabled,
+      ...(customToolHost !== undefined ? { customExecutor: customToolHost.executor } : {}),
     });
 
     const notifier = createToolsChangedNotifier({
@@ -307,6 +342,21 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
         void session.start().catch((error: unknown) => {
           log.warn({ err: error, server: name }, 'upstream session.start() rejected');
         });
+      }
+      // Resolve custom tools off the hot path, mirroring upstream connect: the
+      // registry starts without them and gains them once their schemas are
+      // resolved, firing a `tools/list_changed` notification. `load()` is
+      // contracted not to throw, but guard so a defect can't surface as an
+      // unhandled rejection.
+      if (customToolHost !== undefined) {
+        void customToolHost.load().then(
+          (inputs) => {
+            toolRegistry.setCustomTools(inputs);
+          },
+          (error: unknown) => {
+            log.warn({ err: error }, 'failed to load custom tools');
+          },
+        );
       }
     },
     notifyAllSessionsToolsChanged() {

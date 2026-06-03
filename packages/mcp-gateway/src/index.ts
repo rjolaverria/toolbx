@@ -59,6 +59,7 @@ export {
 export {
   createToolRegistry,
   type CreateToolRegistryOptions,
+  type CustomToolInput,
   type RegisteredTool,
   type ServerToolEntry,
   type ToolRegistry,
@@ -88,8 +89,12 @@ export {
 } from './bootstrap-tools/index.js';
 
 export {
+  createCustomToolHost,
   createGatewayRuntime,
+  CUSTOM_TOOL_META_KEY,
   type CreateGatewayRuntimeDeps,
   type CreateUpstreamSessionForRuntime,
+  type CustomToolHost,
+  type CustomToolHostDeps,
   type GatewayRuntime,
 } from './runtime/index.js';

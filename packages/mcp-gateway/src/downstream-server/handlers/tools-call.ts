@@ -5,6 +5,7 @@ import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotoco
 import {
   authExpiredMeta,
   routeToolCall,
+  type CustomToolExecutor,
   type Logger,
   type NamespaceOptions,
   type RouteResult,
@@ -94,6 +95,12 @@ export interface RegisterToolsCallHandlerOptions {
    * omitted.
    */
   isToolEnabled?: (exposedName: string) => boolean;
+  /**
+   * Executes `source: 'custom'` tools (P3-05). Forwarded to `routeToolCall`,
+   * which dispatches custom registry entries here instead of to an upstream
+   * session. Omitted when no custom tools are configured.
+   */
+  customExecutor?: CustomToolExecutor;
 }
 
 /**
@@ -227,6 +234,7 @@ export function registerToolsCallHandler(
     visibility,
     isDisclosureEnabled,
     isToolEnabled,
+    customExecutor,
   } = options;
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -318,6 +326,7 @@ export function registerToolsCallHandler(
       sessions: upstreams,
       namespacing,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(customExecutor !== undefined ? { customExecutor } : {}),
     });
     const durationMs = Date.now() - startedAt;
 

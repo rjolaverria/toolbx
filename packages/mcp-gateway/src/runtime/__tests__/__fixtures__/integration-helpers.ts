@@ -125,6 +125,11 @@ export interface StartHarnessOptions {
    */
   waitForServers?: readonly string[];
   waitTimeoutMs?: number;
+  /**
+   * ToolBox config directory. When set, the runtime exposes imported, enabled
+   * custom tools from `<configDir>/tools/manifest.json` (P3-05).
+   */
+  configDir?: string;
 }
 
 export interface StartedHarness {
@@ -146,6 +151,7 @@ export async function startHarness(options: StartHarnessOptions): Promise<Starte
     logger,
     ...(options.processEnv !== undefined ? { processEnv: options.processEnv } : {}),
     ...(options.tokenStore !== undefined ? { tokenStore: options.tokenStore } : {}),
+    ...(options.configDir !== undefined ? { configDir: options.configDir } : {}),
   });
   options.harness.runtimes.add(runtime);
   runtime.startUpstreams();
