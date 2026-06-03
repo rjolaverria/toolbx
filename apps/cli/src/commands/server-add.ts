@@ -1,4 +1,7 @@
+import * as path from 'node:path';
+
 import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import { readToolManifest, ToolManifestError } from '@toolbox/custom-tools';
 import {
   createNoopLogger,
   createTokenStore,
@@ -124,6 +127,39 @@ function rejectDuplicate(
   return false;
 }
 
+/**
+ * Reject a server name that matches an imported custom-tool namespace. The
+ * importer already refuses a tool namespace that equals a server name; this is
+ * the inverse guard, so the flat exposed-name space cannot collide regardless of
+ * which was created first (SPECS design principle 4). Runs before any probe /
+ * OAuth side effect. A corrupt tool manifest blocks the add with its own error
+ * rather than being silently treated as "no tools".
+ */
+async function rejectToolNamespaceCollision(
+  name: string,
+  target: string,
+  deps: ServerCommandDeps,
+): Promise<boolean> {
+  let entries;
+  try {
+    entries = await readToolManifest(path.dirname(target));
+  } catch (error) {
+    if (error instanceof ToolManifestError) {
+      deps.stderr(`${error.message}\n`);
+      return true;
+    }
+    throw error;
+  }
+  if (entries.some((entry) => entry.namespace === name)) {
+    deps.stderr(
+      `Server name "${name}" collides with the namespace of an imported custom tool. ` +
+        `Choose a different server name, or remove the custom tool(s) under "${name}" first.\n`,
+    );
+    return true;
+  }
+  return false;
+}
+
 function buildCandidate(
   config: ToolBoxConfig,
   name: string,
@@ -168,6 +204,9 @@ export async function runAddStdio(
     return 1;
   }
   if (rejectDuplicate(config, name, target, deps)) {
+    return 1;
+  }
+  if (await rejectToolNamespaceCollision(name, target, deps)) {
     return 1;
   }
 
@@ -344,8 +383,18 @@ async function runOAuthAndWrite(
     return 4;
   }
 
-  // Login succeeded and the token is stored. Write the config entry; any failure
-  // here must roll the token back so the command leaves no partial state.
+  // Login succeeded and the token is stored. A custom tool with this namespace
+  // could have been imported during the browser flow; re-check before writing,
+  // rolling the token back on collision so the command leaves no partial state.
+  if (await rejectToolNamespaceCollision(name, target, deps)) {
+    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
+      deps.stderr(orphanedTokenHint(name));
+    }
+    return 1;
+  }
+
+  // Write the config entry; any failure here must roll the token back so the
+  // command leaves no partial state.
   const entry = buildHttpEntry(options, headers, { type: 'oauth' });
   const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
   if (!validated.ok) {
@@ -407,6 +456,9 @@ export async function runAddHttp(
   if (rejectDuplicate(config, name, target, deps)) {
     return 1;
   }
+  if (await rejectToolNamespaceCollision(name, target, deps)) {
+    return 1;
+  }
 
   // Validate the server name before any auth branching. The probe and OAuth
   // paths have side effects (a network request, a browser flow, a token write)
@@ -449,6 +501,11 @@ export async function runAddHttp(
   const hint = await deps.probeAuth(serverUrl);
   switch (hint.kind) {
     case 'none': {
+      // A custom tool with this namespace could have been imported during the
+      // probe; re-check before writing.
+      if (await rejectToolNamespaceCollision(name, target, deps)) {
+        return 1;
+      }
       const entry = buildHttpEntry(options, headers, { type: 'none' });
       const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
       if (!validated.ok) {

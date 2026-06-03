@@ -4,7 +4,13 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { importTool, ToolImportError, type ToolManifest } from '../import.js';
+import {
+  commitImport,
+  importTool,
+  planImport,
+  ToolImportError,
+  type ToolManifest,
+} from '../import.js';
 
 /** The SPECS §6.2 example tool source (pure: no imports, JSON Schema input). */
 const SPEC_EXAMPLE = `/**
@@ -509,5 +515,80 @@ export default async function f() {
   it('is an instance of ToolImportError on failure', async () => {
     const sourcePath = await writeSource('send_slack_summary.py', SPEC_EXAMPLE);
     await expect(importTool(sourcePath, { configDir })).rejects.toBeInstanceOf(ToolImportError);
+  });
+
+  describe('planImport / commitImport', () => {
+    it('plans the manifest entry without writing anything to disk', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+
+      const plan = await planImport(sourcePath, { configDir });
+
+      expect(plan.manifest.exposedName).toBe('personal__send_slack_summary');
+      expect(plan.replacesExisting).toBe(false);
+      // No tools directory is created by planning alone.
+      await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
+    });
+
+    it('commits a plan, producing the same result as importTool', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+
+      const plan = await planImport(sourcePath, { configDir });
+      const result = await commitImport(plan);
+
+      expect(result.manifest).toEqual(plan.manifest);
+      const expectedPath = path.join(configDir, 'tools', 'personal', 'send_slack_summary.ts');
+      await expect(fs.readFile(expectedPath, 'utf8')).resolves.toBe(SPEC_EXAMPLE);
+      expect(await readManifestFile()).toHaveLength(1);
+    });
+
+    it('reports replacesExisting and overwrites on commit when force is set', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+      await importTool(sourcePath, { configDir });
+
+      const plan = await planImport(sourcePath, { configDir, force: true });
+      expect(plan.replacesExisting).toBe(true);
+
+      await commitImport(plan);
+      expect(await readManifestFile()).toHaveLength(1);
+    });
+
+    it('rejects an invalid tool at the planning stage without writing', async () => {
+      const sourcePath = await writeSource('send_slack_summary.py', SPEC_EXAMPLE);
+
+      await expect(planImport(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'unsupported-extension',
+      });
+      await expect(fs.readdir(path.join(configDir, 'tools'))).rejects.toThrow();
+    });
+
+    it('preserves a concurrent manifest change made between plan and commit', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+      const plan = await planImport(sourcePath, { configDir });
+
+      // Simulate another `tlbx tool` command landing a different tool while the
+      // import prompt is open: the commit must merge, not clobber, it.
+      const otherSource = SPEC_EXAMPLE.replace('send_slack_summary', 'other_tool');
+      await importTool(await writeSource('other_tool.ts', otherSource), { configDir });
+
+      await commitImport(plan);
+
+      const manifest = await readManifestFile();
+      const exposedNames = manifest.map((entry) => entry.exposedName).sort();
+      expect(exposedNames).toEqual(['personal__other_tool', 'personal__send_slack_summary']);
+    });
+
+    it('rejects at commit when the tool was concurrently imported and force is off', async () => {
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+      const plan = await planImport(sourcePath, { configDir });
+
+      // The same tool is imported concurrently before this plan commits.
+      await importTool(sourcePath, { configDir });
+
+      await expect(commitImport(plan)).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'tool-exists',
+      });
+    });
   });
 });

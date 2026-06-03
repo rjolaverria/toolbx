@@ -23,6 +23,7 @@
   "dependencies": {
     "@commander-js/extra-typings": "^14.0.0",
     "@toolbox/core": "workspace:*",
+    "@toolbox/custom-tools": "workspace:*",
     "@toolbox/mcp-gateway": "workspace:*",
     "commander": "^14.0.3"
   },

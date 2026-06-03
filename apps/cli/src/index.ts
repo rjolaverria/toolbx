@@ -14,6 +14,7 @@ import { serverCommand } from './commands/server.js';
 import { setupCommand } from './commands/setup.js';
 import { statusCommand } from './commands/status.js';
 import { stopCommand } from './commands/stop.js';
+import { toolCommand } from './commands/tool.js';
 import { toolsCommand } from './commands/tools.js';
 
 async function main(): Promise<void> {
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
   program.addCommand(runCommand());
   program.addCommand(stopCommand());
   program.addCommand(statusCommand());
+  program.addCommand(toolCommand());
   program.addCommand(toolsCommand());
   program.addCommand(clientCommand([registerClientInstall]));
   program.addCommand(configCommand());
