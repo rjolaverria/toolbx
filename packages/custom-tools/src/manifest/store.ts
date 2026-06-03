@@ -132,6 +132,34 @@ export interface SetEnabledResult {
 }
 
 /**
+ * Asserts the resolved source path is a readable regular file, so enabling
+ * cannot mark a tool whose source is missing, a directory, or unreadable —
+ * which would only fail later at load/exposure time. Throws
+ * `ToolManifestError('source-missing')` otherwise.
+ */
+async function assertEnableableSource(exposedName: string, entryPath: string): Promise<void> {
+  let isFile: boolean;
+  try {
+    const stats = await fs.stat(entryPath);
+    isFile = stats.isFile();
+    if (isFile) {
+      await fs.access(entryPath, fs.constants.R_OK);
+    }
+  } catch {
+    throw new ToolManifestError(
+      'source-missing',
+      `cannot enable "${exposedName}": its source file is missing or unreadable at ${entryPath}`,
+    );
+  }
+  if (!isFile) {
+    throw new ToolManifestError(
+      'source-missing',
+      `cannot enable "${exposedName}": its source path is not a regular file at ${entryPath}`,
+    );
+  }
+}
+
+/**
  * Toggles a custom tool's `enabled` flag and persists the manifest. Throws
  * `ToolManifestError('tool-not-found')` when no tool has the exposed name.
  *
@@ -156,14 +184,7 @@ export async function setToolEnabled(
   if (enabled) {
     // Throws ToolManifestError('invalid-manifest') for a tampered entry path.
     const entryPath = resolveToolEntryPath(configDir, current);
-    try {
-      await fs.access(entryPath);
-    } catch {
-      throw new ToolManifestError(
-        'source-missing',
-        `cannot enable "${exposedName}": its source file is missing or unreadable at ${entryPath}`,
-      );
-    }
+    await assertEnableableSource(exposedName, entryPath);
   }
   if (current.enabled === enabled) {
     return { manifest: current, changed: false };

@@ -175,6 +175,19 @@ describe('setToolEnabled', () => {
     const result = await setToolEnabled(configDir, 'personal__send_slack_summary', false);
     expect(result.changed).toBe(true);
   });
+
+  it('refuses to enable when the source path is a directory, not a regular file', async () => {
+    await importExample();
+    const entryPath = path.join(configDir, 'tools', 'personal', 'send_slack_summary.ts');
+    await fs.rm(entryPath);
+    await fs.mkdir(entryPath);
+
+    await expect(
+      setToolEnabled(configDir, 'personal__send_slack_summary', true),
+    ).rejects.toMatchObject({ code: 'source-missing' });
+    const after = await readToolManifest(configDir);
+    expect(after[0]?.enabled).toBe(false);
+  });
 });
 
 describe('removeTool', () => {

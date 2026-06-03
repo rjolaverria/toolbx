@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { importTool, readToolManifest } from '@toolbox/custom-tools';
+import { loadConfig, saveConfig } from '@toolbox/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runToolImport, type ToolImportDeps } from '../tool-import.js';
@@ -132,6 +133,35 @@ describe('runToolImport', () => {
     expect(code).toBe(1);
     expect(base.stderr.value).toContain('already exists');
     await expect(readToolManifest(harness.dir)).resolves.toHaveLength(1);
+  });
+
+  it('aborts when a colliding server is added during the prompt', async () => {
+    // The confirm prompt runs between planImport and the pre-commit re-check.
+    // Adding a server named after the tool's namespace there must make the
+    // import abort rather than create a colliding flat exposed-name space.
+    const sourcePath = await writeSource();
+    const base = makeHarness(harness.target);
+    const confirm = vi.fn().mockImplementation(async () => {
+      const config = await loadConfig(harness.target);
+      await saveConfig(
+        {
+          ...config,
+          servers: {
+            ...config.servers,
+            personal: { type: 'stdio', enabled: true, command: 'echo', args: [] },
+          },
+        },
+        harness.target,
+      );
+      return true;
+    });
+    const deps: ToolImportDeps = { ...base.deps, isTty: () => true, confirm };
+
+    const code = await runToolImport(sourcePath, {}, deps);
+
+    expect(code).toBe(1);
+    expect(base.stderr.value).toContain('now collides with a configured server');
+    await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
   });
 
   it('reports a missing config and tells the user to init', async () => {

@@ -104,6 +104,23 @@ export async function runToolImport(
     }
   }
 
+  // Re-check the namespace against the latest servers immediately before the
+  // write: a server with this name may have been added during the prompt. This
+  // narrows the window on the import side of the collision invariant; the
+  // server-add side re-checks the manifest symmetrically before its own write.
+  // (Fully closing it needs cross-store serialization — see task P3-07.)
+  const latest = await loadOrReportMissing(target, deps);
+  if (latest === null) {
+    return 1;
+  }
+  if (Object.prototype.hasOwnProperty.call(latest.servers, plan.manifest.namespace)) {
+    deps.stderr(
+      `Namespace "${plan.manifest.namespace}" now collides with a configured server added ` +
+        `since the preview. "${plan.manifest.exposedName}" was not imported.\n`,
+    );
+    return 1;
+  }
+
   // commitImport re-reads the manifest, so it can fail late (a tool imported
   // concurrently during the prompt, or a manifest that became corrupt). Surface
   // those as a normal command error rather than letting them reach the

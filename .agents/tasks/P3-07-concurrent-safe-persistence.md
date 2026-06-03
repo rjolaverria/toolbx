@@ -18,6 +18,14 @@ This is a pre-existing, project-wide property of the config layer; the custom
 tool manifest inherits the same model. It should be solved once, consistently,
 for both stores — not bolted onto one file.
 
+The same gap weakens the cross-store namespace-collision invariant (SPECS design
+principle 4). `tlbx tool import` and `tlbx server add` each guard the collision
+by reading the _other_ store, but with two unlocked files a concurrent writer
+can still slip a colliding name/namespace in between the check and the write.
+P3-04 narrows these windows by re-validating the opposite store immediately
+before each final write (and rolling the OAuth token back on a late collision),
+but only a shared lock closes them completely.
+
 ## Deliverables
 
 - A shared mechanism for concurrency-safe updates of a JSON document, applied to
@@ -39,6 +47,8 @@ for both stores — not bolted onto one file.
 
 - Two concurrent mutations of the same store do not lose an update: the final
   file reflects both changes (or the second cleanly retries against the first).
+- The namespace-collision invariant holds under concurrency: a server name and a
+  custom-tool namespace can never both end up registered for the same string.
 - Cross-platform (macOS, Linux, Windows) — no reliance on POSIX-only flock
   semantics unless guarded.
 - A stale lock (crashed process) does not deadlock subsequent commands.

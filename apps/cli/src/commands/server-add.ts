@@ -383,8 +383,18 @@ async function runOAuthAndWrite(
     return 4;
   }
 
-  // Login succeeded and the token is stored. Write the config entry; any failure
-  // here must roll the token back so the command leaves no partial state.
+  // Login succeeded and the token is stored. A custom tool with this namespace
+  // could have been imported during the browser flow; re-check before writing,
+  // rolling the token back on collision so the command leaves no partial state.
+  if (await rejectToolNamespaceCollision(name, target, deps)) {
+    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
+      deps.stderr(orphanedTokenHint(name));
+    }
+    return 1;
+  }
+
+  // Write the config entry; any failure here must roll the token back so the
+  // command leaves no partial state.
   const entry = buildHttpEntry(options, headers, { type: 'oauth' });
   const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
   if (!validated.ok) {
@@ -491,6 +501,11 @@ export async function runAddHttp(
   const hint = await deps.probeAuth(serverUrl);
   switch (hint.kind) {
     case 'none': {
+      // A custom tool with this namespace could have been imported during the
+      // probe; re-check before writing.
+      if (await rejectToolNamespaceCollision(name, target, deps)) {
+        return 1;
+      }
       const entry = buildHttpEntry(options, headers, { type: 'none' });
       const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
       if (!validated.ok) {

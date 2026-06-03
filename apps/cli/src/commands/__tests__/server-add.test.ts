@@ -449,6 +449,47 @@ describe('runAddHttp — discovery mode (no --auth flag)', () => {
     expect(config.servers.personal).toBeUndefined();
   });
 
+  it('rejects when a colliding tool is imported during the probe (no-auth path)', async () => {
+    const target = await makeTempConfig();
+    const h = makeHarness(target);
+    // The probe is the window: seed the colliding tool namespace during it.
+    h.deps.probeAuth = vi.fn(async (): Promise<AuthHint> => {
+      await seedToolNamespace(target, 'personal');
+      return { kind: 'none' };
+    });
+
+    const code = await runAddHttp('personal', httpOpts('https://svc.example.com/mcp'), h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('collides with the namespace of an imported custom tool');
+    const config = await loadConfig(target);
+    expect(config.servers.personal).toBeUndefined();
+  });
+
+  it('rejects and rolls back the token when a colliding tool is imported during OAuth', async () => {
+    const target = await makeTempConfig();
+    const h = makeHarness(target);
+    h.deps.probeAuth = vi.fn(() => Promise.resolve<AuthHint>({ kind: 'oauth' }));
+    // The browser flow is the window: seed the colliding tool namespace there
+    // (and write the token, as a real login would).
+    h.deps.runOAuthLogin = vi.fn(
+      async (input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> => {
+        await seedToolNamespace(target, 'personal');
+        await input.tokenStore.write(input.serverName, sampleRecord);
+        return { kind: 'success' };
+      },
+    );
+
+    const code = await runAddHttp('personal', httpOpts('https://svc.example.com/mcp'), h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('collides with the namespace of an imported custom tool');
+    const config = await loadConfig(target);
+    expect(config.servers.personal).toBeUndefined();
+    // The freshly-issued token was rolled back (no prior token existed).
+    await expect(h.store.read('personal')).resolves.toBeNull();
+  });
+
   it('probe returns none → writes a no-auth entry, does not run OAuth', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
