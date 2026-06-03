@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { importTool } from '../import.js';
+import { importTool, type ToolManifest } from '../import.js';
 import {
   findToolByExposedName,
   readToolManifest,
@@ -188,20 +188,69 @@ describe('removeTool', () => {
 });
 
 describe('resolveToolEntryPath', () => {
-  it('resolves a normal entry inside the tools directory', () => {
-    const resolved = resolveToolEntryPath(configDir, 'tools/personal/my_tool.ts');
+  function entryRecord(overrides: Partial<ToolManifest>): ToolManifest {
+    return {
+      name: 'my_tool',
+      namespace: 'personal',
+      exposedName: 'personal__my_tool',
+      title: 'My Tool',
+      description: 'A tool.',
+      entry: 'tools/personal/my_tool.ts',
+      runtime: 'node',
+      enabled: false,
+      timeoutMs: 30000,
+      permissions: { network: false, filesystem: false, env: [] },
+      ...overrides,
+    };
+  }
+
+  it('resolves a canonical entry to its absolute path', () => {
+    const resolved = resolveToolEntryPath(configDir, entryRecord({}));
     expect(resolved).toBe(path.join(configDir, 'tools', 'personal', 'my_tool.ts'));
   });
 
+  it('accepts a .js stored tool', () => {
+    const resolved = resolveToolEntryPath(
+      configDir,
+      entryRecord({ entry: 'tools/personal/my_tool.js' }),
+    );
+    expect(resolved).toBe(path.join(configDir, 'tools', 'personal', 'my_tool.js'));
+  });
+
   it('rejects a parent-traversal entry', () => {
-    expect(() => resolveToolEntryPath(configDir, '../escape.ts')).toThrow(ToolManifestError);
+    expect(() => resolveToolEntryPath(configDir, entryRecord({ entry: '../escape.ts' }))).toThrow(
+      ToolManifestError,
+    );
   });
 
   it('rejects an absolute entry', () => {
-    expect(() => resolveToolEntryPath(configDir, '/etc/passwd')).toThrow(ToolManifestError);
+    expect(() => resolveToolEntryPath(configDir, entryRecord({ entry: '/etc/passwd' }))).toThrow(
+      ToolManifestError,
+    );
   });
 
-  it('rejects an entry that resolves to the tools directory itself', () => {
-    expect(() => resolveToolEntryPath(configDir, 'tools')).toThrow(ToolManifestError);
+  it('rejects an entry pointing at the manifest or package.json', () => {
+    expect(() =>
+      resolveToolEntryPath(configDir, entryRecord({ entry: 'tools/manifest.json' })),
+    ).toThrow(ToolManifestError);
+    expect(() =>
+      resolveToolEntryPath(configDir, entryRecord({ entry: 'tools/package.json' })),
+    ).toThrow(ToolManifestError);
+  });
+
+  it("rejects an entry pointing at another tool's source", () => {
+    // entry segments must match the record's own namespace/name.
+    expect(() =>
+      resolveToolEntryPath(configDir, entryRecord({ entry: 'tools/personal/other.ts' })),
+    ).toThrow(ToolManifestError);
+  });
+
+  it('rejects unsafe namespace or name segments', () => {
+    expect(() =>
+      resolveToolEntryPath(
+        configDir,
+        entryRecord({ namespace: '..', entry: 'tools/../my_tool.ts' }),
+      ),
+    ).toThrow(ToolManifestError);
   });
 });

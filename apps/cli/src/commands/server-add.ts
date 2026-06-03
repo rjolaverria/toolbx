@@ -1,4 +1,7 @@
+import * as path from 'node:path';
+
 import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import { readToolManifest, ToolManifestError } from '@toolbox/custom-tools';
 import {
   createNoopLogger,
   createTokenStore,
@@ -124,6 +127,39 @@ function rejectDuplicate(
   return false;
 }
 
+/**
+ * Reject a server name that matches an imported custom-tool namespace. The
+ * importer already refuses a tool namespace that equals a server name; this is
+ * the inverse guard, so the flat exposed-name space cannot collide regardless of
+ * which was created first (SPECS design principle 4). Runs before any probe /
+ * OAuth side effect. A corrupt tool manifest blocks the add with its own error
+ * rather than being silently treated as "no tools".
+ */
+async function rejectToolNamespaceCollision(
+  name: string,
+  target: string,
+  deps: ServerCommandDeps,
+): Promise<boolean> {
+  let entries;
+  try {
+    entries = await readToolManifest(path.dirname(target));
+  } catch (error) {
+    if (error instanceof ToolManifestError) {
+      deps.stderr(`${error.message}\n`);
+      return true;
+    }
+    throw error;
+  }
+  if (entries.some((entry) => entry.namespace === name)) {
+    deps.stderr(
+      `Server name "${name}" collides with the namespace of an imported custom tool. ` +
+        `Choose a different server name, or remove the custom tool(s) under "${name}" first.\n`,
+    );
+    return true;
+  }
+  return false;
+}
+
 function buildCandidate(
   config: ToolBoxConfig,
   name: string,
@@ -168,6 +204,9 @@ export async function runAddStdio(
     return 1;
   }
   if (rejectDuplicate(config, name, target, deps)) {
+    return 1;
+  }
+  if (await rejectToolNamespaceCollision(name, target, deps)) {
     return 1;
   }
 
@@ -405,6 +444,9 @@ export async function runAddHttp(
     return 1;
   }
   if (rejectDuplicate(config, name, target, deps)) {
+    return 1;
+  }
+  if (await rejectToolNamespaceCollision(name, target, deps)) {
     return 1;
   }
 

@@ -112,12 +112,12 @@ describe('runToolInspect', () => {
   it('refuses to read a tampered entry that escapes the tools directory', async () => {
     await seedTool();
     const entries = await readToolManifest(harness.dir);
-    const tampered = entries.map((entry) => ({ ...entry, entry: '../../etc/passwd' }));
+    const tampered = entries.map((entry) => ({ ...entry, entry: '../../etc/passwd.ts' }));
     await writeToolManifest(harness.dir, tampered);
 
     const { deps, stderr } = makeHarness(harness.target);
     const code = await runToolInspect('personal__my_tool', {}, deps);
     expect(code).toBe(1);
-    expect(stderr.value).toContain('resolves outside the tools directory');
+    expect(stderr.value).toContain('does not match its expected storage path');
   });
 });

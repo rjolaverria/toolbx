@@ -92,7 +92,7 @@ export async function runToolInspect(
 
   let entryPath: string;
   try {
-    entryPath = resolveToolEntryPath(configDir, entry.entry);
+    entryPath = resolveToolEntryPath(configDir, entry);
   } catch (error) {
     if (error instanceof ToolManifestError) {
       return reportManifestError(error, deps);

@@ -36,26 +36,40 @@ export function toolsManifestPath(configDir: string): string {
   return path.join(toolsDirPath(configDir), MANIFEST_FILENAME);
 }
 
+/** Path segment charset for a namespace / name — matches the importer's rules. */
+const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
+
+/** Extensions a stored tool source may use (matches the importer). */
+const STORED_EXTENSIONS = new Set(['.ts', '.js']);
+
 /**
- * Resolves a manifest `entry` to an absolute path, refusing any value that
- * escapes the tools directory. The importer only ever writes
- * `tools/<namespace>/<name>.<ext>`, but a hand-edited or corrupt manifest could
- * carry an absolute path or `..` traversal; resolving it blindly would let a
- * read (`inspect`) or delete (`remove`) touch files outside `tools/`. Throws
- * `ToolManifestError('invalid-manifest')` when the entry does not land strictly
- * inside `toolsDirPath(configDir)`.
+ * Resolves a tool's source file to an absolute path, accepting only the exact
+ * storage convention the importer writes: `tools/<namespace>/<name>.<ext>` with
+ * `<ext>` in `.ts` / `.js`, where `<namespace>` and `<name>` are the entry's own
+ * fields and safe path segments. A hand-edited or corrupt manifest could
+ * otherwise carry an `entry` that points at `tools/manifest.json`,
+ * `tools/package.json`, another tool's source, or (via `..` / an absolute path)
+ * outside `tools/` entirely — letting a read (`inspect`) or delete (`remove`)
+ * touch the wrong file. Throws `ToolManifestError('invalid-manifest')` when the
+ * entry does not match its record's canonical path.
  */
-export function resolveToolEntryPath(configDir: string, entry: string): string {
-  const toolsDir = toolsDirPath(configDir);
-  const resolved = path.resolve(configDir, entry);
-  const relative = path.relative(toolsDir, resolved);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+export function resolveToolEntryPath(configDir: string, manifest: ToolManifest): string {
+  const { namespace, name, entry } = manifest;
+  const ext = path.posix.extname(entry);
+  if (!SAFE_SEGMENT.test(namespace) || !SAFE_SEGMENT.test(name) || !STORED_EXTENSIONS.has(ext)) {
     throw new ToolManifestError(
       'invalid-manifest',
-      `tool entry "${entry}" resolves outside the tools directory`,
+      `tool entry for "${namespace}/${name}" is not a valid stored tool path`,
     );
   }
-  return resolved;
+  const expected = `${TOOLS_DIR}/${namespace}/${name}${ext}`;
+  if (entry !== expected) {
+    throw new ToolManifestError(
+      'invalid-manifest',
+      `tool entry "${entry}" does not match its expected storage path "${expected}"`,
+    );
+  }
+  return path.join(configDir, TOOLS_DIR, namespace, `${name}${ext}`);
 }
 
 /**
@@ -165,8 +179,9 @@ export async function removeTool(
     throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
   }
   const target = entries[index] as ToolManifest;
-  // Refuse to delete anything the manifest points outside tools/ (tampered entry).
-  const entryPath = resolveToolEntryPath(configDir, target.entry);
+  // Only ever delete this record's own canonical tools/<ns>/<name>.<ext> path;
+  // a tampered entry pointing elsewhere is rejected, not followed.
+  const entryPath = resolveToolEntryPath(configDir, target);
 
   // Persist the manifest without the entry first, then delete the source file.
   // If the unlink fails the manifest no longer references it, so the worst case

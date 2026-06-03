@@ -15,6 +15,8 @@ import {
   type StoredOAuthRecord,
 } from '@toolbox/core';
 
+import { writeToolManifest, type ToolManifest } from '@toolbox/custom-tools';
+
 import {
   runAddHttp,
   runAddStdio,
@@ -24,6 +26,23 @@ import {
 } from '../server-add.js';
 
 const tempDirs: string[] = [];
+
+/** Seeds a custom-tool manifest with one tool under the given namespace. */
+async function seedToolNamespace(target: string, namespace: string): Promise<void> {
+  const entry: ToolManifest = {
+    name: 'thing',
+    namespace,
+    exposedName: `${namespace}__thing`,
+    title: 'Thing',
+    description: 'A custom tool.',
+    entry: `tools/${namespace}/thing.ts`,
+    runtime: 'node',
+    enabled: false,
+    timeoutMs: 30000,
+    permissions: { network: false, filesystem: false, env: [] },
+  };
+  await writeToolManifest(path.dirname(target), [entry]);
+}
 
 async function makeTempConfig(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-server-add-'));
@@ -115,6 +134,19 @@ function loginInput(h: Harness): RunOAuthLoginInput | undefined {
 }
 
 describe('runAddStdio', () => {
+  it('rejects a server name matching an imported custom-tool namespace', async () => {
+    const target = await makeTempConfig();
+    await seedToolNamespace(target, 'personal');
+    const h = makeHarness(target);
+
+    const code = await runAddStdio('personal', ['echo'], stdioOpts(), h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('collides with the namespace of an imported custom tool');
+    const config = await loadConfig(target);
+    expect(config.servers.personal).toBeUndefined();
+  });
+
   it('writes the SPECS §4.4 github example entry', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
@@ -399,6 +431,22 @@ describe('runAddHttp — discovery mode (no --auth flag)', () => {
     expect(h.deps.runOAuthLogin).not.toHaveBeenCalled();
     expect(h.stderr.value).toContain('Bad Name!');
     expect(await fs.readFile(target, 'utf8')).toBe(before);
+  });
+
+  it('rejects a name matching a custom-tool namespace before probing or OAuth', async () => {
+    const target = await makeTempConfig();
+    await seedToolNamespace(target, 'personal');
+    const h = makeHarness(target);
+    h.deps.probeAuth = vi.fn(() => Promise.resolve<AuthHint>({ kind: 'none' }));
+
+    const code = await runAddHttp('personal', httpOpts('https://svc.example.com/mcp'), h.deps);
+
+    expect(code).toBe(1);
+    expect(h.deps.probeAuth).not.toHaveBeenCalled();
+    expect(h.deps.runOAuthLogin).not.toHaveBeenCalled();
+    expect(h.stderr.value).toContain('collides with the namespace of an imported custom tool');
+    const config = await loadConfig(target);
+    expect(config.servers.personal).toBeUndefined();
   });
 
   it('probe returns none → writes a no-auth entry, does not run OAuth', async () => {
