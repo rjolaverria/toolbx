@@ -13,7 +13,18 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: ['apps/*/src/**', 'packages/*/src/**'],
-      exclude: ['**/__fixtures__/**', '**/__tests__/**'],
+      exclude: [
+        '**/__fixtures__/**',
+        '**/__tests__/**',
+        // Custom-tool sandbox child entry: runs only in a spawned child process, so the
+        // parent v8 collector cannot instrument it, and it intentionally mutates global
+        // `process`/`fetch` state (sealing hatches, gating network) which cannot be
+        // exercised safely inside the collector process. Its every branch is covered
+        // behaviorally by the runner integration tests (timeout, network/fs/codegen/kill
+        // denial, IPC-spoof rejection, schema/handler/args errors, forbidden-import,
+        // redaction).
+        '**/sandbox/harness.ts',
+      ],
       reportOnFailure: true,
       thresholds: {
         'apps/cli/src/**': {

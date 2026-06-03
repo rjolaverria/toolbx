@@ -1104,12 +1104,15 @@ Example custom tool:
  * @toolbox-tool namespace personal
  */
 
-import { z } from 'zod';
-
-export const inputSchema = z.object({
-  channel: z.string().describe('Slack channel ID or name'),
-  summary: z.string().describe('Summary text to send'),
-});
+export const inputSchema = {
+  type: 'object',
+  properties: {
+    channel: { type: 'string', description: 'Slack channel ID or name' },
+    summary: { type: 'string', description: 'Summary text to send' },
+  },
+  required: ['channel', 'summary'],
+  additionalProperties: false,
+};
 
 export default async function sendSlackSummary(input: { channel: string; summary: string }) {
   return {
@@ -1122,6 +1125,11 @@ export default async function sendSlackSummary(input: { channel: string; summary
   };
 }
 ```
+
+Custom tools are **pure**: they declare no runtime imports (no bare packages, no
+`node:` builtins, no relative or dynamic imports). `inputSchema` is a plain JSON Schema
+object, matching what `tools/list` exposes over MCP. Erased type-only imports are
+permitted because native type-stripping removes them at runtime.
 
 Import command:
 

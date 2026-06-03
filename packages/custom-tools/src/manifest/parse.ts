@@ -55,6 +55,14 @@ export interface ParsedToolMetadata {
    */
   readonly relativeImports: readonly string[];
   /**
+   * Runtime (non-erased) bare package and `node:` module specifiers the file
+   * imports, re-exports, or dynamically `import()`s / `require()`s with a literal
+   * specifier. Despite the name, bare `export … from` re-export specifiers are
+   * included here as well. Pure custom tools allow no runtime imports, so the
+   * importer rejects a tool that has any. Erased type-only imports are excluded.
+   */
+  readonly bareImports: readonly string[];
+  /**
    * Dynamic `import()` / `require()` calls with a computed (non-literal)
    * specifier. They cannot be proven self-contained, so the importer rejects
    * them too.
@@ -251,8 +259,43 @@ export interface StaticAnalysis {
   readonly hasInputSchema: boolean;
   readonly hasDefaultFunctionExport: boolean;
   readonly relativeImports: readonly string[];
+  readonly bareImports: readonly string[];
   readonly dynamicImports: readonly ParseIssue[];
   readonly syntaxErrors: readonly ParseIssue[];
+}
+
+/**
+ * Import lists and syntax errors for a tool source file, without requiring
+ * `@toolbox-tool` metadata directives. Used by the runner to re-validate
+ * stored-tool purity at execution time — the on-disk file may have been edited
+ * after import to add a static `import 'node:fs'` that would bypass the child
+ * permission gates.
+ */
+export interface ToolImportAnalysis {
+  readonly relativeImports: readonly string[];
+  readonly bareImports: readonly string[];
+  readonly dynamicImports: readonly ParseIssue[];
+  readonly syntaxErrors: readonly ParseIssue[];
+}
+
+/**
+ * Parses a tool source file for runtime imports and syntax errors without
+ * requiring the `@toolbox-tool` JSDoc metadata directives. Works on any tool
+ * fixture or stored tool file regardless of whether metadata is present.
+ */
+export function analyzeToolImports(source: string, filename: string): ToolImportAnalysis {
+  const programFile = programFileFor(filename);
+  const sourceFile = ts.createSourceFile(
+    programFile.name,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    programFile.scriptKind,
+  );
+  const program = createSingleFileProgram(sourceFile, programFile.name);
+  const { relativeImports, bareImports, dynamicImports } = collectModuleReferences(sourceFile);
+  const syntaxErrors = syntacticIssues(program, sourceFile);
+  return { relativeImports, bareImports, dynamicImports, syntaxErrors };
 }
 
 /**
@@ -313,6 +356,8 @@ function isErasedExport(node: ts.ExportDeclaration): boolean {
 interface ModuleReferences {
   /** Literal relative / absolute specifiers (`./util.js`, `../x`, `/abs`). */
   readonly relativeImports: string[];
+  /** Literal bare package and `node:` specifiers (non-relative, non-computed). */
+  readonly bareImports: string[];
   /**
    * Dynamic `import(...)` / `require(...)` whose specifier is computed rather
    * than a string literal, so it cannot be proven self-contained.
@@ -325,24 +370,28 @@ interface ModuleReferences {
  * relocated: literal relative / absolute specifiers (from static `import` /
  * `export ... from`, `import x = require('...')`, and literal dynamic
  * `import()` / `require()`), plus dynamic `import()` / `require()` with a
- * computed (non-literal) specifier. Bare package and `node:` specifiers resolve
- * from `node_modules` at runtime and are ignored.
+ * computed (non-literal) specifier. Bare package and `node:` specifiers are
+ * returned in `bareImports`; relative/absolute ones in `relativeImports`;
+ * computed dynamic calls in `dynamicImports`.
  */
 function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
   const relativeImports: string[] = [];
+  const bareImports: string[] = [];
   const dynamicImports: ParseIssue[] = [];
 
   const lineOf = (node: ts.Node): number =>
     sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 
-  // A statically-required string-literal specifier: only the relative ones matter.
+  // A string-literal specifier: route relative ones to relativeImports, bare
+  // package / node: ones to bareImports.
   const recordLiteral = (specifier: ts.Expression | undefined): void => {
-    if (
-      specifier !== undefined &&
-      ts.isStringLiteralLike(specifier) &&
-      isRelativeSpecifier(specifier.text)
-    ) {
+    if (specifier === undefined || !ts.isStringLiteralLike(specifier)) {
+      return;
+    }
+    if (isRelativeSpecifier(specifier.text)) {
       relativeImports.push(specifier.text);
+    } else {
+      bareImports.push(specifier.text);
     }
   };
 
@@ -358,6 +407,8 @@ function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
     if (ts.isStringLiteralLike(specifier)) {
       if (isRelativeSpecifier(specifier.text)) {
         relativeImports.push(specifier.text);
+      } else {
+        bareImports.push(specifier.text);
       }
       return;
     }
@@ -396,7 +447,7 @@ function collectModuleReferences(sourceFile: ts.SourceFile): ModuleReferences {
   };
 
   visit(sourceFile);
-  return { relativeImports, dynamicImports };
+  return { relativeImports, bareImports, dynamicImports };
 }
 
 /** Maps the source file's syntactic (parse) diagnostics to 1-based issues. */
@@ -440,7 +491,7 @@ function analyzeExports(source: string, filename: string): StaticAnalysis {
 
   const program = createSingleFileProgram(sourceFile, programFile.name);
   const checker = program.getTypeChecker();
-  const { relativeImports, dynamicImports } = collectModuleReferences(sourceFile);
+  const { relativeImports, bareImports, dynamicImports } = collectModuleReferences(sourceFile);
   const syntaxErrors = syntacticIssues(program, sourceFile);
 
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
@@ -450,6 +501,7 @@ function analyzeExports(source: string, filename: string): StaticAnalysis {
       hasInputSchema: false,
       hasDefaultFunctionExport: false,
       relativeImports,
+      bareImports,
       dynamicImports,
       syntaxErrors,
     };
@@ -469,6 +521,7 @@ function analyzeExports(source: string, filename: string): StaticAnalysis {
       isRuntimeValueExport(checker, defaultExport) &&
       isFunctionExport(checker, defaultExport),
     relativeImports,
+    bareImports,
     dynamicImports,
     syntaxErrors,
   };
@@ -597,6 +650,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     hasInputSchema: exports.hasInputSchema,
     hasDefaultFunctionExport: exports.hasDefaultFunctionExport,
     relativeImports: exports.relativeImports,
+    bareImports: exports.bareImports,
     dynamicImports: exports.dynamicImports,
     syntaxErrors: exports.syntaxErrors,
     warnings,

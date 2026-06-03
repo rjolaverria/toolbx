@@ -282,6 +282,25 @@ describe('createLogger (pretty mode + ANSI gating)', () => {
   });
 });
 
+describe('createLogger (redact)', () => {
+  it('redacts configured structured paths', () => {
+    const sink = new Sink();
+    const logger = createLogger({
+      format: 'json',
+      destination: sink,
+      redact: ['permissions.token'],
+    });
+
+    logger.info({ permissions: { token: 'super-secret' } }, 'call');
+
+    const [record] = sink.jsonLines();
+    expect(record).toBeDefined();
+    const permissions = record?.['permissions'] as Record<string, unknown> | undefined;
+    expect(permissions?.['token']).toBe('[Redacted]');
+    expect(JSON.stringify(record)).not.toContain('super-secret');
+  });
+});
+
 describe('createNoopLogger', () => {
   it('does not write to stderr or stdout', () => {
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

@@ -8,6 +8,9 @@
   "exports": {
     ".": "./dist/index.js"
   },
+  "engines": {
+    "node": ">=22.7.0"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -17,6 +20,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
     "@toolbox/core": "workspace:*",
     "typescript": "^6.0.3",
     "zod": "^4.3.6"
