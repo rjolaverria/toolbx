@@ -47,4 +47,31 @@ describe('computeConfigIdentity', () => {
   it('returns a 64-char hex sha256 digest', () => {
     expect(computeConfigIdentity(DEFAULT_CONFIG)).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('is unchanged by an empty or omitted custom-tool manifest', () => {
+    const base = computeConfigIdentity(DEFAULT_CONFIG);
+    expect(computeConfigIdentity(DEFAULT_CONFIG, [])).toBe(base);
+    expect(computeConfigIdentity(DEFAULT_CONFIG, undefined)).toBe(base);
+  });
+
+  it('changes when the custom-tool manifest changes (enable/disable/remove)', () => {
+    const tool = {
+      name: 'echo',
+      namespace: 'personal',
+      exposedName: 'personal__echo',
+      title: 'Echo',
+      description: 'Echo',
+      entry: 'tools/personal/echo.ts',
+      runtime: 'node',
+      enabled: true,
+      timeoutMs: 30_000,
+      permissions: { network: false, filesystem: false, env: [] },
+    };
+    const enabled = computeConfigIdentity(DEFAULT_CONFIG, [tool]);
+    const disabled = computeConfigIdentity(DEFAULT_CONFIG, [{ ...tool, enabled: false }]);
+    const removed = computeConfigIdentity(DEFAULT_CONFIG, []);
+    expect(enabled).not.toBe(disabled);
+    expect(enabled).not.toBe(removed);
+    expect(disabled).not.toBe(removed);
+  });
 });

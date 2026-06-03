@@ -4,7 +4,6 @@ import * as path from 'node:path';
 import { Command, Option } from '@commander-js/extra-typings';
 import {
   clearServeState,
-  computeConfigIdentity,
   createLogger,
   loadConfig,
   readServeState,
@@ -20,6 +19,7 @@ import {
   type ToolBoxConfig,
   type WriteToolCacheInput,
 } from '@toolbox/core';
+import { computeDaemonIdentity as defaultComputeDaemonIdentity } from './daemon-identity.js';
 import { defaultServeDetachDeps, runServeDetached } from './serve-detach.js';
 import {
   createDownstreamHttpServer,
@@ -158,6 +158,13 @@ export interface ServeDeps {
   /** Pid recorded in the published state; defaults to `process.pid`. */
   pid?: () => number;
   /**
+   * Computes the daemon identity published in the state file — over the config
+   * *and* the custom-tool manifest, so a manifest change (`tlbx tool
+   * enable/disable/remove/import`) invalidates a reused daemon (P3-05). Reads
+   * the manifest from disk by default; injectable so tests avoid the read.
+   */
+  computeDaemonIdentity?: (config: ToolBoxConfig, configPath: string) => Promise<string>;
+  /**
    * Reports whether this process was spawned as a managed daemon (the
    * {@link MANAGED_CHILD_FD} handshake). Gates all daemon-state behavior so a
    * forged env cannot opt a plain `tlbx serve` into managed mode. Defaults to
@@ -191,6 +198,7 @@ export function defaultServeDeps(): ServeDeps {
     now: () => new Date(),
     pid: () => process.pid,
     isManagedChild: () => hasManagedChildHandle(),
+    computeDaemonIdentity: (config, configPath) => defaultComputeDaemonIdentity(config, configPath),
   };
 }
 
@@ -338,7 +346,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     const published = await publishManagedState(
       managed,
       downstream.url,
-      computeConfigIdentity(config),
+      await (deps.computeDaemonIdentity ?? defaultComputeDaemonIdentity)(config, configPath),
       deps,
     );
     if (!published) {

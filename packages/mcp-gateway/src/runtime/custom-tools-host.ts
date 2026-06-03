@@ -9,7 +9,9 @@ import type {
 import {
   describeTool as defaultDescribeTool,
   readToolManifest as defaultReadToolManifest,
+  resolveToolEntryPath,
   runTool as defaultRunTool,
+  ToolManifestError,
   type DescribeOutcome,
   type RunOutcome,
   type ToolManifest,
@@ -139,6 +141,22 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
           'custom tool namespace collides with an enabled server; skipping',
         );
         continue;
+      }
+      // Pin the entry to its canonical `tools/<namespace>/<name>.<ext>` path —
+      // the same guard enable/remove/inspect apply — so a hand-edited manifest
+      // cannot point an enabled tool at a file outside the tools tree for the
+      // describe or execution path to act on.
+      try {
+        resolveToolEntryPath(deps.configDir, entry);
+      } catch (error) {
+        if (error instanceof ToolManifestError) {
+          log.warn(
+            { tool: entry.exposedName, err: error },
+            'custom tool entry path is not canonical; skipping',
+          );
+          continue;
+        }
+        throw error;
       }
       let outcome: DescribeOutcome;
       try {

@@ -151,6 +151,9 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     now: () => new Date('2026-05-25T12:00:00.000Z'),
     pid: () => 4242,
     isManagedChild: () => false,
+    // Synchronous stub: the real implementation reads the custom-tool manifest
+    // from disk; tests have no manifest, so the identity is config-only.
+    computeDaemonIdentity: (cfg) => Promise.resolve(computeConfigIdentity(cfg)),
   };
 
   return {
@@ -379,6 +382,9 @@ describe('runServe', () => {
 
     const promise = runServe({ http: true, forceHttp: true }, h.deps);
     await Promise.resolve();
+    await Promise.resolve();
+    // One extra microtask: the managed-state publish now awaits the daemon
+    // identity (config + custom-tool manifest) before writing the state file.
     await Promise.resolve();
 
     // State is published before onStarted fires and before done resolves.

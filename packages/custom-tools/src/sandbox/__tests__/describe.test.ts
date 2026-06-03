@@ -48,6 +48,16 @@ describe('describeTool', () => {
     });
   });
 
+  it('reports invalid-handler when the default export is not a function', async () => {
+    // The gateway must not advertise an uncallable tool: describe confirms a
+    // function default export exists (without invoking it) before returning.
+    const outcome = await describeTool(manifest('bad-handler.ts'));
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('invalid-handler');
+    }
+  });
+
   it('reports invalid-schema when inputSchema is not an object', async () => {
     const outcome = await describeTool(manifest('invalid-schema.ts'));
     expect(outcome.outcome).toBe('error');

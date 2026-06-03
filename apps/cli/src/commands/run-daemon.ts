@@ -2,7 +2,6 @@ import * as path from 'node:path';
 
 import {
   clearServeState,
-  computeConfigIdentity,
   defaultProbeDeps,
   isProcessAlive,
   loadConfig,
@@ -18,6 +17,7 @@ import {
   type WaitForDaemonReadyDeps,
 } from '@toolbox/core';
 
+import { computeDaemonIdentity } from './daemon-identity.js';
 import {
   buildEndpointUrl,
   defaultServeDetachDeps,
@@ -164,7 +164,7 @@ export async function ensureDaemon(
       // — so refuse rather than route calls (and derive remediation) against a
       // daemon running stale config. Recovery is the same `tlbx stop` the reuse
       // contract already expects (SPECS §5.6).
-      if (existing.configHash !== computeConfigIdentity(config)) {
+      if (existing.configHash !== (await computeDaemonIdentity(config, configPath))) {
         return {
           ok: false,
           code: 1,
@@ -227,7 +227,7 @@ export async function ensureDaemon(
   // identity, not the pre-spawn load, so the returned `config` (used for
   // remediation) always reflects the daemon actually serving (matches the
   // reuse-path drift guard above).
-  if (state.configHash !== computeConfigIdentity(config)) {
+  if (state.configHash !== (await computeDaemonIdentity(config, configPath))) {
     return {
       ok: false,
       code: 1,

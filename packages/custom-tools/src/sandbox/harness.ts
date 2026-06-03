@@ -184,6 +184,15 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
+  // The handler must exist for the tool to be callable. Check it before the
+  // describe-mode return so the gateway never advertises an uncallable tool
+  // (e.g. a stored file edited after import to drop its default export); the
+  // check inspects the binding's type without invoking it.
+  if (typeof mod.default !== 'function') {
+    await fail('invalid-handler', 'tool default export is not a function');
+    return;
+  }
+
   // Describe mode (P3-05): the gateway only needs the schema to advertise the
   // tool in `tools/list`. Return it without constructing a validator or invoking
   // the handler — exposure does not execute tool code, and a hanging or throwing
@@ -198,11 +207,6 @@ async function run(request: SandboxRequest): Promise<void> {
     validator = new Validator(schema);
   } catch (error) {
     await fail('invalid-schema', error instanceof Error ? error.message : String(error));
-    return;
-  }
-
-  if (typeof mod.default !== 'function') {
-    await fail('invalid-handler', 'tool default export is not a function');
     return;
   }
 

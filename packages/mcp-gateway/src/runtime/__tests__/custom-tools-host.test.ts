@@ -94,6 +94,25 @@ describe('createCustomToolHost', () => {
     expect(describeFn).not.toHaveBeenCalled();
   });
 
+  it('skips a tool whose manifest entry escapes the canonical storage path', async () => {
+    const describeFn = vi.fn(
+      (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),
+    );
+    const host = createCustomToolHost(
+      // entry points at a different file than the record's namespace/name imply —
+      // resolveToolEntryPath rejects it, so it is never described or runnable.
+      deps({
+        readManifest: vi.fn(
+          (): Promise<ToolManifest[]> =>
+            Promise.resolve([manifest({ entry: 'tools/personal/tampered.ts' })]),
+        ),
+        describe: describeFn,
+      }),
+    );
+    expect(await host.load()).toEqual([]);
+    expect(describeFn).not.toHaveBeenCalled();
+  });
+
   it('skips a tool whose schema cannot be resolved', async () => {
     const host = createCustomToolHost(
       deps({

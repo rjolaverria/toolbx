@@ -109,4 +109,33 @@ describe('tlbx run — custom tool through the daemon', () => {
     expect(envelope.ok).toBe(true);
     expect(envelope.result.content).toEqual([{ type: 'text', text: 'Hello world' }]);
   }, 60_000);
+
+  it('treats a running daemon as stale after a custom tool is disabled', async () => {
+    const config = await makeConfig({ servers: {} });
+    const handle = await makeTempConfig(config);
+    tempConfigs.push(handle);
+
+    expect(
+      (await runCli(['tool', 'import', GREET_FIXTURE, '--yes', '--config', handle.target])).code,
+    ).toBe(0);
+    expect(
+      (await runCli(['tool', 'enable', 'personal__greet', '--config', handle.target])).code,
+    ).toBe(0);
+
+    // Start the daemon and confirm the tool is exposed.
+    await waitForToolListed(handle.target, 'personal__greet');
+
+    // Disable the tool — this edits tools/manifest.json, not config.json.
+    expect(
+      (await runCli(['tool', 'disable', 'personal__greet', '--config', handle.target])).code,
+    ).toBe(0);
+
+    // The daemon identity now folds in the manifest, so the running daemon is
+    // detected as stale rather than continuing to serve the disabled tool.
+    const reused = await runCli(['run', '--list', '--output', 'json', '--config', handle.target], {
+      timeoutMs: 30_000,
+    });
+    expect(reused.code).not.toBe(0);
+    expect(reused.stderr).toMatch(/different config|tlbx stop/i);
+  }, 60_000);
 });
