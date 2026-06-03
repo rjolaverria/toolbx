@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { readToolManifest } from '@toolbox/custom-tools';
+import { importTool, readToolManifest } from '@toolbox/custom-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runToolImport, type ToolImportDeps } from '../tool-import.js';
@@ -113,6 +113,25 @@ describe('runToolImport', () => {
     expect(code).toBe(1);
     expect(stderr.value).toContain('@toolbox-tool');
     await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
+  });
+
+  it('reports a commit-time collision as a normal command error', async () => {
+    // The confirm prompt runs between planImport and commitImport. Importing the
+    // same tool there makes commitImport's re-check fail late — it must surface
+    // as a command error (exit 1 + stderr), not bubble to the top-level handler.
+    const sourcePath = await writeSource();
+    const base = makeHarness(harness.target);
+    const confirm = vi.fn().mockImplementation(async () => {
+      await importTool(sourcePath, { configDir: harness.dir });
+      return true;
+    });
+    const deps: ToolImportDeps = { ...base.deps, isTty: () => true, confirm };
+
+    const code = await runToolImport(sourcePath, {}, deps);
+
+    expect(code).toBe(1);
+    expect(base.stderr.value).toContain('already exists');
+    await expect(readToolManifest(harness.dir)).resolves.toHaveLength(1);
   });
 
   it('reports a missing config and tells the user to init', async () => {

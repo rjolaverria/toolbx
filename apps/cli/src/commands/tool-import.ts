@@ -104,7 +104,20 @@ export async function runToolImport(
     }
   }
 
-  const result = await commitImport(plan);
+  // commitImport re-reads the manifest, so it can fail late (a tool imported
+  // concurrently during the prompt, or a manifest that became corrupt). Surface
+  // those as a normal command error rather than letting them reach the
+  // top-level handler.
+  let result: Awaited<ReturnType<typeof commitImport>>;
+  try {
+    result = await commitImport(plan);
+  } catch (error) {
+    if (error instanceof ToolImportError) {
+      deps.stderr(`${error.message}\n`);
+      return 1;
+    }
+    throw error;
+  }
   deps.stdout(
     `Imported "${result.manifest.exposedName}" (disabled). ` +
       `Enable it with \`tlbx tool enable ${result.manifest.exposedName}\`.\n`,
