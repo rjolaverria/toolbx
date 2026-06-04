@@ -27,6 +27,9 @@ import type { CustomToolInput } from '../registry/index.js';
  */
 export const CUSTOM_TOOL_META_KEY = 'toolbox/custom';
 
+/** Namespace reserved for ToolBox's own bootstrap/internal tools (`toolbox__*`). */
+const RESERVED_NAMESPACE = 'toolbox';
+
 /**
  * Bridges imported custom tools (P3-05) into the gateway. `load()` reads the
  * manifest, resolves each enabled tool's `inputSchema` via the custom-tool
@@ -154,6 +157,17 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
       log.warn(
         { tool: entry.exposedName, namespace: entry.namespace },
         'custom tool namespace collides with an enabled server; skipping',
+      );
+      return false;
+    }
+    // The `toolbox` namespace is reserved for ToolBox's own bootstrap tools
+    // (`toolbox__search_tools`, …). A custom tool under it would be shadowed by
+    // the bootstrap dispatch in `tools/call` and filtered from `tools/list`,
+    // i.e. unreachable, so skip it rather than publish an uncallable entry.
+    if (entry.namespace === RESERVED_NAMESPACE) {
+      log.warn(
+        { tool: entry.exposedName },
+        'custom tool uses the reserved "toolbox" namespace; skipping',
       );
       return false;
     }

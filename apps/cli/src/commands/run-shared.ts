@@ -214,31 +214,31 @@ const COLD_START_POLL_MS = 100;
 
 /**
  * Returns a `tools/list` snapshot that includes every name in
- * `expectedExposedNames` when possible.
+ * `expectedExposedNames` when possible, polling for up to `budgetMs` (floored).
  *
  * A managed daemon reports ready as soon as its HTTP listener binds — before it
  * has finished resolving custom-tool schemas off the hot path (P3-05). So a
- * `tlbx run` that just *cold-started* the daemon can list/search/call a freshly
- * enabled custom tool before it is registered and get a spurious "unknown tool"
- * or a missing row. When the daemon was cold-started (`reused === false`) and any
- * expected name is absent, poll the listing briefly until they all appear. A
- * reused daemon has already settled, so it is returned as-is; a name that never
- * appears (a genuinely unknown tool, or one that errored during load) simply
- * times out and the caller proceeds with the latest snapshot.
+ * `tlbx run` can observe a freshly enabled custom tool before it is registered
+ * and get a spurious "unknown tool" or missing row — including against a *reused*
+ * daemon that another process cold-started moments earlier and that is still
+ * loading. When an expected name is absent, poll until it appears or the budget
+ * elapses; an already-present set returns immediately, so a settled daemon pays
+ * nothing. Callers pass a short budget for a reused daemon (it is almost settled,
+ * and a never-appearing name is a broken/skipped tool, not slow loading) and the
+ * tool's own `timeoutMs` for a cold start.
  */
 export async function awaitColdStartTools(
   client: DaemonClient,
   expectedExposedNames: readonly string[],
   budgetMs: number,
   listed: DaemonListToolsResult,
-  reused: boolean,
   deps: RunDeps,
 ): Promise<DaemonListToolsResult> {
   const allPresent = (l: DaemonListToolsResult): boolean => {
     const present = new Set(l.tools.map((t) => t.name));
     return expectedExposedNames.every((n) => present.has(n));
   };
-  if (reused || expectedExposedNames.length === 0 || allPresent(listed)) {
+  if (expectedExposedNames.length === 0 || allPresent(listed)) {
     return listed;
   }
   const delay = deps.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -271,8 +271,10 @@ function isConfigEnabled(config: ToolBoxConfig, exposedName: string): boolean {
  * Cold-start bridge for a single target tool. Waits only when `exposedName` is an
  * enabled custom tool — enabled in *both* the manifest and `config.tools`, since a
  * config-disabled tool is filtered out of `tools/list` and would never appear.
- * Upstream tools are the daemon's authority and never gate. Uses the tool's own
- * `timeoutMs` as the wait ceiling.
+ * Upstream tools are the daemon's authority and never gate. The wait ceiling is
+ * the tool's own `timeoutMs` for a cold start, or the short floor for a reused
+ * daemon (it should already be loaded; a longer wait would only stall on a
+ * broken/skipped tool).
  */
 export async function awaitColdStartTarget(
   client: DaemonClient,
@@ -283,21 +285,20 @@ export async function awaitColdStartTarget(
   reused: boolean,
   deps: RunDeps,
 ): Promise<DaemonListToolsResult> {
-  if (reused) {
-    return listed;
-  }
   const customs = await readEnabledCustomTools(configPath, deps);
   const match = customs.find((c) => c.exposedName === exposedName);
   if (match === undefined || !isConfigEnabled(config, exposedName)) {
     return listed;
   }
-  return awaitColdStartTools(client, [exposedName], match.timeoutMs, listed, reused, deps);
+  const budget = reused ? COLD_START_MIN_BUDGET_MS : match.timeoutMs;
+  return awaitColdStartTools(client, [exposedName], budget, listed, deps);
 }
 
 /**
  * Cold-start bridge for the whole listing (`--list` / `--search`). Waits for every
- * custom tool that is enabled in both the manifest and `config.tools` to register,
- * with a budget of the largest such tool's `timeoutMs`.
+ * custom tool that is enabled in both the manifest and `config.tools` to register.
+ * The budget is the largest such tool's `timeoutMs` for a cold start, or the short
+ * floor for a reused daemon.
  */
 export async function awaitColdStartAll(
   client: DaemonClient,
@@ -307,22 +308,18 @@ export async function awaitColdStartAll(
   reused: boolean,
   deps: RunDeps,
 ): Promise<DaemonListToolsResult> {
-  if (reused) {
-    return listed;
-  }
   const customs = (await readEnabledCustomTools(configPath, deps)).filter((c) =>
     isConfigEnabled(config, c.exposedName),
   );
   if (customs.length === 0) {
     return listed;
   }
-  const budget = Math.max(...customs.map((c) => c.timeoutMs));
+  const budget = reused ? COLD_START_MIN_BUDGET_MS : Math.max(...customs.map((c) => c.timeoutMs));
   return awaitColdStartTools(
     client,
     customs.map((c) => c.exposedName),
     budget,
     listed,
-    reused,
     deps,
   );
 }

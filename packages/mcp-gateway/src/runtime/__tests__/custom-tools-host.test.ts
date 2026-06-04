@@ -143,6 +143,30 @@ describe('createCustomToolHost', () => {
     expect(describeFn).not.toHaveBeenCalled();
   });
 
+  it('skips a custom tool that uses the reserved "toolbox" namespace', async () => {
+    const describeFn = vi.fn(
+      (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),
+    );
+    const host = createCustomToolHost(
+      deps({
+        readManifest: vi.fn(
+          (): Promise<ToolManifest[]> =>
+            Promise.resolve([
+              manifest({
+                namespace: 'toolbox',
+                name: 'search_tools',
+                exposedName: 'toolbox__search_tools',
+                entry: 'tools/toolbox/search_tools.ts',
+              }),
+            ]),
+        ),
+        describe: describeFn,
+      }),
+    );
+    expect(await host.load()).toEqual([]);
+    expect(describeFn).not.toHaveBeenCalled();
+  });
+
   it('skips a tool whose stored exposedName does not match namespace + separator + name', async () => {
     const describeFn = vi.fn(
       (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),

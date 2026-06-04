@@ -47,17 +47,10 @@ function fakeClient(sequence: Listed[]): { listTools: () => Promise<Listed>; cal
 }
 
 describe('awaitColdStartTools', () => {
-  it('returns the initial listing unchanged for a reused daemon', async () => {
+  it('returns immediately for an empty expected set', async () => {
     const client = fakeClient([listing('personal__echo')]);
     const initial = listing();
-    const result = await awaitColdStartTools(
-      client as never,
-      ['personal__echo'],
-      2000,
-      initial,
-      true,
-      deps,
-    );
+    const result = await awaitColdStartTools(client as never, [], 2000, initial, deps);
     expect(result).toBe(initial);
     expect(client.calls()).toBe(0);
   });
@@ -70,21 +63,19 @@ describe('awaitColdStartTools', () => {
       ['personal__echo'],
       2000,
       initial,
-      false,
       deps,
     );
     expect(result).toBe(initial);
     expect(client.calls()).toBe(0);
   });
 
-  it('polls a cold-started daemon until the tool appears', async () => {
+  it('polls until the tool appears', async () => {
     const client = fakeClient([listing(), listing('personal__echo')]);
     const result = await awaitColdStartTools(
       client as never,
       ['personal__echo'],
       2000,
       listing(),
-      false,
       deps,
     );
     expect(result.tools.map((t) => t.name)).toContain('personal__echo');
@@ -105,7 +96,6 @@ describe('awaitColdStartTools', () => {
       ['personal__missing'],
       2000,
       listing(),
-      false,
       slowDeps,
     );
     expect(result.tools.map((t) => t.name)).not.toContain('personal__missing');
@@ -141,6 +131,24 @@ describe('awaitColdStartTarget', () => {
       depsWithCustom([{ exposedName: 'personal__echo', timeoutMs: 30_000 }]),
     );
     expect(result.tools.map((t) => t.name)).toContain('personal__echo');
+  });
+
+  it('still polls a reused daemon that is mid-load (tool not yet registered)', async () => {
+    // A reused daemon another process just cold-started can still be resolving
+    // custom schemas; an enabled custom target absent from the first listing must
+    // be polled for, not assumed missing.
+    const client = fakeClient([listing(), listing('personal__echo')]);
+    const result = await awaitColdStartTarget(
+      client as never,
+      'personal__echo',
+      '/cfg/config.json',
+      DEFAULT_CONFIG,
+      listing(),
+      true, // reused
+      depsWithCustom([{ exposedName: 'personal__echo', timeoutMs: 30_000 }]),
+    );
+    expect(result.tools.map((t) => t.name)).toContain('personal__echo');
+    expect(client.calls()).toBeGreaterThanOrEqual(1);
   });
 });
 

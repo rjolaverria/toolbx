@@ -25,6 +25,9 @@ const IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 /** Default namespace separator for exposed tool names (SPECS §6.2). */
 const DEFAULT_SEPARATOR = '__';
 
+/** Namespace reserved for ToolBox's own bootstrap/internal tools (`toolbox__*`). */
+const RESERVED_NAMESPACE = 'toolbox';
+
 /** Sub-directory of the config directory that holds imported tools. */
 export const TOOLS_DIR = 'tools';
 export const MANIFEST_FILENAME = 'manifest.json';
@@ -279,6 +282,16 @@ export async function planImport(
       'invalid-identifier',
       sourcePath,
       `@toolbox-tool namespace "${metadata.namespace}" must not contain the "${separator}" namespace separator`,
+    );
+  }
+  // `toolbox` is reserved for ToolBox's own bootstrap tools (`toolbox__*`). A
+  // custom tool under it would be shadowed by the gateway's bootstrap dispatch
+  // and filtered from `tools/list`, i.e. unreachable — reject it up front.
+  if (metadata.namespace === RESERVED_NAMESPACE) {
+    throw new ToolImportError(
+      'namespace-collision',
+      sourcePath,
+      `namespace "${RESERVED_NAMESPACE}" is reserved for ToolBox built-in tools`,
     );
   }
   if (!IDENTIFIER.test(metadata.name)) {
