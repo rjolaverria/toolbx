@@ -80,6 +80,19 @@ describe('digestToolSources', () => {
     const [missing] = await digestToolSources(configDir, enabled);
     expect(missing?.sourceDigest).toBeUndefined();
   });
+
+  it('omits the digest when the source path is not a regular file', async () => {
+    const exposedName = await importExample();
+    await setToolEnabled(configDir, exposedName, true);
+    const enabled = await readToolManifest(configDir);
+    // Replace the source file with a directory at its canonical path — the
+    // regular-file guard must skip it (and never block on opening, e.g. a FIFO).
+    const sourcePath = resolveToolEntryPath(configDir, enabled[0]!);
+    await fs.rm(sourcePath);
+    await fs.mkdir(sourcePath);
+    const [entry] = await digestToolSources(configDir, enabled);
+    expect(entry?.sourceDigest).toBeUndefined();
+  });
 });
 
 describe('readToolManifest', () => {
