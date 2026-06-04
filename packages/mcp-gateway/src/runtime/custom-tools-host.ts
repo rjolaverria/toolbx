@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import type {
   CustomToolExecutor,
   Logger,
@@ -106,7 +106,22 @@ function toRouteResult(
   outcome: RunOutcome,
 ): RouteResult {
   if (outcome.outcome === 'ok') {
-    return { kind: 'ok', result: outcome.result as RoutedCallToolResult };
+    // The handler returns arbitrary JS; validate it is a well-formed MCP
+    // CallToolResult before forwarding, so a malformed return surfaces as a tool
+    // error rather than emitting invalid protocol data to the client.
+    const parsed = CallToolResultSchema.safeParse(outcome.result);
+    if (!parsed.success) {
+      return {
+        kind: 'upstream_error',
+        error: {
+          code: 'upstream',
+          server: view.serverName,
+          tool: view.upstreamName,
+          message: `custom tool "${view.exposedName}" returned a result that is not a valid CallToolResult`,
+        },
+      };
+    }
+    return { kind: 'ok', result: parsed.data as RoutedCallToolResult };
   }
   if (outcome.outcome === 'timeout') {
     return {

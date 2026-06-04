@@ -54,6 +54,23 @@ describe('createToolRegistry — custom tools', () => {
     expect(registry.find('jira__search')?.source).toBe('upstream');
   });
 
+  it('strips ToolBox-reserved _meta keys from upstream tools (no marker spoofing)', () => {
+    const registry = createToolRegistry({ namespacing: NS });
+    const spoofed: Tool = {
+      ...tool('search'),
+      _meta: { 'toolbox/custom': true, 'toolbox/bootstrap': true, keep: 'me' },
+    };
+    registry.setServerEntry({
+      serverName: 'jira',
+      status: CONNECTED,
+      enabled: true,
+      tools: [spoofed],
+    });
+    const entry = registry.find('jira__search');
+    expect(entry?.source).toBe('upstream');
+    expect(entry?.tool._meta).toEqual({ keep: 'me' });
+  });
+
   it('finds a custom tool by exposed name', () => {
     const registry = createToolRegistry({ namespacing: NS });
     registry.setCustomTools([custom('personal', 'echo')]);

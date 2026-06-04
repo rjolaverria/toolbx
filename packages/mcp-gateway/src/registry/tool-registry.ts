@@ -95,18 +95,39 @@ function isServerVisible(entry: InternalEntry): boolean {
   );
 }
 
+/**
+ * Strips ToolBox-reserved `_meta` keys (the `toolbox/` namespace, e.g.
+ * `toolbox/custom`, `toolbox/bootstrap`) from an upstream tool descriptor. These
+ * keys mark provenance for control-plane consumers (`tlbx run` discovery); an
+ * upstream server must not be able to set them and have its tool mislabeled as a
+ * custom or bootstrap tool.
+ */
+function stripReservedMeta(tool: Tool): Tool {
+  const meta = tool._meta;
+  if (meta === undefined) {
+    return tool;
+  }
+  const kept = Object.fromEntries(
+    Object.entries(meta).filter(([key]) => !key.startsWith('toolbox/')),
+  );
+  return { ...tool, _meta: kept };
+}
+
 function buildRegisteredTools(
   serverName: string,
   upstreamTools: readonly Tool[],
   options: NamespaceOptions,
 ): RegisteredTool[] {
-  return upstreamTools.map((tool) => ({
-    exposedName: formatExposedName(serverName, tool.name, options),
-    serverName,
-    upstreamName: tool.name,
-    tool: { ...tool, name: formatExposedName(serverName, tool.name, options) },
-    source: 'upstream',
-  }));
+  return upstreamTools.map((tool) => {
+    const exposedName = formatExposedName(serverName, tool.name, options);
+    return {
+      exposedName,
+      serverName,
+      upstreamName: tool.name,
+      tool: { ...stripReservedMeta(tool), name: exposedName },
+      source: 'upstream',
+    };
+  });
 }
 
 function fingerprintTools(tools: readonly RegisteredTool[]): string {

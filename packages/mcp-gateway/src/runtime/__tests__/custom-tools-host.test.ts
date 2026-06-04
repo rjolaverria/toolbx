@@ -285,6 +285,24 @@ describe('createCustomToolHost', () => {
     );
   });
 
+  it('executor maps an invalid CallToolResult to an upstream_error', async () => {
+    const host = createCustomToolHost(
+      deps({
+        // `content` must be an array of content blocks — a string is malformed.
+        run: vi.fn(
+          (): Promise<RunOutcome> =>
+            Promise.resolve({ outcome: 'ok', result: { content: 'not-an-array' } }),
+        ),
+      }),
+    );
+    const [input] = await host.load();
+    const outcome = await host.executor.run(view(manifest(), input!.tool), {});
+    expect(outcome).toMatchObject({
+      kind: 'upstream_error',
+      error: { code: 'upstream', server: 'personal', tool: 'echo' },
+    });
+  });
+
   it('executor maps a timeout outcome to an upstream_error timeout', async () => {
     const host = createCustomToolHost(
       deps({ run: vi.fn((): Promise<RunOutcome> => Promise.resolve({ outcome: 'timeout' })) }),
