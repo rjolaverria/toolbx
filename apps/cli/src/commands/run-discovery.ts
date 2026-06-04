@@ -8,6 +8,7 @@ import {
 import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 
 import {
+  awaitColdStartTool,
   EXIT_DAEMON,
   EXIT_SUCCESS,
   EXIT_UNKNOWN_TOOL,
@@ -519,6 +520,12 @@ export async function runDiscovery(
     let listed: DaemonListToolsResult;
     try {
       listed = await client.listTools();
+      // describe/schema/example target a single tool; wait briefly for a freshly
+      // enabled custom tool to register on a just-cold-started daemon (P3-05).
+      if (kind === 'describe' || kind === 'schema' || kind === 'example') {
+        const { exposedName } = resolveTarget(pos);
+        listed = await awaitColdStartTool(client, exposedName, listed, opened.reused, deps);
+      }
     } catch (error) {
       deps.stderr(`tlbx run: failed to list tools from the daemon: ${errorMessage(error)}\n`);
       return EXIT_DAEMON;

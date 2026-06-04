@@ -110,6 +110,44 @@ describe('tlbx run — custom tool through the daemon', () => {
     expect(envelope.result.content).toEqual([{ type: 'text', text: 'Hello world' }]);
   }, 60_000);
 
+  it('runs a custom tool on the cold-start invocation without external polling', async () => {
+    const config = await makeConfig({ servers: {} });
+    const handle = await makeTempConfig(config);
+    tempConfigs.push(handle);
+
+    expect(
+      (await runCli(['tool', 'import', GREET_FIXTURE, '--yes', '--config', handle.target])).code,
+    ).toBe(0);
+    expect(
+      (await runCli(['tool', 'enable', 'personal__greet', '--config', handle.target])).code,
+    ).toBe(0);
+
+    // The very first `tlbx run` cold-starts the daemon, which is HTTP-ready
+    // before custom-tool schemas finish resolving. The in-run cold-start poll
+    // must bridge that window so the call succeeds without the caller polling.
+    const run = await runCli(
+      [
+        'run',
+        'personal',
+        'greet',
+        '--json',
+        JSON.stringify({ who: 'cold' }),
+        '--output',
+        'json',
+        '--config',
+        handle.target,
+      ],
+      { timeoutMs: 30_000 },
+    );
+    expect(run.code).toBe(0);
+    const envelope = JSON.parse(run.stdout) as {
+      ok: boolean;
+      result: { content: { type: string; text: string }[] };
+    };
+    expect(envelope.ok).toBe(true);
+    expect(envelope.result.content).toEqual([{ type: 'text', text: 'Hello cold' }]);
+  }, 60_000);
+
   it('treats a running daemon as stale after a custom tool is disabled', async () => {
     const config = await makeConfig({ servers: {} });
     const handle = await makeTempConfig(config);

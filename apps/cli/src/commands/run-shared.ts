@@ -6,6 +6,7 @@ import {
   formatExposedName,
   parseExposedName,
   type DaemonClient,
+  type DaemonListToolsResult,
   type LogFormat,
   type LogLevel,
   type NamespaceOptions,
@@ -89,6 +90,12 @@ export interface RunDeps {
   stderr: (msg: string) => void;
   /** Whether real stdout is a TTY; selects the default output mode (§5.4). */
   isStdoutTTY: boolean;
+  /**
+   * Sleeps for `ms`. Used to poll a just-cold-started daemon's `tools/list`
+   * while it finishes resolving custom-tool schemas (P3-05). Injectable so tests
+   * exercise the poll without real time; defaults to a real timer.
+   */
+  delay?: (ms: number) => Promise<void>;
 }
 
 export function defaultRunDeps(): RunDeps {
@@ -104,6 +111,7 @@ export function defaultRunDeps(): RunDeps {
       process.stderr.write(msg);
     },
     isStdoutTTY: process.stdout.isTTY === true,
+    delay: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
   };
 }
 
@@ -166,8 +174,45 @@ export function resolveOutputMode(
 }
 
 export type OpenDaemonResult =
-  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig }
+  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig; reused: boolean }
   | { ok: false; message: string };
+
+/** Bounded budget to wait for a cold-started daemon to finish resolving custom-tool schemas. */
+const COLD_START_TOOL_TIMEOUT_MS = 2000;
+const COLD_START_POLL_MS = 100;
+
+/**
+ * Returns a `tools/list` snapshot that includes `exposedName` when possible.
+ *
+ * A managed daemon reports ready as soon as its HTTP listener binds — before it
+ * has finished resolving custom-tool schemas off the hot path (P3-05). So a
+ * `tlbx run` that just *cold-started* the daemon can list/call a freshly enabled
+ * custom tool before it is registered and get a spurious "unknown tool". When
+ * the daemon was cold-started (`reused === false`) and the target is absent, poll
+ * the listing briefly until it appears. A reused daemon has already settled, so
+ * it is returned as-is; a genuinely unknown tool simply never appears and the
+ * call proceeds (the daemon stays authoritative).
+ */
+export async function awaitColdStartTool(
+  client: DaemonClient,
+  exposedName: string,
+  listed: DaemonListToolsResult,
+  reused: boolean,
+  deps: RunDeps,
+): Promise<DaemonListToolsResult> {
+  const has = (l: DaemonListToolsResult): boolean => l.tools.some((t) => t.name === exposedName);
+  if (reused || has(listed)) {
+    return listed;
+  }
+  const delay = deps.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + COLD_START_TOOL_TIMEOUT_MS;
+  let current = listed;
+  while (Date.now() < deadline && !has(current)) {
+    await delay(COLD_START_POLL_MS);
+    current = await client.listTools();
+  }
+  return current;
+}
 
 /**
  * Ensures a ready daemon (auto-starting it when needed, per P2-01) and opens a
@@ -189,7 +234,13 @@ export async function openDaemonClient(
   }
   try {
     const client = await deps.connect(ensured.daemon.url);
-    return { ok: true, client, url: ensured.daemon.url, config: ensured.daemon.config };
+    return {
+      ok: true,
+      client,
+      url: ensured.daemon.url,
+      config: ensured.daemon.config,
+      reused: ensured.daemon.reused,
+    };
   } catch (error) {
     return {
       ok: false,

@@ -58,6 +58,17 @@ describe('describeTool', () => {
     }
   });
 
+  it('reports invalid-schema for a schema that only fails when validate() runs', async () => {
+    // bad-pattern-schema constructs fine but its `pattern: '('` regex compiles
+    // lazily during validation. Describe probes the declared properties so the
+    // tool is rejected here instead of being advertised and failing at call time.
+    const outcome = await describeTool(manifest('bad-pattern-schema.ts'));
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('invalid-schema');
+    }
+  });
+
   it('reports invalid-schema when inputSchema is not an object', async () => {
     const outcome = await describeTool(manifest('invalid-schema.ts'));
     expect(outcome.outcome).toBe('error');
