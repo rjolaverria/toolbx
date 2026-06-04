@@ -262,15 +262,23 @@ async function readEnabledCustomTools(
   return read(path.dirname(configPath));
 }
 
+/** True when a custom tool is not disabled via `config.tools` (it would never appear in `tools/list`). */
+function isConfigEnabled(config: ToolBoxConfig, exposedName: string): boolean {
+  return config.tools[exposedName]?.enabled !== false;
+}
+
 /**
  * Cold-start bridge for a single target tool. Waits only when `exposedName` is an
- * enabled custom tool (upstream tools are the daemon's authority and never gate),
- * using that tool's own `timeoutMs` as the wait ceiling.
+ * enabled custom tool — enabled in *both* the manifest and `config.tools`, since a
+ * config-disabled tool is filtered out of `tools/list` and would never appear.
+ * Upstream tools are the daemon's authority and never gate. Uses the tool's own
+ * `timeoutMs` as the wait ceiling.
  */
 export async function awaitColdStartTarget(
   client: DaemonClient,
   exposedName: string,
   configPath: string,
+  config: ToolBoxConfig,
   listed: DaemonListToolsResult,
   reused: boolean,
   deps: RunDeps,
@@ -280,7 +288,7 @@ export async function awaitColdStartTarget(
   }
   const customs = await readEnabledCustomTools(configPath, deps);
   const match = customs.find((c) => c.exposedName === exposedName);
-  if (match === undefined) {
+  if (match === undefined || !isConfigEnabled(config, exposedName)) {
     return listed;
   }
   return awaitColdStartTools(client, [exposedName], match.timeoutMs, listed, reused, deps);
@@ -288,11 +296,13 @@ export async function awaitColdStartTarget(
 
 /**
  * Cold-start bridge for the whole listing (`--list` / `--search`). Waits for every
- * enabled custom tool to register, with a budget of the largest tool `timeoutMs`.
+ * custom tool that is enabled in both the manifest and `config.tools` to register,
+ * with a budget of the largest such tool's `timeoutMs`.
  */
 export async function awaitColdStartAll(
   client: DaemonClient,
   configPath: string,
+  config: ToolBoxConfig,
   listed: DaemonListToolsResult,
   reused: boolean,
   deps: RunDeps,
@@ -300,7 +310,9 @@ export async function awaitColdStartAll(
   if (reused) {
     return listed;
   }
-  const customs = await readEnabledCustomTools(configPath, deps);
+  const customs = (await readEnabledCustomTools(configPath, deps)).filter((c) =>
+    isConfigEnabled(config, c.exposedName),
+  );
   if (customs.length === 0) {
     return listed;
   }

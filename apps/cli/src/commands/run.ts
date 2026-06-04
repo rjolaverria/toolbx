@@ -447,6 +447,7 @@ export async function runRun(
         client,
         ctx.exposedName,
         opened.configPath,
+        config,
         listed,
         opened.reused,
         deps,

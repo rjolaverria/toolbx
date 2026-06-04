@@ -1,7 +1,12 @@
-import type { DaemonClient } from '@toolbox/core';
+import { DEFAULT_CONFIG, type DaemonClient, type ToolBoxConfig } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
-import { awaitColdStartTools, type RunDeps } from '../run-shared.js';
+import {
+  awaitColdStartAll,
+  awaitColdStartTarget,
+  awaitColdStartTools,
+  type RunDeps,
+} from '../run-shared.js';
 
 type Listed = Awaited<ReturnType<DaemonClient['listTools']>>;
 
@@ -11,6 +16,21 @@ function listing(...names: string[]): Listed {
 
 /** Minimal deps: the helper only reads `delay`. */
 const deps = { delay: () => Promise.resolve() } as unknown as RunDeps;
+
+function depsWithCustom(customs: readonly { exposedName: string; timeoutMs: number }[]): RunDeps {
+  return {
+    delay: () => Promise.resolve(),
+    readEnabledCustomTools: () => Promise.resolve(customs),
+  } as unknown as RunDeps;
+}
+
+function configDisabling(...exposedNames: string[]): ToolBoxConfig {
+  const tools: ToolBoxConfig['tools'] = {};
+  for (const name of exposedNames) {
+    tools[name] = { enabled: false };
+  }
+  return { ...DEFAULT_CONFIG, tools };
+}
 
 function fakeClient(sequence: Listed[]): { listTools: () => Promise<Listed>; calls: () => number } {
   let i = 0;
@@ -91,4 +111,55 @@ describe('awaitColdStartTools', () => {
     expect(result.tools.map((t) => t.name)).not.toContain('personal__missing');
     expect(sleeps.length).toBeGreaterThan(0);
   }, 10_000);
+});
+
+describe('awaitColdStartTarget', () => {
+  it('does not wait for a custom tool disabled via config.tools', async () => {
+    const client = fakeClient([listing('personal__echo')]);
+    const result = await awaitColdStartTarget(
+      client as never,
+      'personal__echo',
+      '/cfg/config.json',
+      configDisabling('personal__echo'),
+      listing(),
+      false,
+      depsWithCustom([{ exposedName: 'personal__echo', timeoutMs: 30_000 }]),
+    );
+    expect(result.tools).toHaveLength(0);
+    expect(client.calls()).toBe(0);
+  });
+
+  it('waits for a manifest- and config-enabled custom tool that is absent', async () => {
+    const client = fakeClient([listing(), listing('personal__echo')]);
+    const result = await awaitColdStartTarget(
+      client as never,
+      'personal__echo',
+      '/cfg/config.json',
+      DEFAULT_CONFIG,
+      listing(),
+      false,
+      depsWithCustom([{ exposedName: 'personal__echo', timeoutMs: 30_000 }]),
+    );
+    expect(result.tools.map((t) => t.name)).toContain('personal__echo');
+  });
+});
+
+describe('awaitColdStartAll', () => {
+  it('excludes config-disabled custom tools from the wait set', async () => {
+    // echo is disabled via config and never lists; greet does. The wait must
+    // settle on greet alone rather than block on the disabled echo.
+    const client = fakeClient([listing(), listing('personal__greet')]);
+    const result = await awaitColdStartAll(
+      client as never,
+      '/cfg/config.json',
+      configDisabling('personal__echo'),
+      listing(),
+      false,
+      depsWithCustom([
+        { exposedName: 'personal__echo', timeoutMs: 30_000 },
+        { exposedName: 'personal__greet', timeoutMs: 30_000 },
+      ]),
+    );
+    expect(result.tools.map((t) => t.name)).toEqual(['personal__greet']);
+  });
 });

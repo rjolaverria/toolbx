@@ -531,12 +531,20 @@ export async function runDiscovery(
           client,
           exposedName,
           opened.configPath,
+          opened.config,
           listed,
           opened.reused,
           deps,
         );
       } else {
-        listed = await awaitColdStartAll(client, opened.configPath, listed, opened.reused, deps);
+        listed = await awaitColdStartAll(
+          client,
+          opened.configPath,
+          opened.config,
+          listed,
+          opened.reused,
+          deps,
+        );
       }
     } catch (error) {
       deps.stderr(`tlbx run: failed to list tools from the daemon: ${errorMessage(error)}\n`);
