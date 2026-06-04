@@ -15,7 +15,7 @@ import {
 import { runDiscovery, shellArg, unknownToolMessage, type ListedTool } from './run-discovery.js';
 import { parsePositiveInt } from './server-shared.js';
 import {
-  awaitColdStartTool,
+  awaitColdStartTools,
   defaultRunDeps,
   EXIT_AUTH,
   EXIT_DAEMON,
@@ -443,7 +443,7 @@ export async function runRun(
       // A just-cold-started daemon may still be resolving custom-tool schemas
       // off the hot path, so a freshly enabled custom tool can be absent here.
       // Wait briefly for it before treating the call as targeting an unknown tool.
-      listed = await awaitColdStartTool(client, ctx.exposedName, listed, opened.reused, deps);
+      listed = await awaitColdStartTools(client, [ctx.exposedName], listed, opened.reused, deps);
     } catch (error) {
       return emitFailure(
         {

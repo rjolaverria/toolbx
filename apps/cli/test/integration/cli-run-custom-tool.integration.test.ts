@@ -148,6 +148,28 @@ describe('tlbx run — custom tool through the daemon', () => {
     expect(envelope.result.content).toEqual([{ type: 'text', text: 'Hello cold' }]);
   }, 60_000);
 
+  it('lists a custom tool on the cold-start --list without external polling', async () => {
+    const config = await makeConfig({ servers: {} });
+    const handle = await makeTempConfig(config);
+    tempConfigs.push(handle);
+
+    expect(
+      (await runCli(['tool', 'import', GREET_FIXTURE, '--yes', '--config', handle.target])).code,
+    ).toBe(0);
+    expect(
+      (await runCli(['tool', 'enable', 'personal__greet', '--config', handle.target])).code,
+    ).toBe(0);
+
+    // First `--list` cold-starts the daemon; it must wait for the enabled custom
+    // tool (from the manifest) before rendering, rather than show an empty list.
+    const listed = await runCli(['run', '--list', '--output', 'json', '--config', handle.target], {
+      timeoutMs: 30_000,
+    });
+    expect(listed.code).toBe(0);
+    const rows = JSON.parse(listed.stdout) as { exposedName: string; source: string }[];
+    expect(rows.map((r) => r.exposedName)).toContain('personal__greet');
+  }, 60_000);
+
   it('treats a running daemon as stale after a custom tool is disabled', async () => {
     const config = await makeConfig({ servers: {} });
     const handle = await makeTempConfig(config);

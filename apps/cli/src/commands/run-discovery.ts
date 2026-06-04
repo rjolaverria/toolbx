@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 import {
   searchTools,
   type DaemonClient,
@@ -8,7 +10,7 @@ import {
 import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 
 import {
-  awaitColdStartTool,
+  awaitColdStartTools,
   EXIT_DAEMON,
   EXIT_SUCCESS,
   EXIT_UNKNOWN_TOOL,
@@ -520,11 +522,18 @@ export async function runDiscovery(
     let listed: DaemonListToolsResult;
     try {
       listed = await client.listTools();
-      // describe/schema/example target a single tool; wait briefly for a freshly
-      // enabled custom tool to register on a just-cold-started daemon (P3-05).
+      // On a just-cold-started daemon, custom tools register asynchronously after
+      // readiness (P3-05). Wait for the relevant ones so discovery isn't rendered
+      // against a half-populated listing. For a single-tool kind that is the one
+      // target; for list/search it is every enabled custom tool in the manifest.
       if (kind === 'describe' || kind === 'schema' || kind === 'example') {
         const { exposedName } = resolveTarget(pos);
-        listed = await awaitColdStartTool(client, exposedName, listed, opened.reused, deps);
+        listed = await awaitColdStartTools(client, [exposedName], listed, opened.reused, deps);
+      } else if (!opened.reused) {
+        const readNames =
+          deps.readEnabledCustomToolNames ?? (() => Promise.resolve([] as readonly string[]));
+        const expected = await readNames(path.dirname(opened.configPath));
+        listed = await awaitColdStartTools(client, expected, listed, opened.reused, deps);
       }
     } catch (error) {
       deps.stderr(`tlbx run: failed to list tools from the daemon: ${errorMessage(error)}\n`);

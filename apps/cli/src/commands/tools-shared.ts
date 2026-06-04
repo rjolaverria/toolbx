@@ -9,12 +9,21 @@ import {
   type NamespacingConfig,
   type ToolBoxConfig,
 } from '@toolbox/core';
+import { readToolManifest, type ToolManifest } from '@toolbox/custom-tools';
 
 import type { ServerCommandDeps } from './server-shared.js';
 
 export interface ToolsCommandDeps extends ServerCommandDeps {
   /** Resolves the tool cache path for the resolved config path. Tests inject a fixture path. */
   resolveCachePath: (configPath: string) => string;
+  /**
+   * Reads the custom-tool manifest for the config directory. Used to reconcile
+   * cached `source: 'custom'` entries against the live manifest, so `tlbx tools
+   * list` reflects `tlbx tool enable/disable/remove` (which edit the manifest,
+   * not `config.json`). Best-effort: a missing/corrupt manifest yields `[]`.
+   * Injectable for tests; defaults to the real reader.
+   */
+  readToolManifest?: (configDir: string) => Promise<readonly ToolManifest[]>;
 }
 
 export function defaultResolveCachePath(configPath: string): string {
@@ -87,20 +96,43 @@ export async function loadTools(
     throw error;
   }
 
+  // Custom tools' enabled state and presence live in the manifest, not in
+  // `config.tools`, so reconcile cached `source: 'custom'` rows against the live
+  // manifest: a tool removed since the cache was written is dropped, and a
+  // disabled one is shown disabled. A `config.tools` override still applies on
+  // top, matching how the gateway gates a custom tool at serve time.
+  const manifestByExposed = new Map<string, ToolManifest>();
+  const readManifest = deps.readToolManifest ?? ((dir) => readToolManifest(dir));
+  try {
+    for (const entry of await readManifest(path.dirname(configPath))) {
+      manifestByExposed.set(entry.exposedName, entry);
+    }
+  } catch {
+    // Best-effort: an unreadable manifest leaves custom rows reflecting the cache
+    // snapshot rather than failing the whole listing.
+  }
+
   const tools = cache.tools
     .filter(
       (entry) => options.serverFilter === undefined || entry.serverName === options.serverFilter,
     )
-    .map(
-      (entry): ToolView => ({
+    .filter((entry) => entry.source !== 'custom' || manifestByExposed.has(entry.exposedName))
+    .map((entry): ToolView => {
+      const configEnabled = config.tools[entry.exposedName]?.enabled !== false;
+      const manifestEntry = manifestByExposed.get(entry.exposedName);
+      const enabled =
+        entry.source === 'custom' && manifestEntry !== undefined
+          ? manifestEntry.enabled && configEnabled
+          : configEnabled;
+      return {
         exposedName: entry.exposedName,
         serverName: entry.serverName,
         upstreamName: entry.upstreamName,
-        enabled: config.tools[entry.exposedName]?.enabled !== false,
+        enabled,
         source: 'cache',
         toolSource: entry.source,
-      }),
-    )
+      };
+    })
     .sort((a, b) => {
       if (a.serverName !== b.serverName) {
         return a.serverName < b.serverName ? -1 : 1;

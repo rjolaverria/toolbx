@@ -12,6 +12,7 @@ import {
   type NamespaceOptions,
   type ToolBoxConfig,
 } from '@toolbox/core';
+import { readToolManifest } from '@toolbox/custom-tools';
 
 import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
 
@@ -96,6 +97,13 @@ export interface RunDeps {
    * exercise the poll without real time; defaults to a real timer.
    */
   delay?: (ms: number) => Promise<void>;
+  /**
+   * Exposed names of the *enabled* custom tools in the manifest for the given
+   * config directory. `tlbx run --list/--search` waits for these on a cold start
+   * so the listing isn't rendered before the daemon finishes registering them.
+   * Best-effort: a missing/corrupt manifest yields `[]`. Injectable for tests.
+   */
+  readEnabledCustomToolNames?: (configDir: string) => Promise<readonly string[]>;
 }
 
 export function defaultRunDeps(): RunDeps {
@@ -112,6 +120,14 @@ export function defaultRunDeps(): RunDeps {
     },
     isStdoutTTY: process.stdout.isTTY === true,
     delay: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    readEnabledCustomToolNames: async (configDir) => {
+      try {
+        const entries = await readToolManifest(configDir);
+        return entries.filter((e) => e.enabled).map((e) => e.exposedName);
+      } catch {
+        return [];
+      }
+    },
   };
 }
 
@@ -174,7 +190,15 @@ export function resolveOutputMode(
 }
 
 export type OpenDaemonResult =
-  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig; reused: boolean }
+  | {
+      ok: true;
+      client: DaemonClient;
+      url: string;
+      config: ToolBoxConfig;
+      reused: boolean;
+      /** Resolved config path of the daemon, used to locate the custom-tool manifest. */
+      configPath: string;
+    }
   | { ok: false; message: string };
 
 /** Bounded budget to wait for a cold-started daemon to finish resolving custom-tool schemas. */
@@ -182,32 +206,37 @@ const COLD_START_TOOL_TIMEOUT_MS = 2000;
 const COLD_START_POLL_MS = 100;
 
 /**
- * Returns a `tools/list` snapshot that includes `exposedName` when possible.
+ * Returns a `tools/list` snapshot that includes every name in
+ * `expectedExposedNames` when possible.
  *
  * A managed daemon reports ready as soon as its HTTP listener binds — before it
  * has finished resolving custom-tool schemas off the hot path (P3-05). So a
- * `tlbx run` that just *cold-started* the daemon can list/call a freshly enabled
- * custom tool before it is registered and get a spurious "unknown tool". When
- * the daemon was cold-started (`reused === false`) and the target is absent, poll
- * the listing briefly until it appears. A reused daemon has already settled, so
- * it is returned as-is; a genuinely unknown tool simply never appears and the
- * call proceeds (the daemon stays authoritative).
+ * `tlbx run` that just *cold-started* the daemon can list/search/call a freshly
+ * enabled custom tool before it is registered and get a spurious "unknown tool"
+ * or a missing row. When the daemon was cold-started (`reused === false`) and any
+ * expected name is absent, poll the listing briefly until they all appear. A
+ * reused daemon has already settled, so it is returned as-is; a name that never
+ * appears (a genuinely unknown tool, or one that errored during load) simply
+ * times out and the caller proceeds with the latest snapshot.
  */
-export async function awaitColdStartTool(
+export async function awaitColdStartTools(
   client: DaemonClient,
-  exposedName: string,
+  expectedExposedNames: readonly string[],
   listed: DaemonListToolsResult,
   reused: boolean,
   deps: RunDeps,
 ): Promise<DaemonListToolsResult> {
-  const has = (l: DaemonListToolsResult): boolean => l.tools.some((t) => t.name === exposedName);
-  if (reused || has(listed)) {
+  const allPresent = (l: DaemonListToolsResult): boolean => {
+    const present = new Set(l.tools.map((t) => t.name));
+    return expectedExposedNames.every((n) => present.has(n));
+  };
+  if (reused || expectedExposedNames.length === 0 || allPresent(listed)) {
     return listed;
   }
   const delay = deps.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const deadline = Date.now() + COLD_START_TOOL_TIMEOUT_MS;
   let current = listed;
-  while (Date.now() < deadline && !has(current)) {
+  while (Date.now() < deadline && !allPresent(current)) {
     await delay(COLD_START_POLL_MS);
     current = await client.listTools();
   }
@@ -240,6 +269,7 @@ export async function openDaemonClient(
       url: ensured.daemon.url,
       config: ensured.daemon.config,
       reused: ensured.daemon.reused,
+      configPath: ensured.daemon.configPath,
     };
   } catch (error) {
     return {

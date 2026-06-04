@@ -1,12 +1,29 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG, type ToolBoxConfig } from '@toolbox/core';
+import type { ToolManifest } from '@toolbox/custom-tools';
 
 import { runToolsList } from '../tools-list.js';
 
 import { makeTempConfig, makeToolsHarness, type ConfigHarness } from './harness.js';
 
 const harnesses: ConfigHarness[] = [];
+
+/** A manifest entry for a custom tool, used to reconcile cached custom rows. */
+function customManifest(namespace: string, name: string, enabled = true): ToolManifest {
+  return {
+    name,
+    namespace,
+    exposedName: `${namespace}__${name}`,
+    title: name,
+    description: name,
+    entry: `tools/${namespace}/${name}.ts`,
+    runtime: 'node',
+    enabled,
+    timeoutMs: 30_000,
+    permissions: { network: false, filesystem: false, env: [] },
+  };
+}
 
 afterEach(async () => {
   while (harnesses.length > 0) {
@@ -95,6 +112,7 @@ describe('runToolsList', () => {
     );
     harnesses.push(cfg);
     const h = makeToolsHarness(cfg.target);
+    h.deps.readToolManifest = () => Promise.resolve([customManifest('personal', 'echo')]);
     await h.writeCache([
       {
         exposedName: 'github__create_issue',
@@ -119,12 +137,45 @@ describe('runToolsList', () => {
     expect(h.stdout.value).toContain('upstream');
   });
 
+  it('reflects the manifest enabled state and removal for cached custom tools', async () => {
+    const cfg = await makeTempConfig(configWith({}));
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+    // Manifest: echo is now disabled; greet has been removed entirely.
+    h.deps.readToolManifest = () => Promise.resolve([customManifest('personal', 'echo', false)]);
+    await h.writeCache([
+      {
+        exposedName: 'personal__echo',
+        serverName: 'personal',
+        upstreamName: 'echo',
+        source: 'custom',
+        tool: { name: 'personal__echo' },
+      },
+      {
+        exposedName: 'personal__greet',
+        serverName: 'personal',
+        upstreamName: 'greet',
+        source: 'custom',
+        tool: { name: 'personal__greet' },
+      },
+    ]);
+
+    const code = await runToolsList({ json: true }, h.deps);
+    expect(code).toBe(0);
+    const payload = JSON.parse(h.stdout.value) as {
+      tools: { exposedName: string; enabled: boolean }[];
+    };
+    expect(payload.tools.map((t) => t.exposedName)).toEqual(['personal__echo']);
+    expect(payload.tools[0]?.enabled).toBe(false);
+  });
+
   it('includes the tool source in JSON output', async () => {
     const cfg = await makeTempConfig(
       configWith({ personal: { type: 'stdio', enabled: true, command: 'true', args: [] } }),
     );
     harnesses.push(cfg);
     const h = makeToolsHarness(cfg.target);
+    h.deps.readToolManifest = () => Promise.resolve([customManifest('personal', 'echo')]);
     await h.writeCache([
       {
         exposedName: 'personal__echo',

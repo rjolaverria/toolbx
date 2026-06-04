@@ -1,7 +1,7 @@
 import type { DaemonClient } from '@toolbox/core';
 import { describe, expect, it } from 'vitest';
 
-import { awaitColdStartTool, type RunDeps } from '../run-shared.js';
+import { awaitColdStartTools, type RunDeps } from '../run-shared.js';
 
 type Listed = Awaited<ReturnType<DaemonClient['listTools']>>;
 
@@ -26,11 +26,17 @@ function fakeClient(sequence: Listed[]): { listTools: () => Promise<Listed>; cal
   };
 }
 
-describe('awaitColdStartTool', () => {
+describe('awaitColdStartTools', () => {
   it('returns the initial listing unchanged for a reused daemon', async () => {
     const client = fakeClient([listing('personal__echo')]);
     const initial = listing();
-    const result = await awaitColdStartTool(client as never, 'personal__echo', initial, true, deps);
+    const result = await awaitColdStartTools(
+      client as never,
+      ['personal__echo'],
+      initial,
+      true,
+      deps,
+    );
     expect(result).toBe(initial);
     expect(client.calls()).toBe(0);
   });
@@ -38,9 +44,9 @@ describe('awaitColdStartTool', () => {
   it('returns immediately when the tool is already present', async () => {
     const client = fakeClient([listing('personal__echo')]);
     const initial = listing('personal__echo');
-    const result = await awaitColdStartTool(
+    const result = await awaitColdStartTools(
       client as never,
-      'personal__echo',
+      ['personal__echo'],
       initial,
       false,
       deps,
@@ -51,9 +57,9 @@ describe('awaitColdStartTool', () => {
 
   it('polls a cold-started daemon until the tool appears', async () => {
     const client = fakeClient([listing(), listing('personal__echo')]);
-    const result = await awaitColdStartTool(
+    const result = await awaitColdStartTools(
       client as never,
-      'personal__echo',
+      ['personal__echo'],
       listing(),
       false,
       deps,
@@ -71,9 +77,9 @@ describe('awaitColdStartTool', () => {
       },
     } as unknown as RunDeps;
     const client = fakeClient([listing()]);
-    const result = await awaitColdStartTool(
+    const result = await awaitColdStartTools(
       client as never,
-      'personal__missing',
+      ['personal__missing'],
       listing(),
       false,
       slowDeps,
