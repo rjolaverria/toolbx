@@ -33,6 +33,7 @@ describe('awaitColdStartTools', () => {
     const result = await awaitColdStartTools(
       client as never,
       ['personal__echo'],
+      2000,
       initial,
       true,
       deps,
@@ -47,6 +48,7 @@ describe('awaitColdStartTools', () => {
     const result = await awaitColdStartTools(
       client as never,
       ['personal__echo'],
+      2000,
       initial,
       false,
       deps,
@@ -60,6 +62,7 @@ describe('awaitColdStartTools', () => {
     const result = await awaitColdStartTools(
       client as never,
       ['personal__echo'],
+      2000,
       listing(),
       false,
       deps,
@@ -80,6 +83,7 @@ describe('awaitColdStartTools', () => {
     const result = await awaitColdStartTools(
       client as never,
       ['personal__missing'],
+      2000,
       listing(),
       false,
       slowDeps,

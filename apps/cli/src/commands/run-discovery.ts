@@ -1,5 +1,3 @@
-import * as path from 'node:path';
-
 import {
   searchTools,
   type DaemonClient,
@@ -10,7 +8,8 @@ import {
 import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 
 import {
-  awaitColdStartTools,
+  awaitColdStartAll,
+  awaitColdStartTarget,
   EXIT_DAEMON,
   EXIT_SUCCESS,
   EXIT_UNKNOWN_TOOL,
@@ -528,12 +527,16 @@ export async function runDiscovery(
       // target; for list/search it is every enabled custom tool in the manifest.
       if (kind === 'describe' || kind === 'schema' || kind === 'example') {
         const { exposedName } = resolveTarget(pos);
-        listed = await awaitColdStartTools(client, [exposedName], listed, opened.reused, deps);
-      } else if (!opened.reused) {
-        const readNames =
-          deps.readEnabledCustomToolNames ?? (() => Promise.resolve([] as readonly string[]));
-        const expected = await readNames(path.dirname(opened.configPath));
-        listed = await awaitColdStartTools(client, expected, listed, opened.reused, deps);
+        listed = await awaitColdStartTarget(
+          client,
+          exposedName,
+          opened.configPath,
+          listed,
+          opened.reused,
+          deps,
+        );
+      } else {
+        listed = await awaitColdStartAll(client, opened.configPath, listed, opened.reused, deps);
       }
     } catch (error) {
       deps.stderr(`tlbx run: failed to list tools from the daemon: ${errorMessage(error)}\n`);

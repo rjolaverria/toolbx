@@ -9,6 +9,7 @@ import {
   type TokenStore,
   type ToolBoxConfig,
 } from '@toolbox/core';
+import type { ToolManifest } from '@toolbox/custom-tools';
 
 import {
   BOOTSTRAP_TOOL_NAMES,
@@ -87,6 +88,14 @@ export interface GatewayRuntime {
    * the mechanism; M5-03 owns the call site.
    */
   notifyAllSessionsToolsChanged(): void;
+  /**
+   * The custom-tool manifest snapshot this runtime loaded its tools from (or `[]`
+   * when no custom tools are configured). Resolves once the manifest has been
+   * read. `tlbx serve` derives the daemon identity from this exact snapshot so a
+   * reused daemon's identity always matches the custom tools it is actually
+   * serving (P3-05).
+   */
+  readonly customToolManifest: Promise<readonly ToolManifest[]>;
   /** Tear down every upstream session in parallel. */
   dispose(): Promise<void>;
 }
@@ -336,6 +345,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     toolRegistry,
     upstreams,
     registerHandlers,
+    customToolManifest: customToolHost?.manifestSnapshot ?? Promise.resolve([]),
     startUpstreams() {
       for (const [name, session] of sessions) {
         // Fire-and-forget: the session's internal backoff handles failures.

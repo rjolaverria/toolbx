@@ -76,13 +76,23 @@ export interface CustomToolHostDeps {
 export interface CustomToolHost {
   /**
    * Reads enabled custom tools, resolves their schemas, and returns the registry
-   * inputs to publish. Never throws: a corrupt manifest, a namespace collision,
-   * or a tool whose schema cannot be resolved is logged and skipped so one bad
-   * tool can never block the gateway from serving the rest.
+   * inputs to publish. Eligible tools are described concurrently so N tools
+   * resolve in roughly one describe rather than serializing. Never throws: a
+   * corrupt manifest, a namespace collision, or a tool whose schema cannot be
+   * resolved is logged and skipped so one bad tool can never block the gateway
+   * from serving the rest.
    */
   load(): Promise<CustomToolInput[]>;
   /** Executes custom tools resolved by the most recent `load()`. */
   readonly executor: CustomToolExecutor;
+  /**
+   * The manifest snapshot the most recent `load()` read, resolving as soon as
+   * the manifest has been read (before any describe). The daemon identity is
+   * derived from this exact snapshot so it matches the set of tools actually
+   * loaded — a fresh re-read could otherwise observe a manifest edit that landed
+   * during startup and publish an identity inconsistent with the loaded tools.
+   */
+  readonly manifestSnapshot: Promise<readonly ToolManifest[]>;
 }
 
 function toRouteResult(
@@ -128,6 +138,85 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
   // Populated by `load()`; the executor reads it. Keyed by exposed name.
   const manifests = new Map<string, ToolManifest>();
 
+  // Resolves with the exact manifest snapshot `load()` read (or `[]` on a read
+  // failure), so the daemon identity can be derived from the same snapshot.
+  let resolveSnapshot!: (entries: readonly ToolManifest[]) => void;
+  const manifestSnapshot = new Promise<readonly ToolManifest[]>((resolve) => {
+    resolveSnapshot = resolve;
+  });
+
+  /** Returns true if `entry` is an eligible custom tool to describe; logs + skips otherwise. */
+  function isEligible(entry: ToolManifest): boolean {
+    if (!entry.enabled) {
+      return false;
+    }
+    if (deps.enabledServerNames.has(entry.namespace)) {
+      log.warn(
+        { tool: entry.exposedName, namespace: entry.namespace },
+        'custom tool namespace collides with an enabled server; skipping',
+      );
+      return false;
+    }
+    // The exposed name must be exactly namespace + separator + name. A manifest
+    // edited to claim a different exposedName (e.g. an upstream tool's name)
+    // would otherwise be published under that key and shadow the real entry in
+    // `registry.find()`.
+    const canonicalExposedName = `${entry.namespace}${deps.separator}${entry.name}`;
+    if (entry.exposedName !== canonicalExposedName) {
+      log.warn(
+        { tool: entry.exposedName, expected: canonicalExposedName },
+        'custom tool exposedName does not match its namespace/name; skipping',
+      );
+      return false;
+    }
+    // Pin the entry to its canonical `tools/<namespace>/<name>.<ext>` path — the
+    // same guard enable/remove/inspect apply — so a hand-edited manifest cannot
+    // point an enabled tool at a file outside the tools tree for the describe or
+    // execution path to act on.
+    try {
+      resolveToolEntryPath(deps.configDir, entry);
+    } catch (error) {
+      if (error instanceof ToolManifestError) {
+        log.warn(
+          { tool: entry.exposedName, err: error },
+          'custom tool entry path is not canonical; skipping',
+        );
+        return false;
+      }
+      throw error;
+    }
+    return true;
+  }
+
+  /** Resolves one eligible tool's schema, returning its registry input or `undefined`. */
+  async function describeEligible(entry: ToolManifest): Promise<CustomToolInput | undefined> {
+    let outcome: DescribeOutcome;
+    try {
+      outcome = await describe(entry, { configDir: deps.configDir });
+    } catch (error) {
+      log.warn({ err: error, tool: entry.exposedName }, 'failed to describe custom tool; skipping');
+      return undefined;
+    }
+    if (outcome.outcome !== 'ok') {
+      log.warn(
+        {
+          tool: entry.exposedName,
+          ...(outcome.outcome === 'error' ? { code: outcome.code } : { outcome: outcome.outcome }),
+        },
+        'could not resolve custom tool schema; skipping',
+      );
+      return undefined;
+    }
+    const tool: Tool = {
+      name: entry.exposedName,
+      title: entry.title,
+      description: entry.description,
+      inputSchema: outcome.inputSchema as Tool['inputSchema'],
+      _meta: { [CUSTOM_TOOL_META_KEY]: true },
+    };
+    return { exposedName: entry.exposedName, namespace: entry.namespace, name: entry.name, tool };
+  }
+
   async function load(): Promise<CustomToolInput[]> {
     manifests.clear();
     let entries: ToolManifest[];
@@ -135,85 +224,25 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
       entries = await readManifest(deps.configDir);
     } catch (error) {
       log.warn({ err: error }, 'failed to read custom tool manifest; skipping custom tools');
+      resolveSnapshot([]);
       return [];
     }
+    // Publish the snapshot before describing so the daemon identity (which awaits
+    // it) reflects exactly the manifest these tools are loaded from.
+    resolveSnapshot(entries);
+
+    const eligible = entries.filter((entry) => isEligible(entry));
+    // Describe concurrently — each tool runs in its own timeout-bounded child, so
+    // the total is roughly the slowest describe rather than their sum.
+    const resolved = await Promise.all(eligible.map((entry) => describeEligible(entry)));
 
     const inputs: CustomToolInput[] = [];
-    for (const entry of entries) {
-      if (!entry.enabled) {
-        continue;
+    for (let i = 0; i < resolved.length; i += 1) {
+      const input = resolved[i];
+      if (input !== undefined) {
+        manifests.set(input.exposedName, eligible[i] as ToolManifest);
+        inputs.push(input);
       }
-      if (deps.enabledServerNames.has(entry.namespace)) {
-        log.warn(
-          { tool: entry.exposedName, namespace: entry.namespace },
-          'custom tool namespace collides with an enabled server; skipping',
-        );
-        continue;
-      }
-      // The exposed name must be exactly namespace + separator + name. A manifest
-      // edited to claim a different exposedName (e.g. an upstream tool's name)
-      // would otherwise be published under that key and shadow the real entry in
-      // `registry.find()`.
-      const canonicalExposedName = `${entry.namespace}${deps.separator}${entry.name}`;
-      if (entry.exposedName !== canonicalExposedName) {
-        log.warn(
-          { tool: entry.exposedName, expected: canonicalExposedName },
-          'custom tool exposedName does not match its namespace/name; skipping',
-        );
-        continue;
-      }
-      // Pin the entry to its canonical `tools/<namespace>/<name>.<ext>` path —
-      // the same guard enable/remove/inspect apply — so a hand-edited manifest
-      // cannot point an enabled tool at a file outside the tools tree for the
-      // describe or execution path to act on.
-      try {
-        resolveToolEntryPath(deps.configDir, entry);
-      } catch (error) {
-        if (error instanceof ToolManifestError) {
-          log.warn(
-            { tool: entry.exposedName, err: error },
-            'custom tool entry path is not canonical; skipping',
-          );
-          continue;
-        }
-        throw error;
-      }
-      let outcome: DescribeOutcome;
-      try {
-        outcome = await describe(entry, { configDir: deps.configDir });
-      } catch (error) {
-        log.warn(
-          { err: error, tool: entry.exposedName },
-          'failed to describe custom tool; skipping',
-        );
-        continue;
-      }
-      if (outcome.outcome !== 'ok') {
-        log.warn(
-          {
-            tool: entry.exposedName,
-            ...(outcome.outcome === 'error'
-              ? { code: outcome.code }
-              : { outcome: outcome.outcome }),
-          },
-          'could not resolve custom tool schema; skipping',
-        );
-        continue;
-      }
-      const tool: Tool = {
-        name: entry.exposedName,
-        title: entry.title,
-        description: entry.description,
-        inputSchema: outcome.inputSchema as Tool['inputSchema'],
-        _meta: { [CUSTOM_TOOL_META_KEY]: true },
-      };
-      manifests.set(entry.exposedName, entry);
-      inputs.push({
-        exposedName: entry.exposedName,
-        namespace: entry.namespace,
-        name: entry.name,
-        tool,
-      });
     }
     return inputs;
   }
@@ -233,5 +262,5 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
     },
   };
 
-  return { load, executor };
+  return { load, executor, manifestSnapshot };
 }

@@ -50,6 +50,7 @@ describe('createGatewayRuntime — custom tools', () => {
     const host: CustomToolHost = {
       load: vi.fn(() => Promise.resolve([echoInput])),
       executor: { run: vi.fn() },
+      manifestSnapshot: Promise.resolve([]),
     };
     const runtime = createGatewayRuntime({
       config: makeConfig(),
@@ -70,7 +71,11 @@ describe('createGatewayRuntime — custom tools', () => {
     let captured: CustomToolHostDeps | undefined;
     const createHost = (hostDeps: CustomToolHostDeps): CustomToolHost => {
       captured = hostDeps;
-      return { load: vi.fn(() => Promise.resolve([])), executor: { run: vi.fn() } };
+      return {
+        load: vi.fn(() => Promise.resolve([])),
+        executor: { run: vi.fn() },
+        manifestSnapshot: Promise.resolve([]),
+      };
     };
     createGatewayRuntime({
       config: makeConfig({ jira: STDIO_SERVER, off: { ...STDIO_SERVER, enabled: false } }),

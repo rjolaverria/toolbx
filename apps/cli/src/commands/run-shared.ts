@@ -1,4 +1,5 @@
 import { readFile as fsReadFile } from 'node:fs/promises';
+import * as path from 'node:path';
 
 import {
   connectDaemonClient,
@@ -98,12 +99,16 @@ export interface RunDeps {
    */
   delay?: (ms: number) => Promise<void>;
   /**
-   * Exposed names of the *enabled* custom tools in the manifest for the given
-   * config directory. `tlbx run --list/--search` waits for these on a cold start
-   * so the listing isn't rendered before the daemon finishes registering them.
-   * Best-effort: a missing/corrupt manifest yields `[]`. Injectable for tests.
+   * The *enabled* custom tools in the manifest for the given config directory,
+   * with each tool's `timeoutMs`. `tlbx run` waits for these on a cold start so a
+   * freshly enabled custom tool is callable/listable on the first invocation; the
+   * wait budget is derived from `timeoutMs` because a tool's schema may take up to
+   * its own timeout to resolve. Best-effort: a missing/corrupt manifest yields
+   * `[]`. Injectable for tests.
    */
-  readEnabledCustomToolNames?: (configDir: string) => Promise<readonly string[]>;
+  readEnabledCustomTools?: (
+    configDir: string,
+  ) => Promise<readonly { exposedName: string; timeoutMs: number }[]>;
 }
 
 export function defaultRunDeps(): RunDeps {
@@ -120,10 +125,12 @@ export function defaultRunDeps(): RunDeps {
     },
     isStdoutTTY: process.stdout.isTTY === true,
     delay: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-    readEnabledCustomToolNames: async (configDir) => {
+    readEnabledCustomTools: async (configDir) => {
       try {
         const entries = await readToolManifest(configDir);
-        return entries.filter((e) => e.enabled).map((e) => e.exposedName);
+        return entries
+          .filter((e) => e.enabled)
+          .map((e) => ({ exposedName: e.exposedName, timeoutMs: e.timeoutMs }));
       } catch {
         return [];
       }
@@ -201,8 +208,8 @@ export type OpenDaemonResult =
     }
   | { ok: false; message: string };
 
-/** Bounded budget to wait for a cold-started daemon to finish resolving custom-tool schemas. */
-const COLD_START_TOOL_TIMEOUT_MS = 2000;
+/** Floor for the cold-start wait, and the poll interval. */
+const COLD_START_MIN_BUDGET_MS = 2000;
 const COLD_START_POLL_MS = 100;
 
 /**
@@ -222,6 +229,7 @@ const COLD_START_POLL_MS = 100;
 export async function awaitColdStartTools(
   client: DaemonClient,
   expectedExposedNames: readonly string[],
+  budgetMs: number,
   listed: DaemonListToolsResult,
   reused: boolean,
   deps: RunDeps,
@@ -234,13 +242,77 @@ export async function awaitColdStartTools(
     return listed;
   }
   const delay = deps.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const deadline = Date.now() + COLD_START_TOOL_TIMEOUT_MS;
+  const deadline = Date.now() + Math.max(budgetMs, COLD_START_MIN_BUDGET_MS);
   let current = listed;
   while (Date.now() < deadline && !allPresent(current)) {
     await delay(COLD_START_POLL_MS);
     current = await client.listTools();
   }
   return current;
+}
+
+/** Reads the enabled custom tools (with their timeouts) for a daemon's config. */
+async function readEnabledCustomTools(
+  configPath: string,
+  deps: RunDeps,
+): Promise<readonly { exposedName: string; timeoutMs: number }[]> {
+  const read =
+    deps.readEnabledCustomTools ??
+    (() => Promise.resolve([] as { exposedName: string; timeoutMs: number }[]));
+  return read(path.dirname(configPath));
+}
+
+/**
+ * Cold-start bridge for a single target tool. Waits only when `exposedName` is an
+ * enabled custom tool (upstream tools are the daemon's authority and never gate),
+ * using that tool's own `timeoutMs` as the wait ceiling.
+ */
+export async function awaitColdStartTarget(
+  client: DaemonClient,
+  exposedName: string,
+  configPath: string,
+  listed: DaemonListToolsResult,
+  reused: boolean,
+  deps: RunDeps,
+): Promise<DaemonListToolsResult> {
+  if (reused) {
+    return listed;
+  }
+  const customs = await readEnabledCustomTools(configPath, deps);
+  const match = customs.find((c) => c.exposedName === exposedName);
+  if (match === undefined) {
+    return listed;
+  }
+  return awaitColdStartTools(client, [exposedName], match.timeoutMs, listed, reused, deps);
+}
+
+/**
+ * Cold-start bridge for the whole listing (`--list` / `--search`). Waits for every
+ * enabled custom tool to register, with a budget of the largest tool `timeoutMs`.
+ */
+export async function awaitColdStartAll(
+  client: DaemonClient,
+  configPath: string,
+  listed: DaemonListToolsResult,
+  reused: boolean,
+  deps: RunDeps,
+): Promise<DaemonListToolsResult> {
+  if (reused) {
+    return listed;
+  }
+  const customs = await readEnabledCustomTools(configPath, deps);
+  if (customs.length === 0) {
+    return listed;
+  }
+  const budget = Math.max(...customs.map((c) => c.timeoutMs));
+  return awaitColdStartTools(
+    client,
+    customs.map((c) => c.exposedName),
+    budget,
+    listed,
+    reused,
+    deps,
+  );
 }
 
 /**

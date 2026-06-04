@@ -84,6 +84,7 @@ function makeFakeRuntime(): FakeRuntime {
     registerHandlers: () => undefined,
     startUpstreams: () => startUpstreamsSpy(),
     notifyAllSessionsToolsChanged: () => undefined,
+    customToolManifest: Promise.resolve([]),
     dispose: () => disposeSpy(),
   };
   return { runtime, disposeSpy, startUpstreamsSpy };
@@ -151,9 +152,6 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     now: () => new Date('2026-05-25T12:00:00.000Z'),
     pid: () => 4242,
     isManagedChild: () => false,
-    // Synchronous stub: the real implementation reads the custom-tool manifest
-    // from disk; tests have no manifest, so the identity is config-only.
-    computeDaemonIdentity: (cfg) => Promise.resolve(computeConfigIdentity(cfg)),
   };
 
   return {

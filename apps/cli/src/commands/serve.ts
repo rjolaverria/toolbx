@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { Command, Option } from '@commander-js/extra-typings';
 import {
   clearServeState,
+  computeConfigIdentity,
   createLogger,
   loadConfig,
   readServeState,
@@ -19,7 +20,6 @@ import {
   type ToolBoxConfig,
   type WriteToolCacheInput,
 } from '@toolbox/core';
-import { computeDaemonIdentity as defaultComputeDaemonIdentity } from './daemon-identity.js';
 import { defaultServeDetachDeps, runServeDetached } from './serve-detach.js';
 import {
   createDownstreamHttpServer,
@@ -158,13 +158,6 @@ export interface ServeDeps {
   /** Pid recorded in the published state; defaults to `process.pid`. */
   pid?: () => number;
   /**
-   * Computes the daemon identity published in the state file — over the config
-   * *and* the custom-tool manifest, so a manifest change (`tlbx tool
-   * enable/disable/remove/import`) invalidates a reused daemon (P3-05). Reads
-   * the manifest from disk by default; injectable so tests avoid the read.
-   */
-  computeDaemonIdentity?: (config: ToolBoxConfig, configPath: string) => Promise<string>;
-  /**
    * Reports whether this process was spawned as a managed daemon (the
    * {@link MANAGED_CHILD_FD} handshake). Gates all daemon-state behavior so a
    * forged env cannot opt a plain `tlbx serve` into managed mode. Defaults to
@@ -198,7 +191,6 @@ export function defaultServeDeps(): ServeDeps {
     now: () => new Date(),
     pid: () => process.pid,
     isManagedChild: () => hasManagedChildHandle(),
-    computeDaemonIdentity: (config, configPath) => defaultComputeDaemonIdentity(config, configPath),
   };
 }
 
@@ -343,10 +335,15 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   // run` only ever see a record backed by a live HTTP endpoint.
   const managed = resolveManagedDaemon(deps.processEnv, deps.isManagedChild?.() ?? false);
   if (managed !== null) {
+    // Derive the daemon identity from the *same* custom-tool manifest snapshot the
+    // runtime loaded its tools from, not a fresh read — a re-read could observe a
+    // manifest edit that landed during startup and publish an identity
+    // inconsistent with the tools actually being served (P3-05).
+    const manifestSnapshot = await runtime.customToolManifest;
     const published = await publishManagedState(
       managed,
       downstream.url,
-      await (deps.computeDaemonIdentity ?? defaultComputeDaemonIdentity)(config, configPath),
+      computeConfigIdentity(config, manifestSnapshot),
       deps,
     );
     if (!published) {

@@ -72,6 +72,54 @@ describe('createCustomToolHost', () => {
     ]);
   });
 
+  it('exposes the exact manifest snapshot it read via manifestSnapshot', async () => {
+    const entries = [
+      manifest(),
+      manifest({ name: 'greet', exposedName: 'personal__greet', enabled: false }),
+    ];
+    const host = createCustomToolHost(
+      deps({ readManifest: vi.fn((): Promise<ToolManifest[]> => Promise.resolve(entries)) }),
+    );
+    await host.load();
+    expect(await host.manifestSnapshot).toEqual(entries);
+  });
+
+  it('resolves manifestSnapshot to [] when the manifest is unreadable', async () => {
+    const host = createCustomToolHost(
+      deps({
+        readManifest: vi.fn((): Promise<ToolManifest[]> => Promise.reject(new Error('corrupt'))),
+      }),
+    );
+    await host.load();
+    expect(await host.manifestSnapshot).toEqual([]);
+  });
+
+  it('describes eligible tools concurrently', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const describe = vi.fn(async (): Promise<DescribeOutcome> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return { outcome: 'ok', inputSchema: SCHEMA };
+    });
+    const entries = [
+      manifest({ name: 'a', exposedName: 'personal__a', entry: 'tools/personal/a.ts' }),
+      manifest({ name: 'b', exposedName: 'personal__b', entry: 'tools/personal/b.ts' }),
+      manifest({ name: 'c', exposedName: 'personal__c', entry: 'tools/personal/c.ts' }),
+    ];
+    const host = createCustomToolHost(
+      deps({
+        readManifest: vi.fn((): Promise<ToolManifest[]> => Promise.resolve(entries)),
+        describe,
+      }),
+    );
+    const inputs = await host.load();
+    expect(inputs).toHaveLength(3);
+    expect(maxActive).toBeGreaterThan(1);
+  });
+
   it('skips disabled tools', async () => {
     const host = createCustomToolHost(
       deps({
