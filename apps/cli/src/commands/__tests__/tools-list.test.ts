@@ -275,7 +275,28 @@ describe('runToolsList', () => {
     const code = await runToolsList({ server: 'jira' }, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('Unknown server "jira"');
+    expect(h.stderr.value).toContain('Unknown server or namespace "jira"');
+  });
+
+  it('--server accepts a custom-tool namespace with no upstream server entry', async () => {
+    const cfg = await makeTempConfig(configWith({}));
+    harnesses.push(cfg);
+    const h = makeToolsHarness(cfg.target);
+    h.deps.readToolManifest = () => Promise.resolve([customManifest('personal', 'echo')]);
+    await h.writeCache([
+      {
+        exposedName: 'personal__echo',
+        serverName: 'personal',
+        upstreamName: 'echo',
+        source: 'custom',
+        tool: { name: 'personal__echo' },
+      },
+    ]);
+
+    const code = await runToolsList({ json: true, server: 'personal' }, h.deps);
+    expect(code).toBe(0);
+    const payload = JSON.parse(h.stdout.value) as { tools: { exposedName: string }[] };
+    expect(payload.tools.map((t) => t.exposedName)).toEqual(['personal__echo']);
   });
 
   it('--from-config honours --server and lists only that server', async () => {

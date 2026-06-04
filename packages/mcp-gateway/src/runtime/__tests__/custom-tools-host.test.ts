@@ -120,6 +120,31 @@ describe('createCustomToolHost', () => {
     expect(maxActive).toBeGreaterThan(1);
   });
 
+  it('registers each tool incrementally via onRegistered as describes resolve', async () => {
+    // a resolves fast; b is slow. The fast one must be registered before the slow
+    // one settles, not held back until both finish.
+    const describe = vi.fn((m: ToolManifest): Promise<DescribeOutcome> => {
+      const delayMs = m.name === 'b' ? 80 : 0;
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ outcome: 'ok', inputSchema: SCHEMA }), delayMs),
+      );
+    });
+    const entries = [
+      manifest({ name: 'a', exposedName: 'personal__a', entry: 'tools/personal/a.ts' }),
+      manifest({ name: 'b', exposedName: 'personal__b', entry: 'tools/personal/b.ts' }),
+    ];
+    const host = createCustomToolHost(
+      deps({
+        readManifest: vi.fn((): Promise<ToolManifest[]> => Promise.resolve(entries)),
+        describe,
+      }),
+    );
+    const sizes: number[] = [];
+    await host.load((inputs) => sizes.push(inputs.length));
+    // Two progress calls (one per tool), the first before the second.
+    expect(sizes).toEqual([1, 2]);
+  });
+
   it('skips disabled tools', async () => {
     const host = createCustomToolHost(
       deps({

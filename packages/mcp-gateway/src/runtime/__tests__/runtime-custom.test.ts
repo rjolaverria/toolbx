@@ -48,7 +48,10 @@ async function flush(): Promise<void> {
 describe('createGatewayRuntime — custom tools', () => {
   it('registers enabled custom tools into the registry after startUpstreams()', async () => {
     const host: CustomToolHost = {
-      load: vi.fn(() => Promise.resolve([echoInput])),
+      load: vi.fn((onRegistered?: (i: readonly (typeof echoInput)[]) => void) => {
+        onRegistered?.([echoInput]);
+        return Promise.resolve([echoInput]);
+      }),
       executor: { run: vi.fn() },
       manifestSnapshot: Promise.resolve([]),
     };
@@ -104,7 +107,10 @@ describe('createGatewayRuntime — custom tools', () => {
 
   it('resolves customToolsLoaded after the initial load settles', async () => {
     const host: CustomToolHost = {
-      load: vi.fn(() => Promise.resolve([echoInput])),
+      load: vi.fn((onRegistered?: (i: readonly (typeof echoInput)[]) => void) => {
+        onRegistered?.([echoInput]);
+        return Promise.resolve([echoInput]);
+      }),
       executor: { run: vi.fn() },
       manifestSnapshot: Promise.resolve([]),
     };

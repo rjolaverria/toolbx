@@ -381,16 +381,16 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       // contracted not to throw, but guard so a defect can't surface as an
       // unhandled rejection.
       if (customToolHost !== undefined) {
+        // Register each custom tool as its schema resolves (not all-at-once), so a
+        // healthy tool appears in `tools/list` immediately even if another tool's
+        // describe is slow or hangs.
         void customToolHost
-          .load()
-          .then(
-            (inputs) => {
-              toolRegistry.setCustomTools(inputs);
-            },
-            (error: unknown) => {
-              log.warn({ err: error }, 'failed to load custom tools');
-            },
-          )
+          .load((inputs) => {
+            toolRegistry.setCustomTools(inputs);
+          })
+          .catch((error: unknown) => {
+            log.warn({ err: error }, 'failed to load custom tools');
+          })
           .finally(() => resolveCustomToolsLoaded());
       }
     },

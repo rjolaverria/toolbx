@@ -79,13 +79,15 @@ export interface CustomToolHostDeps {
 export interface CustomToolHost {
   /**
    * Reads enabled custom tools, resolves their schemas, and returns the registry
-   * inputs to publish. Eligible tools are described concurrently so N tools
-   * resolve in roughly one describe rather than serializing. Never throws: a
-   * corrupt manifest, a namespace collision, or a tool whose schema cannot be
-   * resolved is logged and skipped so one bad tool can never block the gateway
-   * from serving the rest.
+   * inputs. Eligible tools are described concurrently, and `onRegistered` is
+   * invoked with the growing set each time one resolves — so a healthy tool is
+   * published as soon as it is ready rather than waiting for an unrelated slow or
+   * hanging tool. Never throws: a corrupt manifest, a namespace collision, or a
+   * tool whose schema cannot be resolved is logged and skipped so one bad tool
+   * can never block the gateway from serving the rest. The returned promise
+   * resolves once every eligible tool has settled (registered or skipped).
    */
-  load(): Promise<CustomToolInput[]>;
+  load(onRegistered?: (inputs: readonly CustomToolInput[]) => void): Promise<CustomToolInput[]>;
   /** Executes custom tools resolved by the most recent `load()`. */
   readonly executor: CustomToolExecutor;
   /**
@@ -231,7 +233,9 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
     return { exposedName: entry.exposedName, namespace: entry.namespace, name: entry.name, tool };
   }
 
-  async function load(): Promise<CustomToolInput[]> {
+  async function load(
+    onRegistered?: (inputs: readonly CustomToolInput[]) => void,
+  ): Promise<CustomToolInput[]> {
     manifests.clear();
     let entries: ToolManifest[];
     try {
@@ -246,18 +250,22 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
     resolveSnapshot(entries);
 
     const eligible = entries.filter((entry) => isEligible(entry));
-    // Describe concurrently — each tool runs in its own timeout-bounded child, so
-    // the total is roughly the slowest describe rather than their sum.
-    const resolved = await Promise.all(eligible.map((entry) => describeEligible(entry)));
-
+    // Describe concurrently — each tool runs in its own timeout-bounded child —
+    // and register each success as it lands, so a healthy tool is published right
+    // away instead of waiting for an unrelated slow/hanging describe to settle.
+    // The per-describe continuations run as microtasks, so appending to `inputs`
+    // and calling `onRegistered` need no further synchronization.
     const inputs: CustomToolInput[] = [];
-    for (let i = 0; i < resolved.length; i += 1) {
-      const input = resolved[i];
-      if (input !== undefined) {
-        manifests.set(input.exposedName, eligible[i] as ToolManifest);
-        inputs.push(input);
-      }
-    }
+    await Promise.all(
+      eligible.map(async (entry) => {
+        const input = await describeEligible(entry);
+        if (input !== undefined) {
+          manifests.set(input.exposedName, entry);
+          inputs.push(input);
+          onRegistered?.([...inputs]);
+        }
+      }),
+    );
     return inputs;
   }
 
