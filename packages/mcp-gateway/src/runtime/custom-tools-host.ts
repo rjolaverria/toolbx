@@ -8,6 +8,7 @@ import type {
 } from '@toolbox/core';
 import {
   describeTool as defaultDescribeTool,
+  digestToolSources,
   readToolManifest as defaultReadToolManifest,
   resolveToolEntryPath,
   runTool as defaultRunTool,
@@ -261,8 +262,10 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
       return [];
     }
     // Publish the snapshot before describing so the daemon identity (which awaits
-    // it) reflects exactly the manifest these tools are loaded from.
-    resolveSnapshot(entries);
+    // it) reflects exactly the manifest these tools are loaded from — including a
+    // digest of each enabled tool's source, so re-importing edited source (even
+    // with unchanged metadata) invalidates a reused daemon.
+    resolveSnapshot(await digestToolSources(deps.configDir, entries));
 
     const eligible = entries.filter((entry) => isEligible(entry));
     // Describe concurrently — each tool runs in its own timeout-bounded child —

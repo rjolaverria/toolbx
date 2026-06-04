@@ -4,6 +4,8 @@
 // custom tool is exposed through the gateway and callable on the source-agnostic
 // `tlbx run` path, exactly like a proxied upstream tool.
 
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -168,6 +170,31 @@ describe('tlbx run — custom tool through the daemon', () => {
     expect(listed.code).toBe(0);
     const rows = JSON.parse(listed.stdout) as { exposedName: string; source: string }[];
     expect(rows.map((r) => r.exposedName)).toContain('personal__greet');
+  }, 60_000);
+
+  it('treats a running daemon as stale after a custom tool source is edited', async () => {
+    const config = await makeConfig({ servers: {} });
+    const handle = await makeTempConfig(config);
+    tempConfigs.push(handle);
+
+    expect(
+      (await runCli(['tool', 'import', GREET_FIXTURE, '--yes', '--config', handle.target])).code,
+    ).toBe(0);
+    expect(
+      (await runCli(['tool', 'enable', 'personal__greet', '--config', handle.target])).code,
+    ).toBe(0);
+    await waitForToolListed(handle.target, 'personal__greet');
+
+    // Edit the stored source file in place — the manifest entry is unchanged, but
+    // the daemon identity folds in the source digest, so the daemon is stale.
+    const sourcePath = path.join(path.dirname(handle.target), 'tools', 'personal', 'greet.ts');
+    await fs.appendFile(sourcePath, '\n// edited\n', 'utf8');
+
+    const reused = await runCli(['run', '--list', '--output', 'json', '--config', handle.target], {
+      timeoutMs: 30_000,
+    });
+    expect(reused.code).not.toBe(0);
+    expect(reused.stderr).toMatch(/different config|tlbx stop/i);
   }, 60_000);
 
   it('treats a running daemon as stale after a custom tool is disabled', async () => {

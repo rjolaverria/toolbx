@@ -7,11 +7,43 @@
  * path conventions so there is a single source of truth for the on-disk shape.
  */
 
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.js';
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
+
+/** A manifest entry annotated with a digest of its source file (enabled tools only). */
+export type ToolManifestWithDigest = ToolManifest & { readonly sourceDigest?: string };
+
+/**
+ * Annotates each *enabled* manifest entry with a SHA-256 digest of its source
+ * file, so a daemon-identity hash built from the result changes when a tool's
+ * source is edited (e.g. re-imported with `--force` and the same metadata) even
+ * though the manifest entry itself is unchanged. Disabled tools, and entries
+ * whose source is missing or non-canonical, are returned without a digest. Never
+ * throws — a read failure simply omits that tool's digest.
+ */
+export async function digestToolSources(
+  configDir: string,
+  entries: readonly ToolManifest[],
+): Promise<ToolManifestWithDigest[]> {
+  return Promise.all(
+    entries.map(async (entry): Promise<ToolManifestWithDigest> => {
+      if (!entry.enabled) {
+        return entry;
+      }
+      try {
+        const sourcePath = resolveToolEntryPath(configDir, entry);
+        const source = await fs.readFile(sourcePath, 'utf8');
+        return { ...entry, sourceDigest: createHash('sha256').update(source).digest('hex') };
+      } catch {
+        return entry;
+      }
+    }),
+  );
+}
 
 export type ToolManifestErrorCode = 'invalid-manifest' | 'tool-not-found' | 'source-missing';
 
