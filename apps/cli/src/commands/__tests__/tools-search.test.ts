@@ -150,9 +150,15 @@ describe('runToolsSearch', () => {
 
     const code = await runToolsSearch('a', { json: true }, h.deps);
     expect(code).toBe(0);
-    const rows = JSON.parse(h.stdout.value) as { exposedName: string; enabled: boolean }[];
+    const rows = JSON.parse(h.stdout.value) as {
+      exposedName: string;
+      enabled: boolean;
+      source: string;
+    }[];
     // greet was removed → absent; echo present but disabled per the manifest.
     expect(rows.map((r) => r.exposedName)).toEqual(['personal__echo']);
     expect(rows[0]?.enabled).toBe(false);
+    // Source provenance is carried through search rows (parity with tools list).
+    expect(rows[0]?.source).toBe('custom');
   });
 });

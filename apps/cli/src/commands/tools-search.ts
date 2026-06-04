@@ -37,6 +37,7 @@ interface ResultRow {
   serverName: string;
   upstreamName: string;
   enabled: boolean;
+  source: 'upstream' | 'custom';
   score: number;
   matchedFields: readonly SearchMatchedField[];
 }
@@ -52,12 +53,13 @@ function formatTable(rows: readonly ResultRow[]): string {
   if (rows.length === 0) {
     return 'No matches.\n';
   }
-  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SCORE', 'MATCHED'];
+  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SOURCE', 'SCORE', 'MATCHED'];
   const cells = rows.map((row) => [
     row.exposedName,
     row.serverName,
     row.upstreamName,
     row.enabled ? 'yes' : 'no',
+    row.source,
     String(row.score),
     row.matchedFields.join(','),
   ]);
@@ -106,6 +108,7 @@ export async function runToolsSearch(
   // (the same reconciliation `tlbx tools list` applies).
   const manifestByExposed = await readCustomManifestMap(target, deps);
   const enabledByExposed = new Map<string, boolean>();
+  const sourceByExposed = new Map<string, 'upstream' | 'custom'>();
   const tools: RegisteredToolView[] = [];
   for (const entry of cache.tools) {
     const reconciled = reconcileCachedTool(entry, config, manifestByExposed);
@@ -113,6 +116,7 @@ export async function runToolsSearch(
       continue;
     }
     enabledByExposed.set(entry.exposedName, reconciled.enabled);
+    sourceByExposed.set(entry.exposedName, reconciled.toolSource);
     tools.push({
       exposedName: entry.exposedName,
       serverName: entry.serverName,
@@ -131,6 +135,7 @@ export async function runToolsSearch(
     serverName: entry.tool.serverName,
     upstreamName: entry.tool.upstreamName,
     enabled: enabledByExposed.get(entry.tool.exposedName) ?? true,
+    source: sourceByExposed.get(entry.tool.exposedName) ?? 'upstream',
     score: entry.score,
     matchedFields: entry.matchedFields,
   }));
