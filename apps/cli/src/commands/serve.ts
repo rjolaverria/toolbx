@@ -68,6 +68,29 @@ export const SERVE_FORCE_HTTP_ENV = 'TOOLBOX_SERVE_FORCE_HTTP';
 export const MANAGED_CHILD_FD = 3;
 
 /**
+ * Ceiling on how long a managed daemon defers publishing readiness to wait for
+ * custom-tool loading. Kept comfortably under the detach readiness budget so a
+ * tool that hangs during describe cannot make `tlbx run` / `serve --detach`
+ * report a startup timeout; such a tool registers later via `tools/list_changed`.
+ */
+const CUSTOM_TOOL_READINESS_CAP_MS = 8000;
+
+/** Awaits `promise` but gives up after `capMs`, clearing the timer either way. */
+async function raceWithTimeout(promise: Promise<void>, capMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const capped = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, capMs);
+  });
+  try {
+    await Promise.race([promise, capped]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
  * Returns `true` when {@link MANAGED_CHILD_FD} is an inherited pipe/socket,
  * i.e. this process was spawned as a managed daemon. `statFd` is injectable for
  * tests; production stats the real descriptor.
@@ -335,6 +358,12 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   // run` only ever see a record backed by a live HTTP endpoint.
   const managed = resolveManagedDaemon(deps.processEnv, deps.isManagedChild?.() ?? false);
   if (managed !== null) {
+    // Wait for the initial custom-tool load to settle before publishing readiness,
+    // so a `tlbx run` connecting via the published state sees the final tool set
+    // rather than a half-populated one (P3-05). Bounded by a cap (well under the
+    // detach readiness budget) so a pathological tool that hangs in describe can't
+    // stall daemon startup — it simply registers later via `tools/list_changed`.
+    await raceWithTimeout(runtime.customToolsLoaded, CUSTOM_TOOL_READINESS_CAP_MS);
     // Derive the daemon identity from the *same* custom-tool manifest snapshot the
     // runtime loaded its tools from, not a fresh read — a re-read could observe a
     // manifest edit that landed during startup and publish an identity

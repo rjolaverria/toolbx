@@ -85,6 +85,7 @@ function makeFakeRuntime(): FakeRuntime {
     startUpstreams: () => startUpstreamsSpy(),
     notifyAllSessionsToolsChanged: () => undefined,
     customToolManifest: Promise.resolve([]),
+    customToolsLoaded: Promise.resolve(),
     dispose: () => disposeSpy(),
   };
   return { runtime, disposeSpy, startUpstreamsSpy };
@@ -379,11 +380,11 @@ describe('runServe', () => {
     h.deps.onStarted = onStarted;
 
     const promise = runServe({ http: true, forceHttp: true }, h.deps);
-    await Promise.resolve();
-    await Promise.resolve();
-    // One extra microtask: the managed-state publish now awaits the daemon
-    // identity (config + custom-tool manifest) before writing the state file.
-    await Promise.resolve();
+    // The managed-state publish awaits custom-tool readiness and the daemon
+    // identity before writing the state file; flush microtasks until it lands.
+    for (let i = 0; i < 20 && h.writeStateSpy.mock.calls.length === 0; i += 1) {
+      await Promise.resolve();
+    }
 
     // State is published before onStarted fires and before done resolves.
     expect(h.writeStateSpy).toHaveBeenCalledTimes(1);

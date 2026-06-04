@@ -8,8 +8,6 @@ import {
 import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 
 import {
-  awaitColdStartAll,
-  awaitColdStartTarget,
   EXIT_DAEMON,
   EXIT_SUCCESS,
   EXIT_UNKNOWN_TOOL,
@@ -521,31 +519,6 @@ export async function runDiscovery(
     let listed: DaemonListToolsResult;
     try {
       listed = await client.listTools();
-      // On a just-cold-started daemon, custom tools register asynchronously after
-      // readiness (P3-05). Wait for the relevant ones so discovery isn't rendered
-      // against a half-populated listing. For a single-tool kind that is the one
-      // target; for list/search it is every enabled custom tool in the manifest.
-      if (kind === 'describe' || kind === 'schema' || kind === 'example') {
-        const { exposedName } = resolveTarget(pos);
-        listed = await awaitColdStartTarget(
-          client,
-          exposedName,
-          opened.configPath,
-          opened.config,
-          listed,
-          opened.reused,
-          deps,
-        );
-      } else {
-        listed = await awaitColdStartAll(
-          client,
-          opened.configPath,
-          opened.config,
-          listed,
-          opened.reused,
-          deps,
-        );
-      }
     } catch (error) {
       deps.stderr(`tlbx run: failed to list tools from the daemon: ${errorMessage(error)}\n`);
       return EXIT_DAEMON;

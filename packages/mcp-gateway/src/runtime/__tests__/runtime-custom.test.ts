@@ -102,6 +102,28 @@ describe('createGatewayRuntime — custom tools', () => {
     expect([...captured!.enabledServerNames].sort()).toEqual(['jira']);
   });
 
+  it('resolves customToolsLoaded after the initial load settles', async () => {
+    const host: CustomToolHost = {
+      load: vi.fn(() => Promise.resolve([echoInput])),
+      executor: { run: vi.fn() },
+      manifestSnapshot: Promise.resolve([]),
+    };
+    const runtime = createGatewayRuntime({
+      config: makeConfig(),
+      logger: createNoopLogger(),
+      configDir: '/cfg',
+      createCustomToolHost: () => host,
+    });
+    runtime.startUpstreams();
+    await runtime.customToolsLoaded; // resolves once load + setCustomTools complete
+    expect(runtime.toolRegistry.find('personal__echo')).toBeDefined();
+  });
+
+  it('resolves customToolsLoaded immediately when no custom tools are configured', async () => {
+    const runtime = createGatewayRuntime({ config: makeConfig(), logger: createNoopLogger() });
+    await expect(runtime.customToolsLoaded).resolves.toBeUndefined();
+  });
+
   it('does not build a custom-tool host when no configDir is provided', () => {
     const createHost = vi.fn();
     const runtime = createGatewayRuntime({

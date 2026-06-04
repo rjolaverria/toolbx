@@ -96,6 +96,14 @@ export interface GatewayRuntime {
    * serving (P3-05).
    */
   readonly customToolManifest: Promise<readonly ToolManifest[]>;
+  /**
+   * Resolves once `startUpstreams()` has finished the initial custom-tool load —
+   * every enabled tool either registered or settled to a skip (P3-05). Resolves
+   * immediately when no custom tools are configured, and never rejects. `tlbx
+   * serve` awaits this (bounded) before publishing managed-daemon readiness so a
+   * `tlbx run` sees a settled custom-tool set.
+   */
+  readonly customToolsLoaded: Promise<void>;
   /** Tear down every upstream session in parallel. */
   dispose(): Promise<void>;
 }
@@ -153,6 +161,18 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
           separator: deps.config.namespacing.separator,
         })
       : undefined;
+
+  // Resolves once the initial custom-tool load has registered (or settled to a
+  // skip for) every enabled tool. `tlbx serve` awaits this before publishing the
+  // managed daemon's readiness, so a `tlbx run` that connects via the published
+  // state sees the final custom-tool set rather than a half-populated one.
+  let resolveCustomToolsLoaded!: () => void;
+  const customToolsLoaded = new Promise<void>((resolve) => {
+    resolveCustomToolsLoaded = resolve;
+  });
+  if (customToolHost === undefined) {
+    resolveCustomToolsLoaded();
+  }
 
   // Each downstream session registers a `schedule()` callback so
   // `notifyAllSessionsToolsChanged()` can fan visibility-change notifications
@@ -346,6 +366,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     upstreams,
     registerHandlers,
     customToolManifest: customToolHost?.manifestSnapshot ?? Promise.resolve([]),
+    customToolsLoaded,
     startUpstreams() {
       for (const [name, session] of sessions) {
         // Fire-and-forget: the session's internal backoff handles failures.
@@ -360,14 +381,17 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       // contracted not to throw, but guard so a defect can't surface as an
       // unhandled rejection.
       if (customToolHost !== undefined) {
-        void customToolHost.load().then(
-          (inputs) => {
-            toolRegistry.setCustomTools(inputs);
-          },
-          (error: unknown) => {
-            log.warn({ err: error }, 'failed to load custom tools');
-          },
-        );
+        void customToolHost
+          .load()
+          .then(
+            (inputs) => {
+              toolRegistry.setCustomTools(inputs);
+            },
+            (error: unknown) => {
+              log.warn({ err: error }, 'failed to load custom tools');
+            },
+          )
+          .finally(() => resolveCustomToolsLoaded());
       }
     },
     notifyAllSessionsToolsChanged() {

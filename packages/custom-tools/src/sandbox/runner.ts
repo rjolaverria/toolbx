@@ -119,6 +119,12 @@ async function executeSandbox(
   const nonce = randomUUID();
 
   return new Promise<RunOutcome>((resolve) => {
+    // Already cancelled before we start: don't spawn a child at all.
+    if (options.signal?.aborted === true) {
+      resolve({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
+      return;
+    }
+
     const child = spawn(
       process.execPath,
       // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
@@ -159,19 +165,16 @@ async function executeSandbox(
       finish({ outcome: 'timeout' });
     }, manifest.timeoutMs);
 
-    // Caller abort (e.g. a cancelled downstream `tools/call`): kill the child and
-    // resolve immediately rather than waiting out the per-tool timeout.
+    // Caller abort mid-run (e.g. a cancelled downstream `tools/call`): kill the
+    // child and resolve immediately rather than waiting out the per-tool timeout.
+    // The already-aborted case is handled before the spawn above.
     const onAbort = (): void => {
       finish({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
     };
     if (options.signal !== undefined) {
-      if (options.signal.aborted) {
-        onAbort();
-      } else {
-        const signal = options.signal;
-        signal.addEventListener('abort', onAbort, { once: true });
-        detachAbort = () => signal.removeEventListener('abort', onAbort);
-      }
+      const signal = options.signal;
+      signal.addEventListener('abort', onAbort, { once: true });
+      detachAbort = () => signal.removeEventListener('abort', onAbort);
     }
 
     child.on('message', (message: SandboxEnvelope) => {

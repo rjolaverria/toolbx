@@ -1,5 +1,4 @@
 import { readFile as fsReadFile } from 'node:fs/promises';
-import * as path from 'node:path';
 
 import {
   connectDaemonClient,
@@ -7,13 +6,11 @@ import {
   formatExposedName,
   parseExposedName,
   type DaemonClient,
-  type DaemonListToolsResult,
   type LogFormat,
   type LogLevel,
   type NamespaceOptions,
   type ToolBoxConfig,
 } from '@toolbox/core';
-import { readToolManifest } from '@toolbox/custom-tools';
 
 import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
 
@@ -92,23 +89,6 @@ export interface RunDeps {
   stderr: (msg: string) => void;
   /** Whether real stdout is a TTY; selects the default output mode (§5.4). */
   isStdoutTTY: boolean;
-  /**
-   * Sleeps for `ms`. Used to poll a just-cold-started daemon's `tools/list`
-   * while it finishes resolving custom-tool schemas (P3-05). Injectable so tests
-   * exercise the poll without real time; defaults to a real timer.
-   */
-  delay?: (ms: number) => Promise<void>;
-  /**
-   * The *enabled* custom tools in the manifest for the given config directory,
-   * with each tool's `timeoutMs`. `tlbx run` waits for these on a cold start so a
-   * freshly enabled custom tool is callable/listable on the first invocation; the
-   * wait budget is derived from `timeoutMs` because a tool's schema may take up to
-   * its own timeout to resolve. Best-effort: a missing/corrupt manifest yields
-   * `[]`. Injectable for tests.
-   */
-  readEnabledCustomTools?: (
-    configDir: string,
-  ) => Promise<readonly { exposedName: string; timeoutMs: number }[]>;
 }
 
 export function defaultRunDeps(): RunDeps {
@@ -124,17 +104,6 @@ export function defaultRunDeps(): RunDeps {
       process.stderr.write(msg);
     },
     isStdoutTTY: process.stdout.isTTY === true,
-    delay: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-    readEnabledCustomTools: async (configDir) => {
-      try {
-        const entries = await readToolManifest(configDir);
-        return entries
-          .filter((e) => e.enabled)
-          .map((e) => ({ exposedName: e.exposedName, timeoutMs: e.timeoutMs }));
-      } catch {
-        return [];
-      }
-    },
   };
 }
 
@@ -197,132 +166,8 @@ export function resolveOutputMode(
 }
 
 export type OpenDaemonResult =
-  | {
-      ok: true;
-      client: DaemonClient;
-      url: string;
-      config: ToolBoxConfig;
-      reused: boolean;
-      /** Resolved config path of the daemon, used to locate the custom-tool manifest. */
-      configPath: string;
-    }
+  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig }
   | { ok: false; message: string };
-
-/** Floor for the cold-start wait, and the poll interval. */
-const COLD_START_MIN_BUDGET_MS = 2000;
-const COLD_START_POLL_MS = 100;
-
-/**
- * Returns a `tools/list` snapshot that includes every name in
- * `expectedExposedNames` when possible, polling for up to `budgetMs` (floored).
- *
- * A managed daemon reports ready as soon as its HTTP listener binds — before it
- * has finished resolving custom-tool schemas off the hot path (P3-05). So a
- * `tlbx run` can observe a freshly enabled custom tool before it is registered
- * and get a spurious "unknown tool" or missing row — including against a *reused*
- * daemon that another process cold-started moments earlier and that is still
- * loading. When an expected name is absent, poll until it appears or the budget
- * elapses; an already-present set returns immediately, so a settled daemon pays
- * nothing. Callers pass a short budget for a reused daemon (it is almost settled,
- * and a never-appearing name is a broken/skipped tool, not slow loading) and the
- * tool's own `timeoutMs` for a cold start.
- */
-export async function awaitColdStartTools(
-  client: DaemonClient,
-  expectedExposedNames: readonly string[],
-  budgetMs: number,
-  listed: DaemonListToolsResult,
-  deps: RunDeps,
-): Promise<DaemonListToolsResult> {
-  const allPresent = (l: DaemonListToolsResult): boolean => {
-    const present = new Set(l.tools.map((t) => t.name));
-    return expectedExposedNames.every((n) => present.has(n));
-  };
-  if (expectedExposedNames.length === 0 || allPresent(listed)) {
-    return listed;
-  }
-  const delay = deps.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const deadline = Date.now() + Math.max(budgetMs, COLD_START_MIN_BUDGET_MS);
-  let current = listed;
-  while (Date.now() < deadline && !allPresent(current)) {
-    await delay(COLD_START_POLL_MS);
-    current = await client.listTools();
-  }
-  return current;
-}
-
-/** Reads the enabled custom tools (with their timeouts) for a daemon's config. */
-async function readEnabledCustomTools(
-  configPath: string,
-  deps: RunDeps,
-): Promise<readonly { exposedName: string; timeoutMs: number }[]> {
-  const read =
-    deps.readEnabledCustomTools ??
-    (() => Promise.resolve([] as { exposedName: string; timeoutMs: number }[]));
-  return read(path.dirname(configPath));
-}
-
-/** True when a custom tool is not disabled via `config.tools` (it would never appear in `tools/list`). */
-function isConfigEnabled(config: ToolBoxConfig, exposedName: string): boolean {
-  return config.tools[exposedName]?.enabled !== false;
-}
-
-/**
- * Cold-start bridge for a single target tool. Waits only when `exposedName` is an
- * enabled custom tool — enabled in *both* the manifest and `config.tools`, since a
- * config-disabled tool is filtered out of `tools/list` and would never appear.
- * Upstream tools are the daemon's authority and never gate. The wait ceiling is
- * the tool's own `timeoutMs` for a cold start, or the short floor for a reused
- * daemon (it should already be loaded; a longer wait would only stall on a
- * broken/skipped tool).
- */
-export async function awaitColdStartTarget(
-  client: DaemonClient,
-  exposedName: string,
-  configPath: string,
-  config: ToolBoxConfig,
-  listed: DaemonListToolsResult,
-  reused: boolean,
-  deps: RunDeps,
-): Promise<DaemonListToolsResult> {
-  const customs = await readEnabledCustomTools(configPath, deps);
-  const match = customs.find((c) => c.exposedName === exposedName);
-  if (match === undefined || !isConfigEnabled(config, exposedName)) {
-    return listed;
-  }
-  const budget = reused ? COLD_START_MIN_BUDGET_MS : match.timeoutMs;
-  return awaitColdStartTools(client, [exposedName], budget, listed, deps);
-}
-
-/**
- * Cold-start bridge for the whole listing (`--list` / `--search`). Waits for every
- * custom tool that is enabled in both the manifest and `config.tools` to register.
- * The budget is the largest such tool's `timeoutMs` for a cold start, or the short
- * floor for a reused daemon.
- */
-export async function awaitColdStartAll(
-  client: DaemonClient,
-  configPath: string,
-  config: ToolBoxConfig,
-  listed: DaemonListToolsResult,
-  reused: boolean,
-  deps: RunDeps,
-): Promise<DaemonListToolsResult> {
-  const customs = (await readEnabledCustomTools(configPath, deps)).filter((c) =>
-    isConfigEnabled(config, c.exposedName),
-  );
-  if (customs.length === 0) {
-    return listed;
-  }
-  const budget = reused ? COLD_START_MIN_BUDGET_MS : Math.max(...customs.map((c) => c.timeoutMs));
-  return awaitColdStartTools(
-    client,
-    customs.map((c) => c.exposedName),
-    budget,
-    listed,
-    deps,
-  );
-}
 
 /**
  * Ensures a ready daemon (auto-starting it when needed, per P2-01) and opens a
@@ -344,14 +189,7 @@ export async function openDaemonClient(
   }
   try {
     const client = await deps.connect(ensured.daemon.url);
-    return {
-      ok: true,
-      client,
-      url: ensured.daemon.url,
-      config: ensured.daemon.config,
-      reused: ensured.daemon.reused,
-      configPath: ensured.daemon.configPath,
-    };
+    return { ok: true, client, url: ensured.daemon.url, config: ensured.daemon.config };
   } catch (error) {
     return {
       ok: false,
