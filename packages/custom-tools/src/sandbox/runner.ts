@@ -37,6 +37,15 @@ import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } fro
  */
 const FORBIDDEN_CHILD_ENV = new Set(['NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE']);
 
+/**
+ * Upper bound on a describe (schema-resolution) operation, independent of the
+ * tool's per-call `timeoutMs`. Schema resolution only imports the (pure) module
+ * and compiles the schema, so a valid tool finishes far inside this; the cap
+ * exists so the gateway's startup readiness never waits out a long per-call
+ * timeout for a tool that hangs at module top level (P3-05).
+ */
+const DESCRIBE_TIMEOUT_CAP_MS = 6000;
+
 export interface RunToolOptions {
   /** Logger for the audit entry. Defaults to a no-op logger. */
   readonly logger?: Logger;
@@ -161,9 +170,17 @@ async function executeSandbox(
       resolve(value);
     }
 
+    // Describe (schema resolution at exposure) is bounded by a short cap, not the
+    // tool's full call timeout: it only imports the module and compiles the schema,
+    // which a valid pure tool does in well under a second. Capping it keeps the
+    // gateway's startup readiness wait short and bounded even when a tool with a
+    // large per-call timeout hangs at module top level (P3-05).
+    const operationTimeoutMs = describe
+      ? Math.min(manifest.timeoutMs, DESCRIBE_TIMEOUT_CAP_MS)
+      : manifest.timeoutMs;
     const timer = setTimeout(() => {
       finish({ outcome: 'timeout' });
-    }, manifest.timeoutMs);
+    }, operationTimeoutMs);
 
     // Caller abort mid-run (e.g. a cancelled downstream `tools/call`): kill the
     // child and resolve immediately rather than waiting out the per-tool timeout.

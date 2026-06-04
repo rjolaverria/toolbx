@@ -99,6 +99,23 @@ describe('routeToolCall — custom tools', () => {
       signal: controller.signal,
     });
 
-    expect(run).toHaveBeenCalledWith(view, undefined, controller.signal);
+    // Omitted arguments are normalized to `{}` for the custom executor.
+    expect(run).toHaveBeenCalledWith(view, {}, controller.signal);
+  });
+
+  it('normalizes omitted arguments to {} for the executor', async () => {
+    const view = customEntry('personal', 'echo');
+    const run = vi.fn().mockResolvedValue({ kind: 'ok', result: { content: [] } });
+
+    await routeToolCall({
+      exposedName: 'personal__echo',
+      args: undefined,
+      registry: makeRegistry([view]),
+      sessions: NO_SESSIONS,
+      namespacing: NS,
+      customExecutor: { run },
+    });
+
+    expect(run).toHaveBeenCalledWith(view, {}, undefined);
   });
 });

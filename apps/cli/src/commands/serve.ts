@@ -68,12 +68,15 @@ export const SERVE_FORCE_HTTP_ENV = 'TOOLBOX_SERVE_FORCE_HTTP';
 export const MANAGED_CHILD_FD = 3;
 
 /**
- * Ceiling on how long a managed daemon defers publishing readiness to wait for
- * custom-tool loading. Kept comfortably under the detach readiness budget so a
- * tool that hangs during describe cannot make `tlbx run` / `serve --detach`
- * report a startup timeout; such a tool registers later via `tools/list_changed`.
+ * Safety-net ceiling on how long a managed daemon defers publishing readiness to
+ * wait for the initial custom-tool load. The load is independently bounded — each
+ * describe is short-capped (see `DESCRIBE_TIMEOUT_CAP_MS`) and they run
+ * concurrently — so it normally settles well before this and the daemon publishes
+ * a fully-loaded tool set. This cap only guards against an unforeseen stall, and
+ * stays comfortably under the detach readiness budget so it can never make
+ * `tlbx run` / `serve --detach` report a spurious startup timeout.
  */
-const CUSTOM_TOOL_READINESS_CAP_MS = 8000;
+const CUSTOM_TOOL_READINESS_CAP_MS = 12000;
 
 /** Awaits `promise` but gives up after `capMs`, clearing the timer either way. */
 async function raceWithTimeout(promise: Promise<void>, capMs: number): Promise<void> {

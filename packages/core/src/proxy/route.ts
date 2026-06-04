@@ -208,7 +208,10 @@ export async function routeToolCall(params: RouteToolCallParams): Promise<RouteR
         issues: [{ path: [], message: 'arguments must be an object' }],
       };
     }
-    return customExecutor.run(entry, args, signal);
+    // `arguments` is optional in MCP; the custom-tool sandbox validates against
+    // the advertised object schema, so an omitted `arguments` must become `{}`
+    // rather than `undefined` (which a no-argument tool's object schema rejects).
+    return customExecutor.run(entry, args ?? {}, signal);
   }
 
   let serverName: string;
