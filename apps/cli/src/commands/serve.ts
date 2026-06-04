@@ -78,14 +78,29 @@ export const MANAGED_CHILD_FD = 3;
  */
 const CUSTOM_TOOL_READINESS_CAP_MS = 12000;
 
-/** Awaits `promise` but gives up after `capMs`, clearing the timer either way. */
-async function raceWithTimeout(promise: Promise<void>, capMs: number): Promise<void> {
+/**
+ * Waits (bounded) for the initial custom-tool load to settle, then returns the
+ * manifest snapshot it loaded from for the daemon identity. If loading stalls
+ * past `capMs` — anywhere, including the manifest read or source digesting — falls
+ * back to a config-only identity (`[]`) so daemon-state publication can never hang
+ * or blow the detach readiness budget. The fallback only causes a one-time
+ * identity mismatch (a subsequent `tlbx run` treats the daemon as stale and
+ * restarts it), never a hang.
+ */
+export async function settleCustomToolsWithCap(
+  runtime: GatewayRuntime,
+  capMs: number,
+): Promise<readonly unknown[]> {
+  const fallback: readonly unknown[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const capped = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, capMs);
+  const capped = new Promise<readonly unknown[]>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), capMs);
   });
+  // The snapshot resolves before the load completes, so chaining off
+  // `customToolsLoaded` yields a ready snapshot the moment the load settles.
+  const settled = runtime.customToolsLoaded.then(() => runtime.customToolManifest);
   try {
-    await Promise.race([promise, capped]);
+    return await Promise.race([settled, capped]);
   } finally {
     if (timer !== undefined) {
       clearTimeout(timer);
@@ -361,17 +376,12 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   // run` only ever see a record backed by a live HTTP endpoint.
   const managed = resolveManagedDaemon(deps.processEnv, deps.isManagedChild?.() ?? false);
   if (managed !== null) {
-    // Wait for the initial custom-tool load to settle before publishing readiness,
-    // so a `tlbx run` connecting via the published state sees the final tool set
-    // rather than a half-populated one (P3-05). Bounded by a cap (well under the
-    // detach readiness budget) so a pathological tool that hangs in describe can't
-    // stall daemon startup — it simply registers later via `tools/list_changed`.
-    await raceWithTimeout(runtime.customToolsLoaded, CUSTOM_TOOL_READINESS_CAP_MS);
-    // Derive the daemon identity from the *same* custom-tool manifest snapshot the
-    // runtime loaded its tools from, not a fresh read — a re-read could observe a
-    // manifest edit that landed during startup and publish an identity
-    // inconsistent with the tools actually being served (P3-05).
-    const manifestSnapshot = await runtime.customToolManifest;
+    // Wait (bounded) for the initial custom-tool load to settle before publishing
+    // readiness, so a `tlbx run` connecting via the published state sees the final
+    // tool set rather than a half-populated one (P3-05). The returned snapshot is
+    // the *same* manifest the runtime loaded its tools from (digests included), so
+    // a re-read race can't publish an identity inconsistent with the served tools.
+    const manifestSnapshot = await settleCustomToolsWithCap(runtime, CUSTOM_TOOL_READINESS_CAP_MS);
     const published = await publishManagedState(
       managed,
       downstream.url,

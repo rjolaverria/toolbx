@@ -192,6 +192,12 @@ async function executeSandbox(
       const signal = options.signal;
       signal.addEventListener('abort', onAbort, { once: true });
       detachAbort = () => signal.removeEventListener('abort', onAbort);
+      // Close the race between the pre-spawn `aborted` check and attaching the
+      // listener: if the signal fired in that window the listener missed it, so
+      // re-check now and abort immediately.
+      if (signal.aborted) {
+        onAbort();
+      }
     }
 
     child.on('message', (message: SandboxEnvelope) => {

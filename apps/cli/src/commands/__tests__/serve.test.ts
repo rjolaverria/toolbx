@@ -17,7 +17,13 @@ import type {
 } from '@toolbox/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
-import { hasManagedChildHandle, resolveForceHttp, runServe, type ServeDeps } from '../serve.js';
+import {
+  hasManagedChildHandle,
+  resolveForceHttp,
+  runServe,
+  settleCustomToolsWithCap,
+  type ServeDeps,
+} from '../serve.js';
 
 interface FakeStdioControls {
   server: DownstreamStdioServer;
@@ -505,5 +511,25 @@ describe('hasManagedChildHandle', () => {
       throw Object.assign(new Error('EBADF'), { code: 'EBADF' });
     };
     expect(hasManagedChildHandle(statFd)).toBe(false);
+  });
+});
+
+describe('settleCustomToolsWithCap', () => {
+  it('returns the loaded manifest snapshot once the load settles', async () => {
+    const snapshot = [{ exposedName: 'personal__echo' }];
+    const runtime = {
+      customToolsLoaded: Promise.resolve(),
+      customToolManifest: Promise.resolve(snapshot),
+    } as never;
+    await expect(settleCustomToolsWithCap(runtime, 1000)).resolves.toEqual(snapshot);
+  });
+
+  it('falls back to [] when the load stalls past the cap', async () => {
+    const runtime = {
+      // Never resolves — simulates a stalled custom-tool load (e.g. a hung read).
+      customToolsLoaded: new Promise<void>(() => undefined),
+      customToolManifest: new Promise(() => undefined),
+    } as never;
+    await expect(settleCustomToolsWithCap(runtime, 10)).resolves.toEqual([]);
   });
 });
