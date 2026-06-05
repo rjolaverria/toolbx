@@ -28,17 +28,20 @@ export {
   setToolEnabled,
   removeTool,
   resolveToolEntryPath,
+  digestToolSources,
   toolsDirPath,
   toolsManifestPath,
   ToolManifestError,
   type ToolManifestErrorCode,
   type SetEnabledResult,
   type RemoveToolResult,
+  type ToolManifestWithDigest,
 } from './manifest/store.js';
 
-export { runTool, type RunToolOptions } from './sandbox/runner.js';
+export { runTool, describeTool, type RunToolOptions } from './sandbox/runner.js';
 export {
   type RunOutcome,
+  type DescribeOutcome,
   type RunErrorCode,
   type SandboxRequest,
   type SandboxResponse,

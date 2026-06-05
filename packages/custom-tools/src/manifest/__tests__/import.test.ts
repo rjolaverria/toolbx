@@ -212,6 +212,19 @@ describe('importTool', () => {
         importTool(sourcePath, { configDir, serverNames: ['github', 'personal'] }),
       ).rejects.toMatchObject({ name: 'ToolImportError', code: 'namespace-collision' });
     });
+
+    it('rejects the reserved "toolbox" namespace', async () => {
+      const reserved = SPEC_EXAMPLE.replace(
+        '@toolbox-tool namespace personal',
+        '@toolbox-tool namespace toolbox',
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', reserved);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'namespace-collision',
+      });
+    });
   });
 
   describe('shape validation', () => {

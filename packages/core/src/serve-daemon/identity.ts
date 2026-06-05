@@ -31,8 +31,21 @@ function canonicalize(value: unknown): unknown {
  * The hash is taken over a canonical (key-sorted) JSON form so cosmetic edits
  * — reordered keys, whitespace — do not force a needless restart, while any
  * semantic change does.
+ *
+ * Custom tools live in a separate manifest (`tools/manifest.json`), not in
+ * `config.json`, yet `tlbx tool enable/disable/remove/import` change what the
+ * daemon should expose. Pass the manifest entries so a manifest change also
+ * forces a reused daemon to be treated as stale. An empty or omitted manifest
+ * contributes nothing, so deployments with no custom tools keep the exact hash
+ * they had before this parameter existed.
  */
-export function computeConfigIdentity(config: ToolBoxConfig): string {
-  const canonical = JSON.stringify(canonicalize(config));
-  return createHash('sha256').update(canonical).digest('hex');
+export function computeConfigIdentity(
+  config: ToolBoxConfig,
+  manifest?: readonly unknown[],
+): string {
+  const payload =
+    manifest !== undefined && manifest.length > 0
+      ? { config: canonicalize(config), tools: canonicalize(manifest) }
+      : canonicalize(config);
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }

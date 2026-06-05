@@ -19,7 +19,12 @@ import {
   parsePositiveInt,
   resolveTargetPath,
 } from './server-shared.js';
-import { defaultResolveCachePath, type ToolsCommandDeps } from './tools-shared.js';
+import {
+  defaultResolveCachePath,
+  reconcileCachedTool,
+  readCustomManifestMap,
+  type ToolsCommandDeps,
+} from './tools-shared.js';
 
 export interface ToolsSearchOptions {
   config?: string;
@@ -32,6 +37,7 @@ interface ResultRow {
   serverName: string;
   upstreamName: string;
   enabled: boolean;
+  source: 'upstream' | 'custom';
   score: number;
   matchedFields: readonly SearchMatchedField[];
 }
@@ -47,12 +53,13 @@ function formatTable(rows: readonly ResultRow[]): string {
   if (rows.length === 0) {
     return 'No matches.\n';
   }
-  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SCORE', 'MATCHED'];
+  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SOURCE', 'SCORE', 'MATCHED'];
   const cells = rows.map((row) => [
     row.exposedName,
     row.serverName,
     row.upstreamName,
     row.enabled ? 'yes' : 'no',
+    row.source,
     String(row.score),
     row.matchedFields.join(','),
   ]);
@@ -96,14 +103,29 @@ export async function runToolsSearch(
     throw error;
   }
 
-  const tools: RegisteredToolView[] = cache.tools.map((entry) => ({
-    exposedName: entry.exposedName,
-    serverName: entry.serverName,
-    upstreamName: entry.upstreamName,
-    // The cache stores `Tool` payloads loosely; widen to the SDK shape — the
-    // search function only reads `name`, `title`, `description`, `inputSchema`.
-    tool: entry.tool as RegisteredToolView['tool'],
-  }));
+  // Reconcile cached custom rows against the live manifest before searching, so a
+  // tool disabled or removed via `tlbx tool disable/remove` is reflected here too
+  // (the same reconciliation `tlbx tools list` applies).
+  const manifestByExposed = await readCustomManifestMap(target, deps);
+  const enabledByExposed = new Map<string, boolean>();
+  const sourceByExposed = new Map<string, 'upstream' | 'custom'>();
+  const tools: RegisteredToolView[] = [];
+  for (const entry of cache.tools) {
+    const reconciled = reconcileCachedTool(entry, config, manifestByExposed);
+    if (!reconciled.keep) {
+      continue;
+    }
+    enabledByExposed.set(entry.exposedName, reconciled.enabled);
+    sourceByExposed.set(entry.exposedName, reconciled.toolSource);
+    tools.push({
+      exposedName: entry.exposedName,
+      serverName: entry.serverName,
+      upstreamName: entry.upstreamName,
+      // The cache stores `Tool` payloads loosely; widen to the SDK shape — the
+      // search function only reads `name`, `title`, `description`, `inputSchema`.
+      tool: entry.tool as RegisteredToolView['tool'],
+    });
+  }
 
   const limit = options.limit ?? config.progressiveDisclosure.maxSearchResults;
   const ranked = searchTools(query, tools, { limit });
@@ -112,7 +134,8 @@ export async function runToolsSearch(
     exposedName: entry.tool.exposedName,
     serverName: entry.tool.serverName,
     upstreamName: entry.tool.upstreamName,
-    enabled: config.tools[entry.tool.exposedName]?.enabled !== false,
+    enabled: enabledByExposed.get(entry.tool.exposedName) ?? true,
+    source: sourceByExposed.get(entry.tool.exposedName) ?? 'upstream',
     score: entry.score,
     matchedFields: entry.matchedFields,
   }));

@@ -114,6 +114,52 @@ function sealEscapeHatches(): void {
   }
 }
 
+/** A representative value for a property schema's declared `type`, used by describe-mode probing. */
+function probeValueForType(sub: unknown): unknown {
+  const type =
+    typeof sub === 'object' && sub !== null ? (sub as Record<string, unknown>).type : undefined;
+  switch (type) {
+    case 'number':
+    case 'integer':
+      return 0;
+    case 'boolean':
+      return false;
+    case 'array':
+      return [];
+    case 'object':
+      return {};
+    case 'null':
+      return null;
+    default:
+      // strings and untyped properties — '' exercises string keywords like `pattern`.
+      return '';
+  }
+}
+
+/**
+ * Builds a value that exercises a schema's declared properties so describe-mode
+ * `validate()` lazily compiles property-level keywords (e.g. `pattern` regexes).
+ * Object schemas yield an object with one probe value per declared property;
+ * non-object schemas yield a single type-appropriate value. The probe is a
+ * best-effort coverage aid — deeply nested or conditional sub-schemas may still
+ * surface errors at call time — not a full validity proof.
+ */
+function buildSchemaProbe(schema: object): unknown {
+  const record = schema as Record<string, unknown>;
+  const props = record.properties;
+  const hasProps = typeof props === 'object' && props !== null;
+  if (record.type === 'object' || hasProps) {
+    const probe: Record<string, unknown> = {};
+    if (hasProps) {
+      for (const [key, sub] of Object.entries(props as Record<string, unknown>)) {
+        probe[key] = probeValueForType(sub);
+      }
+    }
+    return probe;
+  }
+  return probeValueForType(schema);
+}
+
 /** Replaces network globals with throwing stubs when `network` is denied. */
 function applyNetworkGate(networkAllowed: boolean): void {
   if (networkAllowed) {
@@ -184,6 +230,18 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
+  // The handler must exist for the tool to be callable. Check it before the
+  // describe-mode return so the gateway never advertises an uncallable tool
+  // (e.g. a stored file edited after import to drop its default export); the
+  // check inspects the binding's type without invoking it.
+  if (typeof mod.default !== 'function') {
+    await fail('invalid-handler', 'tool default export is not a function');
+    return;
+  }
+
+  // Compile the schema before the describe-mode return so describe runs the same
+  // validation step as the call path — a schema that `new Validator` rejects is
+  // not advertised in `tools/list` only to fail later at call time.
   let validator: Validator;
   try {
     validator = new Validator(schema);
@@ -192,8 +250,22 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
-  if (typeof mod.default !== 'function') {
-    await fail('invalid-handler', 'tool default export is not a function');
+  // Describe mode (P3-05): the gateway only needs the schema to advertise the
+  // tool in `tools/list`. Return it without invoking the handler — exposure does
+  // not execute tool code, and a hanging or throwing handler must not block
+  // describing a tool that is otherwise well-formed. Before returning, run a
+  // probe validation that exercises the declared properties so a schema that
+  // only fails when `validate()` lazily compiles a keyword (e.g. an invalid
+  // `pattern` regex) is rejected here rather than advertised and failing at call
+  // time. The probe value is discarded; only a thrown error matters.
+  if (request.describe === true) {
+    try {
+      validator.validate(buildSchemaProbe(schema));
+    } catch (error) {
+      await fail('invalid-schema', error instanceof Error ? error.message : String(error));
+      return;
+    }
+    await send({ ok: true, result: schema });
     return;
   }
 

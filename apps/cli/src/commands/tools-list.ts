@@ -8,6 +8,7 @@ import {
 import {
   defaultResolveCachePath,
   loadTools,
+  readCustomManifestMap,
   type ToolView,
   type ToolsCommandDeps,
 } from './tools-shared.js';
@@ -37,12 +38,13 @@ function formatTable(rows: readonly ToolView[], emptyMessage: string): string {
   if (rows.length === 0) {
     return emptyMessage;
   }
-  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED'];
+  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SOURCE'];
   const cells = rows.map((row) => [
     row.exposedName,
     row.serverName,
     row.upstreamName,
     row.enabled ? 'yes' : 'no',
+    row.toolSource,
   ]);
   const widths = headers.map((h, i) =>
     Math.max(h.length, ...cells.map((cell) => (cell[i] ?? '').length)),
@@ -60,6 +62,7 @@ interface JsonRow {
   serverName: string;
   upstreamName: string;
   enabled: boolean;
+  source: 'upstream' | 'custom';
 }
 
 function buildJsonRows(rows: readonly ToolView[]): JsonRow[] {
@@ -68,6 +71,7 @@ function buildJsonRows(rows: readonly ToolView[]): JsonRow[] {
     serverName: row.serverName,
     upstreamName: row.upstreamName,
     enabled: row.enabled,
+    source: row.toolSource,
   }));
 }
 
@@ -83,8 +87,15 @@ export async function runToolsList(
 
   const fromConfig = options.fromConfig === true;
   if (options.server !== undefined && config.servers[options.server] === undefined) {
-    deps.stderr(`Unknown server "${options.server}" in ${target}.\n`);
-    return 1;
+    // A `--server` filter may also name a custom-tool namespace, which appears in
+    // the SERVER column but has no `config.servers` entry. Accept it when the
+    // manifest has that namespace; reject only a name that is neither.
+    const manifestMap = await readCustomManifestMap(target, deps);
+    const customNamespaces = new Set([...manifestMap.values()].map((m) => m.namespace));
+    if (!customNamespaces.has(options.server)) {
+      deps.stderr(`Unknown server or namespace "${options.server}" in ${target}.\n`);
+      return 1;
+    }
   }
 
   const result = await loadTools(

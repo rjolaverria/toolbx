@@ -13,6 +13,13 @@ export interface SandboxRequest {
    * message (via any process internal) cannot spoof a result — it never sees the nonce.
    */
   readonly nonce: string;
+  /**
+   * Describe-only mode: the harness loads the module, validates that `inputSchema`
+   * is an object, and returns it in `result` without invoking the handler. Used by
+   * the gateway to read a custom tool's schema for `tools/list` (P3-05). Absent /
+   * false means a normal call.
+   */
+  readonly describe?: boolean;
 }
 
 /** Error codes the runtime can report for a single call. */
@@ -35,5 +42,15 @@ export type SandboxEnvelope = SandboxResponse & { readonly nonce: string };
 /** Final outcome `runTool` resolves to. `message` is already secret-redacted. */
 export type RunOutcome =
   | { readonly outcome: 'ok'; readonly result: unknown }
+  | { readonly outcome: 'timeout' }
+  | { readonly outcome: 'error'; readonly code: RunErrorCode; readonly message: string };
+
+/**
+ * Final outcome `describeTool` resolves to. The `ok` variant carries the tool's
+ * `inputSchema`; the failure variants mirror `RunOutcome`. `message` is already
+ * secret-redacted.
+ */
+export type DescribeOutcome =
+  | { readonly outcome: 'ok'; readonly inputSchema: unknown }
   | { readonly outcome: 'timeout' }
   | { readonly outcome: 'error'; readonly code: RunErrorCode; readonly message: string };

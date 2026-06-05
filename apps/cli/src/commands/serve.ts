@@ -68,6 +68,47 @@ export const SERVE_FORCE_HTTP_ENV = 'TOOLBOX_SERVE_FORCE_HTTP';
 export const MANAGED_CHILD_FD = 3;
 
 /**
+ * Safety-net ceiling on how long a managed daemon defers publishing readiness to
+ * wait for the initial custom-tool load. The load is independently bounded — each
+ * describe is short-capped (see `DESCRIBE_TIMEOUT_CAP_MS`) and they run
+ * concurrently — so it normally settles well before this and the daemon publishes
+ * a fully-loaded tool set. This cap only guards against an unforeseen stall, and
+ * stays comfortably under the detach readiness budget so it can never make
+ * `tlbx run` / `serve --detach` report a spurious startup timeout.
+ */
+const CUSTOM_TOOL_READINESS_CAP_MS = 12000;
+
+/**
+ * Waits (bounded) for the initial custom-tool load to settle, then returns the
+ * manifest snapshot it loaded from for the daemon identity. If loading stalls
+ * past `capMs` — anywhere, including the manifest read or source digesting — falls
+ * back to a config-only identity (`[]`) so daemon-state publication can never hang
+ * or blow the detach readiness budget. The fallback only causes a one-time
+ * identity mismatch (a subsequent `tlbx run` treats the daemon as stale and
+ * restarts it), never a hang.
+ */
+export async function settleCustomToolsWithCap(
+  runtime: GatewayRuntime,
+  capMs: number,
+): Promise<readonly unknown[]> {
+  const fallback: readonly unknown[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const capped = new Promise<readonly unknown[]>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), capMs);
+  });
+  // The snapshot resolves before the load completes, so chaining off
+  // `customToolsLoaded` yields a ready snapshot the moment the load settles.
+  const settled = runtime.customToolsLoaded.then(() => runtime.customToolManifest);
+  try {
+    return await Promise.race([settled, capped]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
  * Returns `true` when {@link MANAGED_CHILD_FD} is an inherited pipe/socket,
  * i.e. this process was spawned as a managed daemon. `statFd` is injectable for
  * tests; production stats the real descriptor.
@@ -281,6 +322,10 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
     config,
     logger,
     processEnv: deps.processEnv,
+    // Locate the custom-tool manifest (and resolve relative tool entry paths)
+    // alongside the resolved config so imported, enabled custom tools are
+    // exposed through the gateway (P3-05).
+    configDir: path.dirname(configPath),
   });
   const detachCacheWriter = startToolCacheWriter(runtime, configPath, deps, logger);
   runtime.startUpstreams();
@@ -331,10 +376,16 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   // run` only ever see a record backed by a live HTTP endpoint.
   const managed = resolveManagedDaemon(deps.processEnv, deps.isManagedChild?.() ?? false);
   if (managed !== null) {
+    // Wait (bounded) for the initial custom-tool load to settle before publishing
+    // readiness, so a `tlbx run` connecting via the published state sees the final
+    // tool set rather than a half-populated one (P3-05). The returned snapshot is
+    // the *same* manifest the runtime loaded its tools from (digests included), so
+    // a re-read race can't publish an identity inconsistent with the served tools.
+    const manifestSnapshot = await settleCustomToolsWithCap(runtime, CUSTOM_TOOL_READINESS_CAP_MS);
     const published = await publishManagedState(
       managed,
       downstream.url,
-      computeConfigIdentity(config),
+      computeConfigIdentity(config, manifestSnapshot),
       deps,
     );
     if (!published) {
@@ -432,6 +483,7 @@ function startToolCacheWriter(
       exposedName: tool.exposedName,
       serverName: tool.serverName,
       upstreamName: tool.upstreamName,
+      source: tool.source,
       tool: tool.tool,
     }));
     pending = writer({ tools }, cachePath)

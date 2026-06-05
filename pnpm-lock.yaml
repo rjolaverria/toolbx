@@ -138,6 +138,9 @@ importers:
       '@toolbox/core':
         specifier: workspace:*
         version: link:../core
+      '@toolbox/custom-tools':
+        specifier: workspace:*
+        version: link:../custom-tools
       zod:
         specifier: ^4.3.6
         version: 4.3.6

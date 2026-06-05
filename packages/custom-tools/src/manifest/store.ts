@@ -7,11 +7,76 @@
  * path conventions so there is a single source of truth for the on-disk shape.
  */
 
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { atomicWriteFile } from './atomic-write.js';
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
+
+/** A manifest entry annotated with a digest of its source file (enabled tools only). */
+export type ToolManifestWithDigest = ToolManifest & { readonly sourceDigest?: string };
+
+/** Upper bound on a single source-file read while digesting (guards a slow mount). */
+const DIGEST_READ_TIMEOUT_MS = 2000;
+
+/**
+ * Digests one tool source, bounded so it cannot block indefinitely: a non-regular
+ * file (e.g. a FIFO planted at the canonical path) is rejected by the `stat`
+ * guard before any open, and a slow read on a regular file is aborted after
+ * `DIGEST_READ_TIMEOUT_MS`. Returns `undefined` on any failure.
+ */
+async function digestSource(sourcePath: string): Promise<string | undefined> {
+  let isFile: boolean;
+  try {
+    isFile = (await fs.stat(sourcePath)).isFile();
+  } catch {
+    return undefined;
+  }
+  if (!isFile) {
+    return undefined;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIGEST_READ_TIMEOUT_MS);
+  try {
+    const source = await fs.readFile(sourcePath, { encoding: 'utf8', signal: controller.signal });
+    return createHash('sha256').update(source).digest('hex');
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Annotates each *enabled* manifest entry with a SHA-256 digest of its source
+ * file, so a daemon-identity hash built from the result changes when a tool's
+ * source is edited (e.g. re-imported with `--force` and the same metadata) even
+ * though the manifest entry itself is unchanged. Disabled tools, and entries
+ * whose source is missing, non-canonical, not a regular file, or too slow to
+ * read, are returned without a digest. Never throws and is bounded — see
+ * {@link digestSource} — so it cannot stall daemon-state publication.
+ */
+export async function digestToolSources(
+  configDir: string,
+  entries: readonly ToolManifest[],
+): Promise<ToolManifestWithDigest[]> {
+  return Promise.all(
+    entries.map(async (entry): Promise<ToolManifestWithDigest> => {
+      if (!entry.enabled) {
+        return entry;
+      }
+      let sourcePath: string;
+      try {
+        sourcePath = resolveToolEntryPath(configDir, entry);
+      } catch {
+        return entry;
+      }
+      const sourceDigest = await digestSource(sourcePath);
+      return sourceDigest !== undefined ? { ...entry, sourceDigest } : entry;
+    }),
+  );
+}
 
 export type ToolManifestErrorCode = 'invalid-manifest' | 'tool-not-found' | 'source-missing';
 

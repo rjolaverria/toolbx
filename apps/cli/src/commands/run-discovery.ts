@@ -5,7 +5,7 @@ import {
   type RegisteredToolView,
   type SearchMatchedField,
 } from '@toolbox/core';
-import { BOOTSTRAP_TOOL_META_KEY } from '@toolbox/mcp-gateway';
+import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
 
 import {
   EXIT_DAEMON,
@@ -32,6 +32,8 @@ interface DiscoveredTool {
   title?: string | undefined;
   description?: string | undefined;
   inputSchema: unknown;
+  /** Provenance: a proxied upstream tool or an imported custom tool (P3-05). */
+  source: 'upstream' | 'custom';
 }
 
 export type ListedTool = DaemonListToolsResult['tools'][number];
@@ -46,6 +48,16 @@ export type ListedTool = DaemonListToolsResult['tools'][number];
 function isBootstrapTool(tool: ListedTool): boolean {
   const meta = tool._meta;
   return isRecord(meta) && meta[BOOTSTRAP_TOOL_META_KEY] === true;
+}
+
+/**
+ * Classifies a listed tool's provenance from the `_meta` marker the daemon
+ * stamps onto imported custom tools (§6.7). Absent marker ⇒ a proxied upstream
+ * tool.
+ */
+function toolSource(tool: ListedTool): 'upstream' | 'custom' {
+  const meta = tool._meta;
+  return isRecord(meta) && meta[CUSTOM_TOOL_META_KEY] === true ? 'custom' : 'upstream';
 }
 
 /**
@@ -80,6 +92,7 @@ function buildDiscoveredTools(listed: readonly ListedTool[]): DiscoveredTool[] {
         title: tool.title,
         description: tool.description,
         inputSchema: tool.inputSchema,
+        source: toolSource(tool),
       };
     });
 }
@@ -292,6 +305,7 @@ function renderList(
       ...(tool.title !== undefined ? { title: tool.title } : {}),
       ...(tool.description !== undefined ? { description: tool.description } : {}),
       enabled: true,
+      source: tool.source,
     }));
     return `${JSON.stringify(rows, null, 2)}\n`;
   }
@@ -300,12 +314,13 @@ function renderList(
       ? `No enabled tools for server "${server}".\n`
       : 'No enabled tools. Add a server with `tlbx server add-stdio` or `add-http`.\n';
   }
-  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'DESCRIPTION'];
+  const headers = ['EXPOSED', 'SERVER', 'TOOL', 'ENABLED', 'SOURCE', 'DESCRIPTION'];
   const cells = tools.map((tool) => [
     tool.exposedName,
     tool.serverName,
     tool.upstreamName,
     'yes',
+    tool.source,
     clampDescription(tool.description),
   ]);
   return formatTable(headers, cells);

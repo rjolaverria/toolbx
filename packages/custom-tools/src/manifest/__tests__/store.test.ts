@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { importTool, type ToolManifest } from '../import.js';
 import {
+  digestToolSources,
   findToolByExposedName,
   readToolManifest,
   removeTool,
@@ -49,6 +50,50 @@ async function importExample(): Promise<string> {
   const result = await importTool(sourcePath, { configDir });
   return result.manifest.exposedName;
 }
+
+describe('digestToolSources', () => {
+  it('adds a source digest to enabled tools that changes when the source changes', async () => {
+    const exposedName = await importExample();
+    await setToolEnabled(configDir, exposedName, true);
+    const entries = await readToolManifest(configDir);
+
+    const [first] = await digestToolSources(configDir, entries);
+    expect(typeof first?.sourceDigest).toBe('string');
+    expect(first?.sourceDigest).toHaveLength(64);
+
+    // Edit the source file (metadata unchanged) and re-digest — the digest moves.
+    const sourcePath = resolveToolEntryPath(configDir, entries[0]!);
+    await fs.appendFile(sourcePath, '\n// edit\n', 'utf8');
+    const [afterEdit] = await digestToolSources(configDir, entries);
+    expect(afterEdit?.sourceDigest).not.toBe(first?.sourceDigest);
+  });
+
+  it('omits the digest for disabled tools and missing sources', async () => {
+    const exposedName = await importExample(); // imported tools start disabled
+    const disabled = await readToolManifest(configDir);
+    const [d] = await digestToolSources(configDir, disabled);
+    expect(d?.sourceDigest).toBeUndefined();
+
+    await setToolEnabled(configDir, exposedName, true);
+    const enabled = await readToolManifest(configDir);
+    await fs.rm(resolveToolEntryPath(configDir, enabled[0]!));
+    const [missing] = await digestToolSources(configDir, enabled);
+    expect(missing?.sourceDigest).toBeUndefined();
+  });
+
+  it('omits the digest when the source path is not a regular file', async () => {
+    const exposedName = await importExample();
+    await setToolEnabled(configDir, exposedName, true);
+    const enabled = await readToolManifest(configDir);
+    // Replace the source file with a directory at its canonical path — the
+    // regular-file guard must skip it (and never block on opening, e.g. a FIFO).
+    const sourcePath = resolveToolEntryPath(configDir, enabled[0]!);
+    await fs.rm(sourcePath);
+    await fs.mkdir(sourcePath);
+    const [entry] = await digestToolSources(configDir, enabled);
+    expect(entry?.sourceDigest).toBeUndefined();
+  });
+});
 
 describe('readToolManifest', () => {
   it('returns an empty list when no manifest exists', async () => {

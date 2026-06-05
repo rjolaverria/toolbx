@@ -25,6 +25,12 @@ export interface RegisteredTool {
   readonly serverName: string;
   readonly upstreamName: string;
   readonly tool: Tool;
+  /**
+   * `'upstream'` for a proxied tool routed to an upstream session; `'custom'`
+   * for an imported custom tool routed to the local custom-tool runtime
+   * (P3-05). The router and the `tools/call` handler dispatch on this.
+   */
+  readonly source: 'upstream' | 'custom';
 }
 
 export interface ServerToolEntry {
@@ -34,9 +40,29 @@ export interface ServerToolEntry {
   readonly tools: readonly Tool[];
 }
 
+/**
+ * Input shape for {@link ToolRegistry.setCustomTools}. The `tool` carries the
+ * already-namespaced descriptor advertised over `tools/list` (its `name` equals
+ * `exposedName`); `namespace`/`name` populate the registered entry's
+ * `serverName`/`upstreamName` so the router can resolve it like any other tool.
+ */
+export interface CustomToolInput {
+  readonly exposedName: string;
+  readonly namespace: string;
+  readonly name: string;
+  readonly tool: Tool;
+}
+
 export interface ToolRegistry {
   setServerEntry(entry: ServerToolEntry): void;
   removeServer(serverName: string): void;
+  /**
+   * Replaces the entire set of exposed custom tools (P3-05). Custom tools have
+   * no upstream `ServerStatus` — an entry present here is unconditionally
+   * visible. Pass the full desired set on every call; a subset removes the
+   * tools left out.
+   */
+  setCustomTools(tools: readonly CustomToolInput[]): void;
   list(): RegisteredTool[];
   /**
    * O(1) lookup of a visible tool by its exposed (namespaced) name. Returns
@@ -69,17 +95,39 @@ function isServerVisible(entry: InternalEntry): boolean {
   );
 }
 
+/**
+ * Strips ToolBox-reserved `_meta` keys (the `toolbox/` namespace, e.g.
+ * `toolbox/custom`, `toolbox/bootstrap`) from an upstream tool descriptor. These
+ * keys mark provenance for control-plane consumers (`tlbx run` discovery); an
+ * upstream server must not be able to set them and have its tool mislabeled as a
+ * custom or bootstrap tool.
+ */
+function stripReservedMeta(tool: Tool): Tool {
+  const meta = tool._meta;
+  if (meta === undefined) {
+    return tool;
+  }
+  const kept = Object.fromEntries(
+    Object.entries(meta).filter(([key]) => !key.startsWith('toolbox/')),
+  );
+  return { ...tool, _meta: kept };
+}
+
 function buildRegisteredTools(
   serverName: string,
   upstreamTools: readonly Tool[],
   options: NamespaceOptions,
 ): RegisteredTool[] {
-  return upstreamTools.map((tool) => ({
-    exposedName: formatExposedName(serverName, tool.name, options),
-    serverName,
-    upstreamName: tool.name,
-    tool: { ...tool, name: formatExposedName(serverName, tool.name, options) },
-  }));
+  return upstreamTools.map((tool) => {
+    const exposedName = formatExposedName(serverName, tool.name, options);
+    return {
+      exposedName,
+      serverName,
+      upstreamName: tool.name,
+      tool: { ...stripReservedMeta(tool), name: exposedName },
+      source: 'upstream',
+    };
+  });
 }
 
 function fingerprintTools(tools: readonly RegisteredTool[]): string {
@@ -121,6 +169,11 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
   // lookup from `find()`. Kept in sync inside `setServerEntry` /
   // `removeServer`; only visible servers contribute keys.
   const visibleByExposedName = new Map<string, RegisteredTool>();
+  // Exposed custom tools (P3-05), keyed by exposedName. Always visible (no
+  // upstream status). Mirrored into `visibleByExposedName` so `find()` resolves
+  // them too. `customFingerprint` gates change notifications.
+  const customByExposedName = new Map<string, RegisteredTool>();
+  let customFingerprint = '[]';
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -186,6 +239,34 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
     }
   }
 
+  function setCustomTools(tools: readonly CustomToolInput[]): void {
+    const registered: RegisteredTool[] = tools.map((input) => ({
+      exposedName: input.exposedName,
+      serverName: input.namespace,
+      upstreamName: input.name,
+      tool: input.tool,
+      source: 'custom',
+    }));
+    // Sort by exposedName so a reordered-but-identical set fingerprints the same.
+    const sorted = [...registered].sort((a, b) =>
+      a.exposedName < b.exposedName ? -1 : a.exposedName > b.exposedName ? 1 : 0,
+    );
+    const fingerprint = JSON.stringify(sorted.map((t) => t.tool));
+    if (fingerprint === customFingerprint) {
+      return;
+    }
+    for (const tool of customByExposedName.values()) {
+      visibleByExposedName.delete(tool.exposedName);
+    }
+    customByExposedName.clear();
+    for (const tool of registered) {
+      customByExposedName.set(tool.exposedName, tool);
+      visibleByExposedName.set(tool.exposedName, tool);
+    }
+    customFingerprint = fingerprint;
+    notify();
+  }
+
   function list(): RegisteredTool[] {
     const visible: RegisteredTool[] = [];
     for (const entry of entries.values()) {
@@ -195,6 +276,9 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
       for (const tool of entry.tools) {
         visible.push(tool);
       }
+    }
+    for (const tool of customByExposedName.values()) {
+      visible.push(tool);
     }
     // Use byte-order comparison (not `localeCompare`) so the sort is
     // deterministic across machines/runtimes irrespective of process locale.
@@ -221,5 +305,5 @@ export function createToolRegistry(options: CreateToolRegistryOptions): ToolRegi
     };
   }
 
-  return { setServerEntry, removeServer, list, find, subscribe };
+  return { setServerEntry, removeServer, setCustomTools, list, find, subscribe };
 }

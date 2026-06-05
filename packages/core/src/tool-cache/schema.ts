@@ -17,6 +17,10 @@ const CachedToolSchema = z
     exposedName: z.string().min(1),
     serverName: z.string().min(1),
     upstreamName: z.string().min(1),
+    // Where the tool comes from. Defaults to `'upstream'` so caches written
+    // before custom tools existed (P3-05) still validate; `tlbx tools list`
+    // renders it as the SOURCE column.
+    source: z.enum(['upstream', 'custom']).default('upstream'),
     tool: z.looseObject({
       name: z.string().min(1),
       description: z.string().optional(),
@@ -36,3 +40,8 @@ export const ToolCacheFileSchema = z
 
 export type ToolCacheFile = z.infer<typeof ToolCacheFileSchema>;
 export type CachedTool = z.infer<typeof CachedToolSchema>;
+/**
+ * Write-side shape: `source` is optional because the schema defaults it to
+ * `'upstream'`. Reads (`CachedTool`) always carry a resolved `source`.
+ */
+export type CachedToolInput = z.input<typeof CachedToolSchema>;

@@ -9,12 +9,21 @@ import {
   type NamespacingConfig,
   type ToolBoxConfig,
 } from '@toolbox/core';
+import { readToolManifest, type ToolManifest } from '@toolbox/custom-tools';
 
 import type { ServerCommandDeps } from './server-shared.js';
 
 export interface ToolsCommandDeps extends ServerCommandDeps {
   /** Resolves the tool cache path for the resolved config path. Tests inject a fixture path. */
   resolveCachePath: (configPath: string) => string;
+  /**
+   * Reads the custom-tool manifest for the config directory. Used to reconcile
+   * cached `source: 'custom'` entries against the live manifest, so `tlbx tools
+   * list` reflects `tlbx tool enable/disable/remove` (which edit the manifest,
+   * not `config.json`). Best-effort: a missing/corrupt manifest yields `[]`.
+   * Injectable for tests; defaults to the real reader.
+   */
+  readToolManifest?: (configDir: string) => Promise<readonly ToolManifest[]>;
 }
 
 export function defaultResolveCachePath(configPath: string): string {
@@ -26,13 +35,91 @@ export interface ToolView {
   serverName: string;
   upstreamName: string;
   enabled: boolean;
+  /** Where the listing data came from (the gateway cache vs. config synthesis). */
   source: 'cache' | 'config';
+  /** Whether the tool is a proxied upstream tool or an imported custom tool (P3-05). */
+  toolSource: 'upstream' | 'custom';
 }
 
 export type LoadToolsResult =
   | { kind: 'ok'; tools: ToolView[]; source: 'cache'; updatedAt: string }
   | { kind: 'ok'; tools: ToolView[]; source: 'config' }
   | { kind: 'error' };
+
+/**
+ * Reads the custom-tool manifest for `configPath`'s directory into a map keyed by
+ * exposed name, best-effort (a missing/corrupt manifest yields an empty map).
+ * Used to reconcile cached `source: 'custom'` rows against the live manifest, so
+ * `tlbx tools list` / `search` reflect `tlbx tool enable/disable/remove` (which
+ * edit the manifest, not `config.json`).
+ */
+export async function readCustomManifestMap(
+  configPath: string,
+  deps: ToolsCommandDeps,
+): Promise<Map<string, ToolManifest>> {
+  const map = new Map<string, ToolManifest>();
+  const read = deps.readToolManifest ?? ((dir) => readToolManifest(dir));
+  try {
+    for (const entry of await read(path.dirname(configPath))) {
+      map.set(entry.exposedName, entry);
+    }
+  } catch {
+    // Best-effort: leave custom rows reflecting the cache snapshot.
+  }
+  return map;
+}
+
+/** A cached tool reconciled against config + the custom-tool manifest. */
+export interface ReconciledCachedTool {
+  readonly keep: true;
+  readonly exposedName: string;
+  readonly serverName: string;
+  readonly upstreamName: string;
+  readonly toolSource: 'upstream' | 'custom';
+  readonly enabled: boolean;
+}
+
+/**
+ * Reconciles one cached tool against config and the manifest map. An upstream
+ * tool is kept and enabled per `config.tools`. A custom tool is dropped when it
+ * is no longer in the manifest (removed), and otherwise its enabled state is the
+ * manifest flag AND any `config.tools` override — matching how the gateway gates
+ * it at serve time.
+ */
+export function reconcileCachedTool(
+  entry: {
+    exposedName: string;
+    serverName: string;
+    upstreamName: string;
+    source: 'upstream' | 'custom';
+  },
+  config: ToolBoxConfig,
+  manifestByExposed: ReadonlyMap<string, ToolManifest>,
+): ReconciledCachedTool | { keep: false } {
+  const configEnabled = config.tools[entry.exposedName]?.enabled !== false;
+  if (entry.source !== 'custom') {
+    return {
+      keep: true,
+      exposedName: entry.exposedName,
+      serverName: entry.serverName,
+      upstreamName: entry.upstreamName,
+      toolSource: entry.source,
+      enabled: configEnabled,
+    };
+  }
+  const manifestEntry = manifestByExposed.get(entry.exposedName);
+  if (manifestEntry === undefined) {
+    return { keep: false };
+  }
+  return {
+    keep: true,
+    exposedName: entry.exposedName,
+    serverName: entry.serverName,
+    upstreamName: entry.upstreamName,
+    toolSource: 'custom',
+    enabled: manifestEntry.enabled && configEnabled,
+  };
+}
 
 export interface LoadToolsOptions {
   fromConfig?: boolean;
@@ -84,17 +171,22 @@ export async function loadTools(
     throw error;
   }
 
+  const manifestByExposed = await readCustomManifestMap(configPath, deps);
+
   const tools = cache.tools
     .filter(
       (entry) => options.serverFilter === undefined || entry.serverName === options.serverFilter,
     )
+    .map((entry) => reconcileCachedTool(entry, config, manifestByExposed))
+    .filter((row): row is ReconciledCachedTool => row.keep)
     .map(
-      (entry): ToolView => ({
-        exposedName: entry.exposedName,
-        serverName: entry.serverName,
-        upstreamName: entry.upstreamName,
-        enabled: config.tools[entry.exposedName]?.enabled !== false,
+      (row): ToolView => ({
+        exposedName: row.exposedName,
+        serverName: row.serverName,
+        upstreamName: row.upstreamName,
+        enabled: row.enabled,
         source: 'cache',
+        toolSource: row.toolSource,
       }),
     )
     .sort((a, b) => {

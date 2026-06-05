@@ -26,7 +26,7 @@ import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import { redactSecrets } from './redact.js';
-import type { RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
+import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
 
 /**
  * Node runtime-control variables that must never reach the sandboxed child, even when a
@@ -37,6 +37,15 @@ import type { RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js'
  */
 const FORBIDDEN_CHILD_ENV = new Set(['NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE']);
 
+/**
+ * Upper bound on a describe (schema-resolution) operation, independent of the
+ * tool's per-call `timeoutMs`. Schema resolution only imports the (pure) module
+ * and compiles the schema, so a valid tool finishes far inside this; the cap
+ * exists so the gateway's startup readiness never waits out a long per-call
+ * timeout for a tool that hangs at module top level (P3-05).
+ */
+const DESCRIBE_TIMEOUT_CAP_MS = 6000;
+
 export interface RunToolOptions {
   /** Logger for the audit entry. Defaults to a no-op logger. */
   readonly logger?: Logger;
@@ -46,6 +55,13 @@ export interface RunToolOptions {
    * absolute (e.g. test fixtures).
    */
   readonly configDir?: string;
+  /**
+   * Aborts the call: when it fires the child is SIGKILLed and the call resolves
+   * to an error outcome, instead of running to the per-tool timeout. The gateway
+   * forwards the downstream request's signal so a cancelled `tools/call` stops
+   * the tool promptly.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** Resolves the harness file next to this module, matching its extension (.ts/.js). */
@@ -90,14 +106,19 @@ function resolveEntry(entry: string, configDir: string | undefined): string {
   return path.join(configDir, entry);
 }
 
-export async function runTool(
+/**
+ * Spawns the sandbox child for one operation — a normal call or a describe — and
+ * resolves the raw {@link RunOutcome}. Shared by {@link runTool} and
+ * {@link describeTool}; the audit log lives in `runTool` so describe stays quiet.
+ * Error messages are secret-redacted here using the allowlisted env values.
+ */
+async function executeSandbox(
   manifest: ToolManifest,
   args: unknown,
-  options: RunToolOptions = {},
+  options: RunToolOptions,
+  describe: boolean,
 ): Promise<RunOutcome> {
-  const logger = options.logger ?? createNoopLogger();
   const { env, secretValues } = buildEnv(manifest.permissions.env);
-  const start = Date.now();
 
   const absoluteEntry = resolveEntry(manifest.entry, options.configDir);
 
@@ -106,7 +127,13 @@ export async function runTool(
   // a forged IPC message cannot carry the matching nonce and is ignored by the parent.
   const nonce = randomUUID();
 
-  const outcome = await new Promise<RunOutcome>((resolve) => {
+  return new Promise<RunOutcome>((resolve) => {
+    // Already cancelled before we start: don't spawn a child at all.
+    if (options.signal?.aborted === true) {
+      resolve({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
+      return;
+    }
+
     const child = spawn(
       process.execPath,
       // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
@@ -124,6 +151,7 @@ export async function runTool(
     );
 
     let settled = false;
+    let detachAbort: (() => void) | undefined;
 
     function finish(value: RunOutcome): void {
       if (settled) {
@@ -131,6 +159,7 @@ export async function runTool(
       }
       settled = true;
       clearTimeout(timer);
+      detachAbort?.();
       child.removeAllListeners();
       child.on('error', () => {
         // Absorb a stray EPIPE from an in-flight send after we have already settled.
@@ -141,9 +170,35 @@ export async function runTool(
       resolve(value);
     }
 
+    // Describe (schema resolution at exposure) is bounded by a short cap, not the
+    // tool's full call timeout: it only imports the module and compiles the schema,
+    // which a valid pure tool does in well under a second. Capping it keeps the
+    // gateway's startup readiness wait short and bounded even when a tool with a
+    // large per-call timeout hangs at module top level (P3-05).
+    const operationTimeoutMs = describe
+      ? Math.min(manifest.timeoutMs, DESCRIBE_TIMEOUT_CAP_MS)
+      : manifest.timeoutMs;
     const timer = setTimeout(() => {
       finish({ outcome: 'timeout' });
-    }, manifest.timeoutMs);
+    }, operationTimeoutMs);
+
+    // Caller abort mid-run (e.g. a cancelled downstream `tools/call`): kill the
+    // child and resolve immediately rather than waiting out the per-tool timeout.
+    // The already-aborted case is handled before the spawn above.
+    const onAbort = (): void => {
+      finish({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
+    };
+    if (options.signal !== undefined) {
+      const signal = options.signal;
+      signal.addEventListener('abort', onAbort, { once: true });
+      detachAbort = () => signal.removeEventListener('abort', onAbort);
+      // Close the race between the pre-spawn `aborted` check and attaching the
+      // listener: if the signal fired in that window the listener missed it, so
+      // re-check now and abort immediately.
+      if (signal.aborted) {
+        onAbort();
+      }
+    }
 
     child.on('message', (message: SandboxEnvelope) => {
       if (message.nonce !== nonce) {
@@ -178,10 +233,20 @@ export async function runTool(
       permissions: manifest.permissions,
       args,
       nonce,
+      ...(describe ? { describe: true } : {}),
     };
     child.send(request);
   });
+}
 
+export async function runTool(
+  manifest: ToolManifest,
+  args: unknown,
+  options: RunToolOptions = {},
+): Promise<RunOutcome> {
+  const logger = options.logger ?? createNoopLogger();
+  const start = Date.now();
+  const outcome = await executeSandbox(manifest, args, options, false);
   const durationMs = Date.now() - start;
   if (outcome.outcome === 'error') {
     logger.warn(
@@ -193,6 +258,31 @@ export async function runTool(
       { tool: manifest.exposedName, durationMs, outcome: outcome.outcome },
       'custom tool call',
     );
+  }
+  return outcome;
+}
+
+/**
+ * Resolves a custom tool's `inputSchema` by loading its module in the sandbox
+ * without invoking the handler (P3-05). The gateway calls this to advertise the
+ * tool in `tools/list`. Shares the runner's spawn/timeout/redaction plumbing; the
+ * `ok` outcome carries the schema, and failures mirror {@link runTool}.
+ *
+ * Reading `inputSchema` requires importing the module, so the tool's top-level
+ * code runs here even though the handler is never invoked. This runs in the same
+ * sandbox a call uses — sealed escape hatches, the network/env permission gate,
+ * `--disallow-code-generation-from-strings`, and the per-tool timeout with
+ * SIGKILL — so a top-level side effect is contained and a top-level hang resolves
+ * to `timeout` rather than blocking the gateway. The gateway skips a tool whose
+ * describe fails, so it is never exposed.
+ */
+export async function describeTool(
+  manifest: ToolManifest,
+  options: RunToolOptions = {},
+): Promise<DescribeOutcome> {
+  const outcome = await executeSandbox(manifest, undefined, options, true);
+  if (outcome.outcome === 'ok') {
+    return { outcome: 'ok', inputSchema: outcome.result };
   }
   return outcome;
 }
