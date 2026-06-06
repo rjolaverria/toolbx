@@ -225,6 +225,18 @@ async function executeSandbox(
     let settled = false;
     let detachAbort: (() => void) | undefined;
 
+    // srt's per-command cleanup must run exactly once (it decrements the Linux
+    // active-sandbox counter). Idempotent so neither a missed nor a duplicate
+    // `exit` event can skip or double-run it.
+    let cleanedUp = false;
+    const cleanupOnce = (): void => {
+      if (cleanedUp) {
+        return;
+      }
+      cleanedUp = true;
+      wrapped.cleanup();
+    };
+
     function finish(value: RunOutcome): void {
       if (settled) {
         return;
@@ -236,17 +248,18 @@ async function executeSandbox(
       child.on('error', () => {
         // Absorb a stray EPIPE from an in-flight send after we have already settled.
       });
-      // Run the sandbox's per-command cleanup once the process has actually
-      // exited (srt Linux decrements its active-sandbox counter and removes
-      // bwrap mount-point files). Register before killing so the SIGKILL-driven
-      // exit triggers it; if the child already exited, run it now.
-      if (child.exitCode === null && child.signalCode === null) {
-        child.once('exit', () => {
-          wrapped.cleanup();
-        });
+      // Run the sandbox's per-command cleanup once the process has exited (srt
+      // Linux decrements its active-sandbox counter and removes bwrap mount-point
+      // files). Only a child that actually started can emit `exit`; for a failed
+      // spawn (no PID) or an already-exited child, run cleanup immediately so a
+      // never-firing `exit` cannot leak it.
+      const running =
+        child.pid !== undefined && child.exitCode === null && child.signalCode === null;
+      if (running) {
+        child.once('exit', cleanupOnce);
         killProcessTree(child);
       } else {
-        wrapped.cleanup();
+        cleanupOnce();
       }
       resolve(value);
     }

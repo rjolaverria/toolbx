@@ -494,6 +494,23 @@ describe('runTool sandbox strict mode', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('runs sandbox cleanup when the sandboxed spawn fails to start', async () => {
+    const cleanup = vi.fn();
+    // A wrapped argv pointing at a missing binary makes spawn emit ENOENT with no
+    // PID, so finish() must run cleanup directly rather than waiting for an exit
+    // event that never fires.
+    const probe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () =>
+        Promise.resolve({ argv: ['/nonexistent/toolbox-no-such-binary'], env: {} }),
+      cleanupAfterCommand: cleanup,
+    };
+    const outcome = await runTool(manifest('returns.ts'), { who: 'x' }, { sandboxProbe: probe });
+    expect(outcome.outcome).toBe('error');
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it('maps an abort during sandbox wrapping to the aborted outcome', async () => {
     const controller = new AbortController();
     // Not aborted at the pre-wrap check, then aborts and rejects mid-wrap — the
