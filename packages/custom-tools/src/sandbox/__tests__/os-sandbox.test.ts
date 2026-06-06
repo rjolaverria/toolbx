@@ -112,7 +112,7 @@ describe('wrapSpawn', () => {
     const probe = supportedProbe();
     const result = await wrapSpawn({
       argv: BASE_ARGV,
-      env: { NODE_EXTRA_CA_CERTS: '/etc/ca.pem', API_TOKEN: 'super-secret' },
+      env: { NODE_EXTRA_CA_CERTS: '/home/u/ca.pem', API_TOKEN: 'super-secret' },
       permissions: PERMS_NO_FS,
       probe,
     });
@@ -124,7 +124,10 @@ describe('wrapSpawn', () => {
     // The secret is never on the wrapper env either (IPC-only).
     expect(Object.keys(result.env)).not.toContain('API_TOKEN');
     // The narrow startup var is on the wrapper env so Node reads it at startup.
-    expect(result.env.NODE_EXTRA_CA_CERTS).toBe('/etc/ca.pem');
+    expect(result.env.NODE_EXTRA_CA_CERTS).toBe('/home/u/ca.pem');
+    // …and its path is re-allowed for reading even under denyRead(home).
+    const cfg = captureConfig(probe) as { filesystem: { allowRead: string[] } };
+    expect(cfg.filesystem.allowRead).toContain('/home/u/ca.pem');
   });
 
   it('falls back to the base argv with a one-time warning when unsupported (auto)', async () => {
@@ -189,6 +192,21 @@ describe('wrapSpawn', () => {
   it('treats a socat-only dependency error as supported (network proxy unused)', async () => {
     const probe = supportedProbe({
       checkDependencies: () => ({ warnings: [], errors: ['socat not installed'] }),
+    });
+    const result = await wrapSpawn({
+      argv: BASE_ARGV,
+      env: {},
+      permissions: PERMS_NO_FS,
+      probe,
+      sandbox: { mode: 'auto', require: false },
+    });
+    expect(result.sandboxed).toBe(true);
+    expect(probe.wrapWithSandboxArgv).toHaveBeenCalled();
+  });
+
+  it('treats a ripgrep-only dependency error as supported (literal paths, no globs)', async () => {
+    const probe = supportedProbe({
+      checkDependencies: () => ({ warnings: [], errors: ['ripgrep (rg) not found'] }),
     });
     const result = await wrapSpawn({
       argv: BASE_ARGV,

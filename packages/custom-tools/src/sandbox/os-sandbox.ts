@@ -263,14 +263,15 @@ function filesystemConfig(
 const POSIX_PLATFORMS = new Set<NodeJS.Platform>(['darwin', 'linux']);
 
 /**
- * srt's Linux dependency check reports a missing `socat` as an error, but socat
- * is only needed for its network *proxy* — this wrapper passes a filesystem-only
- * config and never uses the proxy. Ignore socat errors so a host with working
- * `bwrap` filesystem sandboxing but no socat keeps its containment; any other
+ * srt's Linux dependency check reports missing `socat` and `ripgrep` as errors,
+ * but neither is needed for this wrapper's filesystem-only config: socat is only
+ * for the network *proxy* (never used here), and ripgrep only expands glob
+ * deny-patterns — we pass literal paths, and srt catches an rg failure anyway.
+ * Ignore both so a host with working `bwrap` keeps its containment; any other
  * dependency error (e.g. missing `bwrap`) still disqualifies the OS sandbox.
  */
 function disqualifyingErrors(errors: readonly string[]): readonly string[] {
-  return errors.filter((message) => !/socat/i.test(message));
+  return errors.filter((message) => !/socat|ripgrep/i.test(message));
 }
 
 function isSupported(probe: PlatformProbe): boolean {
@@ -324,7 +325,11 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   }
 
   const command = baseArgv.map(shellQuote).join(' ');
-  const readRoots = defaultReadRoots(baseArgv, input.readRoots ?? []);
+  // The startup wrapper env vars are file paths (e.g. NODE_EXTRA_CA_CERTS). Add
+  // them to the read allowlist so Node can read the file at startup even when it
+  // lives under $HOME and filesystem:false denies home reads.
+  const startupReadPaths = Object.values(startupWrapperEnv(input.env));
+  const readRoots = defaultReadRoots(baseArgv, [...(input.readRoots ?? []), ...startupReadPaths]);
   const customConfig: Partial<SandboxRuntimeConfig> = {
     filesystem: filesystemConfig(input.permissions.filesystem, readRoots),
   };
