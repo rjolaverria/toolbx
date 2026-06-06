@@ -106,21 +106,23 @@ describe('wrapSpawn', () => {
     }
   });
 
-  it('injects the tool env into the inner command, not the wrapper env', async () => {
+  it('keeps secrets out of the wrapper command and env, but passes startup vars on the env', async () => {
     const probe = supportedProbe();
     const result = await wrapSpawn({
       argv: BASE_ARGV,
-      env: { NODE_EXTRA_CA_CERTS: '/etc/ca.pem' },
+      env: { NODE_EXTRA_CA_CERTS: '/etc/ca.pem', API_TOKEN: 'super-secret' },
       permissions: PERMS_NO_FS,
       probe,
     });
     const command = (probe.wrapWithSandboxArgv as ReturnType<typeof vi.fn>).mock
       .calls[0]?.[0] as string;
-    // Delivered to the inner `node` via an `env` prefix, so Node reads it at
-    // startup; never present in the wrapper spawn env.
-    expect(command).toContain("'env'");
-    expect(command).toContain("'NODE_EXTRA_CA_CERTS=/etc/ca.pem'");
-    expect(Object.keys(result.env)).not.toContain('NODE_EXTRA_CA_CERTS');
+    // No tool env value appears in the command line (ps/log-safe).
+    expect(command).not.toContain('super-secret');
+    expect(command).not.toContain('NODE_EXTRA_CA_CERTS');
+    // The secret is never on the wrapper env either (IPC-only).
+    expect(Object.keys(result.env)).not.toContain('API_TOKEN');
+    // The narrow startup var is on the wrapper env so Node reads it at startup.
+    expect(result.env.NODE_EXTRA_CA_CERTS).toBe('/etc/ca.pem');
   });
 
   it('falls back to the base argv with a one-time warning when unsupported (auto)', async () => {

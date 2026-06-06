@@ -68,6 +68,27 @@ export const defaultPlatformProbe: PlatformProbe = {
 const NOOP_CLEANUP = (): void => {};
 
 /**
+ * Env vars Node reads at process startup (before the harness can apply the
+ * IPC-delivered env) that are safe to place on the sandbox wrapper's environment:
+ * they are non-secret, and they are not interpreted by the wrapper shell or the
+ * dynamic loader, so they cannot trigger a BASH_ENV/LD_PRELOAD-style bypass. All
+ * other tool env (including secrets) is delivered only over IPC.
+ */
+const STARTUP_WRAPPER_ENV = new Set(['NODE_EXTRA_CA_CERTS']);
+
+/** The subset of the tool env that is safe and necessary on the wrapper env. */
+function startupWrapperEnv(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of STARTUP_WRAPPER_ENV) {
+    const value = env[key];
+    if (value !== undefined) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/**
  * SIGKILLs a child and its descendants. After OS-sandbox wrapping the direct
  * child is the wrapper shell (`bash -c "… sandbox-exec … node harness"`), so
  * killing only its PID would orphan the Node harness. The child is spawned
@@ -101,12 +122,12 @@ export interface WrapSpawnInput {
   /** Unsandboxed child argv: `[execPath, ...flags, harnessPath]`. */
   readonly argv: readonly string[];
   /**
-   * Allowlisted tool env as name→value pairs. When sandboxed it is injected into
-   * the *inner* `node` invocation via an `env VAR=val …` prefix — the values are
-   * arguments to that inner `env`, so they reach Node at startup (e.g.
-   * NODE_EXTRA_CA_CERTS) without ever entering the wrapper shell's environment,
-   * where a shell-control var like BASH_ENV could run code before the sandbox.
-   * On the unsandboxed paths (no wrapper shell) it is the child's spawn env.
+   * Allowlisted tool env as name→value pairs. The full set (including secrets) is
+   * delivered to the harness over IPC and applied at runtime, so secrets never
+   * reach the wrapper argv or environment. Only a narrow startup allowlist
+   * ({@link STARTUP_WRAPPER_ENV}) is also placed on the wrapper env so Node can
+   * read it at startup. On the unsandboxed paths (no wrapper shell) the whole set
+   * is the child's spawn env.
    */
   readonly env: Record<string, string>;
   readonly permissions: ToolPermissions;
@@ -287,25 +308,24 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
     return { argv: baseArgv, env: { ...input.env }, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
-  // Inject the tool env into the inner `node` via an `env VAR=val …` prefix. The
-  // assignments are arguments to that inner `env` (run after sandbox-exec/bwrap),
-  // so Node sees them at startup, but they are never part of the wrapper shell's
-  // own environment — a tool-controlled BASH_ENV cannot make the wrapper bash run
-  // code before the sandbox starts.
-  const envAssignments = Object.entries(input.env).map(([key, value]) => `${key}=${value}`);
-  const command = ['env', ...envAssignments, ...baseArgv].map(shellQuote).join(' ');
+  const command = baseArgv.map(shellQuote).join(' ');
   const readRoots = defaultReadRoots(baseArgv, input.readRoots ?? []);
   const customConfig: Partial<SandboxRuntimeConfig> = {
     filesystem: filesystemConfig(input.permissions.filesystem, readRoots),
   };
   const { argv } = await probe.wrapWithSandboxArgv(command, undefined, customConfig, input.signal);
 
-  // The wrapper process needs only the non-secret PATH/HOME to resolve
-  // `env`/`sandbox-exec`/`bwrap`; the tool env rides in the inner command above,
-  // and the harness later prunes the child's env to exactly the allowlist.
+  // The full tool env (including secrets) is delivered over IPC and applied by the
+  // harness at runtime, so secrets never appear in the wrapper argv (ps/logs) or
+  // its environment. The only exception is a narrow allowlist of startup-required
+  // vars Node reads before the harness runs (e.g. NODE_EXTRA_CA_CERTS): those are
+  // non-secret, non-shell/non-loader vars, so passing them on the wrapper env is
+  // safe — bash/sandbox-exec ignore them, and they cannot trigger a BASH_ENV-style
+  // bypass. The harness still prunes the child's env to exactly the allowlist.
   const env: NodeJS.ProcessEnv = {
     ...(process.env.PATH !== undefined ? { PATH: process.env.PATH } : {}),
     ...(process.env.HOME !== undefined ? { HOME: process.env.HOME } : {}),
+    ...startupWrapperEnv(input.env),
   };
   return {
     argv,
