@@ -150,10 +150,28 @@ async function executeSandbox(
     harnessPath(),
   ];
 
+  // A function (not an inline `=== true`) so TypeScript's control-flow analysis
+  // does not narrow `aborted` to false for the catch below: the signal can flip
+  // to aborted during the awaited `wrapSpawn`, which CFA cannot see.
+  const isAborted = (): boolean => options.signal?.aborted === true;
+  const abortedOutcome: RunOutcome = {
+    outcome: 'error',
+    code: 'tool-error',
+    message: 'custom tool call aborted',
+  };
+
+  // Already cancelled before sandbox setup: resolve to the aborted outcome
+  // without generating a sandbox profile (which can be non-trivial on Linux).
+  if (isAborted()) {
+    return abortedOutcome;
+  }
+
   // Wrap the spawn with the OS sandbox (P3-06) when available. `wrapSpawn` may
   // throw SandboxUnavailableError when the config requires a sandbox that the
   // host cannot provide; surface that as an error outcome rather than running
-  // unsandboxed.
+  // unsandboxed. It may also reject if the signal aborts mid-wrap (the signal is
+  // forwarded to srt, which can cancel its Linux ripgrep scan) — translate that
+  // into the same aborted outcome the post-spawn path uses.
   let spawnArgv: string[];
   let spawnEnv: NodeJS.ProcessEnv;
   try {
@@ -171,6 +189,9 @@ async function executeSandbox(
   } catch (error) {
     if (error instanceof SandboxUnavailableError) {
       return { outcome: 'error', code: 'sandbox-unavailable', message: error.message };
+    }
+    if (isAborted()) {
+      return abortedOutcome;
     }
     throw error;
   }

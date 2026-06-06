@@ -97,6 +97,13 @@ describe('runTool', () => {
       ) as string[];
       expect(keys).toContain('SLACK_BOT_TOKEN');
       expect(keys).not.toContain('SECRET_OTHER');
+      // The OS-sandbox wrapper needs PATH/HOME in the shared process env and Node
+      // injects NODE_CHANNEL_FD for the IPC channel, but the harness prunes both
+      // from the tool's view, so a sandboxed tool sees the same allowlist a
+      // non-sandboxed one does.
+      expect(keys).not.toContain('PATH');
+      expect(keys).not.toContain('HOME');
+      expect(keys).not.toContain('NODE_CHANNEL_FD');
     } finally {
       delete process.env.SLACK_BOT_TOKEN;
       delete process.env.SECRET_OTHER;
@@ -461,5 +468,28 @@ describe('runTool sandbox strict mode', () => {
       outcome: 'ok',
       result: { content: [{ type: 'text', text: 'Hello world' }] },
     });
+  });
+
+  it('maps an abort during sandbox wrapping to the aborted outcome', async () => {
+    const controller = new AbortController();
+    // Not aborted at the pre-wrap check, then aborts and rejects mid-wrap — the
+    // path srt takes on Linux when its ripgrep scan is cancelled.
+    const abortingProbe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () => {
+        controller.abort();
+        return Promise.reject(new Error('sandbox scan cancelled'));
+      },
+    };
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { signal: controller.signal, sandboxProbe: abortingProbe },
+    );
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.message).toContain('aborted');
+    }
   });
 });

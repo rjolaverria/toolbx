@@ -70,7 +70,7 @@ export interface CustomToolHostDeps {
   /** Test seam: resolve a tool's schema. Defaults to the real `describeTool`. */
   readonly describe?: (
     manifest: ToolManifest,
-    options: { configDir: string; sandbox?: SandboxOptions },
+    options: { configDir: string; logger?: Logger; sandbox?: SandboxOptions },
   ) => Promise<DescribeOutcome>;
   /** Test seam: execute a tool. Defaults to the real `runTool`. */
   readonly run?: (
@@ -229,6 +229,7 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
     try {
       outcome = await describe(entry, {
         configDir: deps.configDir,
+        logger: log,
         ...(deps.sandbox !== undefined ? { sandbox: deps.sandbox } : {}),
       });
     } catch (error) {
