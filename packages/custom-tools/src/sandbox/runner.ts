@@ -198,13 +198,18 @@ async function executeSandbox(
 
   const [spawnCommand, ...spawnArgs] = wrapped.argv;
   if (spawnCommand === undefined) {
+    // wrapSpawn already incremented srt's per-command state on Linux, so run its
+    // cleanup before bailing even though no child was spawned.
+    wrapped.cleanup();
     return { outcome: 'error', code: 'load-error', message: 'empty sandbox spawn argv' };
   }
 
   return new Promise<RunOutcome>((resolve) => {
-    // Already cancelled before we start: don't spawn a child at all.
+    // Cancelled in the window after wrapSpawn but before spawning: don't spawn a
+    // child, but still run the sandbox cleanup wrapSpawn's setup registered.
     if (options.signal?.aborted === true) {
-      resolve({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
+      wrapped.cleanup();
+      resolve(abortedOutcome);
       return;
     }
 

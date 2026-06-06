@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ToolManifest } from '../../manifest/import.js';
 import type { PlatformProbe } from '../os-sandbox.js';
@@ -469,6 +469,29 @@ describe('runTool sandbox strict mode', () => {
       outcome: 'ok',
       result: { content: [{ type: 'text', text: 'Hello world' }] },
     });
+  });
+
+  it('runs sandbox cleanup when aborted after wrap but before spawn', async () => {
+    const controller = new AbortController();
+    const cleanup = vi.fn();
+    // Aborts after the wrap resolves (with a valid argv), so the runner reaches
+    // the pre-spawn abort check and must still run the per-command cleanup.
+    const probe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () => {
+        controller.abort();
+        return Promise.resolve({ argv: ['/bin/echo', 'hi'], env: {} });
+      },
+      cleanupAfterCommand: cleanup,
+    };
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { signal: controller.signal, sandboxProbe: probe },
+    );
+    expect(outcome.outcome).toBe('error');
+    expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('maps an abort during sandbox wrapping to the aborted outcome', async () => {
