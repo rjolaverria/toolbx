@@ -29,7 +29,8 @@ export type RunErrorCode =
   | 'invalid-args'
   | 'load-error'
   | 'forbidden-import'
-  | 'tool-error';
+  | 'tool-error'
+  | 'sandbox-unavailable';
 
 /** Response the child harness sends back over IPC. */
 export type SandboxResponse =
