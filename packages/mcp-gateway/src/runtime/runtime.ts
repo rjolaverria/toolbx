@@ -159,6 +159,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
           logger: log,
           enabledServerNames,
           separator: deps.config.namespacing.separator,
+          sandbox: deps.config.customTools.sandbox,
         })
       : undefined;
 

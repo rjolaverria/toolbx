@@ -24,6 +24,7 @@ function makeConfig(servers: Record<string, ServerConfig> = {}): ToolBoxConfig {
     auth: { storage: { type: 'keychain' } },
     servers,
     tools: {},
+    customTools: { sandbox: { mode: 'auto', require: false } },
   };
 }
 

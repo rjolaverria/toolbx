@@ -120,6 +120,7 @@ export async function makeConfig(overrides: {
     auth: { storage: { type: 'keychain' } },
     servers: overrides.servers,
     tools: overrides.tools ?? {},
+    customTools: { sandbox: { mode: 'auto', require: false } },
   };
 }
 
