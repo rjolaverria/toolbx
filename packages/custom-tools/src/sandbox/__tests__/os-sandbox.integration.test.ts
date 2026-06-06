@@ -45,6 +45,36 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     expect(fs.existsSync(target)).toBe(false);
   });
 
+  maybe('contains a filesystem read of a home secret that bypasses the harness seal', async () => {
+    const secret = path.join(os.homedir(), `.toolbox-os-escape-read-${String(process.pid)}.txt`);
+    fs.writeFileSync(secret, 'top-secret');
+    try {
+      const fixture = path.join(FIXTURES, 'os-escape-read.mjs');
+      const { argv, env, sandboxed } = await wrapSpawn({
+        argv: [process.execPath, fixture],
+        env: {},
+        permissions: { network: false, filesystem: false, env: [] },
+      });
+      expect(sandboxed).toBe(true);
+
+      const [cmd, ...rest] = argv;
+      const child = spawn(cmd as string, rest, {
+        env,
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      });
+      const message = await new Promise<{ read: string }>((resolve, reject) => {
+        child.on('message', (m) => resolve(m as { read: string }));
+        child.on('error', reject);
+        child.on('close', () => reject(new Error('child closed without a message')));
+        child.send({ target: secret });
+      });
+
+      expect(message.read).toContain('BLOCKED');
+    } finally {
+      fs.rmSync(secret, { force: true });
+    }
+  });
+
   maybe('runs a normal custom tool end-to-end under the sandbox (IPC survives)', async () => {
     const manifest: ToolManifest = {
       name: 'returns',

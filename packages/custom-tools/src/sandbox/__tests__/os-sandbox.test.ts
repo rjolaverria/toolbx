@@ -42,21 +42,33 @@ function captureConfig(probe: PlatformProbe): Record<string, unknown> {
 }
 
 describe('wrapSpawn', () => {
-  it('maps filesystem:false to an empty allowWrite (no writes)', async () => {
+  it('maps filesystem:false to no writes and home reads denied except runtime roots', async () => {
     const probe = supportedProbe();
-    await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_NO_FS, probe });
+    await wrapSpawn({
+      argv: BASE_ARGV,
+      env: {},
+      permissions: PERMS_NO_FS,
+      readRoots: ['/cfg/tools/ns'],
+      probe,
+    });
+    const cfg = captureConfig(probe) as {
+      filesystem: { allowWrite: string[]; denyRead: string[]; allowRead: string[] };
+    };
+    expect(cfg.filesystem.allowWrite).toEqual([]);
+    expect(cfg.filesystem.denyRead).toEqual([os.homedir()]);
+    // The caller-supplied read root and the OS temp dir are re-allowed.
+    expect(cfg.filesystem.allowRead).toContain('/cfg/tools/ns');
+    expect(cfg.filesystem.allowRead).toContain(os.tmpdir());
+  });
+
+  it('maps filesystem:true to writable home and tmp with reads open', async () => {
+    const probe = supportedProbe();
+    await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_FS, probe });
     const cfg = captureConfig(probe) as {
       filesystem: { allowWrite: string[]; denyRead: string[] };
     };
-    expect(cfg.filesystem.allowWrite).toEqual([]);
-    expect(cfg.filesystem.denyRead).toEqual([]);
-  });
-
-  it('maps filesystem:true to writable home and tmp', async () => {
-    const probe = supportedProbe();
-    await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_FS, probe });
-    const cfg = captureConfig(probe) as { filesystem: { allowWrite: string[] } };
     expect(cfg.filesystem.allowWrite).toEqual([os.homedir(), os.tmpdir()]);
+    expect(cfg.filesystem.denyRead).toEqual([]);
   });
 
   it('returns the wrapped argv and a child env carrying the allowlisted secret', async () => {

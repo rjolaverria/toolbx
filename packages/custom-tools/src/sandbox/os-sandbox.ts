@@ -16,7 +16,9 @@
  * kernel still denies filesystem writes.
  */
 
+import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { createNoopLogger, type Logger } from '@toolbox/core';
@@ -68,6 +70,13 @@ export interface WrapSpawnInput {
   readonly sandbox?: SandboxOptions;
   readonly logger?: Logger;
   readonly signal?: AbortSignal;
+  /**
+   * Extra directories the child must be able to read when `filesystem` is denied
+   * — typically the tool entry's directory. The Node runtime root and the
+   * ToolBox install root are derived automatically from `argv`; this covers
+   * read roots only the caller knows (e.g. a tool stored under the config dir).
+   */
+  readonly readRoots?: readonly string[];
   /** Test seam: defaults to {@link defaultPlatformProbe}. */
   readonly probe?: PlatformProbe;
 }
@@ -93,16 +102,67 @@ function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
 }
 
+/**
+ * Walks up from `fromPath` to the *outermost* ancestor containing `node_modules`.
+ * The outermost (not nearest) root is what covers a pnpm install: a package's
+ * own `node_modules` only holds symlinks into the workspace-root `.pnpm` store,
+ * so the real dependency files live under the topmost `node_modules`. Falls back
+ * to the file's own directory when no `node_modules` ancestor exists.
+ */
+function outermostInstallRoot(fromPath: string): string {
+  let dir = path.dirname(fromPath);
+  let found: string | undefined;
+  for (;;) {
+    if (fs.existsSync(path.join(dir, 'node_modules'))) {
+      found = dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+  return found ?? path.dirname(fromPath);
+}
+
+/**
+ * The directories a denied-filesystem child must still read to start and run:
+ * the Node runtime root (covers a home-installed Node, e.g. nvm), the ToolBox
+ * install root (the harness, its sibling modules, and bundled deps), the OS temp
+ * dir (srt writes its profile there), plus any caller-supplied roots (the tool
+ * entry's directory, which lives under the config dir). System paths outside the
+ * user's home stay readable because only the home dir is denied.
+ */
+function defaultReadRoots(argv: readonly string[], extra: readonly string[]): string[] {
+  const execPath = argv[0] ?? process.execPath;
+  const harness = argv[argv.length - 1] ?? execPath;
+  return [
+    path.resolve(path.dirname(execPath), '..'),
+    outermostInstallRoot(harness),
+    os.tmpdir(),
+    ...extra,
+  ];
+}
+
 /** Maps the coarse `filesystem` permission onto an srt filesystem config. */
-function filesystemConfig(filesystemAllowed: boolean): SandboxRuntimeConfig['filesystem'] {
+function filesystemConfig(
+  filesystemAllowed: boolean,
+  readRoots: string[],
+): SandboxRuntimeConfig['filesystem'] {
   if (filesystemAllowed) {
     // Reads open; writes allowed under the user's home and the OS temp dir.
     return { denyRead: [], allowWrite: [os.homedir(), os.tmpdir()], denyWrite: [] };
   }
-  // Reads open; no writes anywhere. A non-empty filesystem config still engages
-  // the sandbox profile (a write restriction is present), so the child runs
-  // sandboxed even though nothing is writable.
-  return { denyRead: [], allowWrite: [], denyWrite: [] };
+  // No writes anywhere, and reads of the user's home are denied (where secrets
+  // live) except the minimum roots the child needs to run. A non-empty config
+  // engages the sandbox profile, so the child runs sandboxed even though nothing
+  // is writable. Reads outside home stay open so system libraries load.
+  return {
+    denyRead: [os.homedir()],
+    allowRead: [...new Set(readRoots)],
+    allowWrite: [],
+    denyWrite: [],
+  };
 }
 
 function isSupported(probe: PlatformProbe): boolean {
@@ -142,8 +202,9 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   }
 
   const command = baseArgv.map(shellQuote).join(' ');
+  const readRoots = defaultReadRoots(baseArgv, input.readRoots ?? []);
   const customConfig: Partial<SandboxRuntimeConfig> = {
-    filesystem: filesystemConfig(input.permissions.filesystem),
+    filesystem: filesystemConfig(input.permissions.filesystem, readRoots),
   };
   const { argv } = await probe.wrapWithSandboxArgv(command, undefined, customConfig, input.signal);
 

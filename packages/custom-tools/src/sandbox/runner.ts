@@ -179,6 +179,7 @@ async function executeSandbox(
       argv: baseArgv,
       env,
       permissions: manifest.permissions,
+      readRoots: [path.dirname(absoluteEntry)],
       logger: options.logger ?? createNoopLogger(),
       ...(options.sandbox !== undefined ? { sandbox: options.sandbox } : {}),
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
