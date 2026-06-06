@@ -100,8 +100,6 @@ export class SandboxUnavailableError extends Error {
 export interface WrapSpawnInput {
   /** Unsandboxed child argv: `[execPath, ...flags, harnessPath]`. */
   readonly argv: readonly string[];
-  /** Allowlisted env (secrets) the child should see. */
-  readonly env: NodeJS.ProcessEnv;
   readonly permissions: ToolPermissions;
   readonly sandbox?: SandboxOptions;
   readonly logger?: Logger;
@@ -119,6 +117,12 @@ export interface WrapSpawnInput {
 
 export interface WrapSpawnResult {
   readonly argv: string[];
+  /**
+   * Environment for the spawned (possibly wrapper) process. Carries only the
+   * non-secret vars the OS-sandbox wrapper itself needs (PATH/HOME); the tool's
+   * allowlisted env is delivered separately over IPC, never here, so it cannot
+   * reach the wrapper shell.
+   */
   readonly env: NodeJS.ProcessEnv;
   readonly sandboxed: boolean;
   /**
@@ -254,7 +258,7 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   const baseArgv = [...input.argv];
 
   if (options.mode === 'off') {
-    return { argv: baseArgv, env: input.env, sandboxed: false, cleanup: NOOP_CLEANUP };
+    return { argv: baseArgv, env: {}, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
   if (!isSupported(probe)) {
@@ -270,7 +274,7 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
         'OS sandbox unavailable; running custom tools with in-process hardening only',
       );
     }
-    return { argv: baseArgv, env: input.env, sandboxed: false, cleanup: NOOP_CLEANUP };
+    return { argv: baseArgv, env: {}, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
   const command = baseArgv.map(shellQuote).join(' ');
@@ -280,14 +284,14 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   };
   const { argv } = await probe.wrapWithSandboxArgv(command, undefined, customConfig, input.signal);
 
-  // srt returns the full `process.env` (only proxy vars would differ, and we
-  // configure no network, so there are none). Ignore it: the child sees only the
-  // allowlisted env plus the PATH/HOME the wrapper (bash → sandbox-exec/bwrap)
-  // needs to resolve its own binaries. PATH/HOME are non-secret.
+  // srt returns the full `process.env`. Ignore it: the wrapper process needs only
+  // the non-secret PATH/HOME to resolve `env`/`sandbox-exec`/`bwrap`. The tool's
+  // allowlisted env is delivered to the harness over IPC (after the sandbox is
+  // active), never here — so a tool-controlled shell var like BASH_ENV cannot
+  // reach the wrapper shell and run code outside the sandbox.
   const env: NodeJS.ProcessEnv = {
     ...(process.env.PATH !== undefined ? { PATH: process.env.PATH } : {}),
     ...(process.env.HOME !== undefined ? { HOME: process.env.HOME } : {}),
-    ...input.env,
   };
   return {
     argv,

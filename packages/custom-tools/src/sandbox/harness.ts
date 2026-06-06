@@ -173,20 +173,22 @@ function applyNetworkGate(networkAllowed: boolean): void {
 }
 
 /**
- * Restricts the tool's view of environment variables to exactly the allowlist.
- * The parent spawns the child with only allowlisted vars, but the OS-sandbox
- * wrapper (bash → sandbox-exec/bwrap) needs PATH/HOME in the shared process
- * environment to resolve its own binaries, and Node injects NODE_CHANNEL_FD for
- * the IPC channel. Deleting every non-allowlisted key here — the channel is
- * already established, so dropping NODE_CHANNEL_FD does not close it — means tool
- * code sees the same environment whether or not the OS sandbox wrapped the spawn.
+ * Sets the child's environment to exactly the allowlisted tool env. The values
+ * arrive over IPC (in the request), not via the spawn environment, so they never
+ * reach the outer sandbox-wrapper shell, where a shell-control var such as
+ * `BASH_ENV` could execute code before the OS sandbox starts. Whatever the
+ * wrapper needed (PATH/HOME) and Node's injected NODE_CHANNEL_FD are dropped from
+ * the tool's view here — the IPC channel is already established, so removing
+ * NODE_CHANNEL_FD does not close it — leaving the tool exactly its allowlist.
  */
-function pruneEnvToAllowlist(allowlist: readonly string[]): void {
-  const allowed = new Set(allowlist);
+function applyToolEnv(env: Record<string, string>): void {
   for (const key of Object.keys(process.env)) {
-    if (!allowed.has(key)) {
+    if (!(key in env)) {
       delete process.env[key];
     }
+  }
+  for (const [key, value] of Object.entries(env)) {
+    process.env[key] = value;
   }
 }
 
@@ -198,7 +200,7 @@ async function run(request: SandboxRequest): Promise<void> {
 
   sealEscapeHatches();
   applyNetworkGate(request.permissions.network);
-  pruneEnvToAllowlist(request.permissions.env);
+  applyToolEnv(request.env);
 
   // Re-validate purity in the child before importing the mutable on-disk file. This runs
   // inside the timeout-killable child, so a pathological file cannot block the parent.

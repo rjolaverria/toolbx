@@ -51,7 +51,6 @@ describe('wrapSpawn', () => {
     const probe = supportedProbe();
     await wrapSpawn({
       argv: BASE_ARGV,
-      env: {},
       permissions: PERMS_NO_FS,
       readRoots: ['/cfg/tools/ns'],
       probe,
@@ -78,7 +77,7 @@ describe('wrapSpawn', () => {
 
   it('maps filesystem:true to writable home and tmp with reads open', async () => {
     const probe = supportedProbe();
-    await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_FS, probe });
+    await wrapSpawn({ argv: BASE_ARGV, permissions: PERMS_FS, probe });
     const cfg = captureConfig(probe) as {
       filesystem: { allowWrite: string[]; denyRead: string[] };
     };
@@ -88,23 +87,22 @@ describe('wrapSpawn', () => {
 
   it('wires cleanup to the probe cleanupAfterCommand when sandboxed', async () => {
     const probe = supportedProbe();
-    const result = await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_NO_FS, probe });
+    const result = await wrapSpawn({ argv: BASE_ARGV, permissions: PERMS_NO_FS, probe });
     expect(probe.cleanupAfterCommand).not.toHaveBeenCalled();
     result.cleanup();
     expect(probe.cleanupAfterCommand).toHaveBeenCalledTimes(1);
   });
 
-  it('returns the wrapped argv and a child env carrying the allowlisted secret', async () => {
+  it('keeps the wrapper env to non-secret PATH/HOME only (no tool env)', async () => {
     const probe = supportedProbe();
-    const result = await wrapSpawn({
-      argv: BASE_ARGV,
-      env: { MY_TOKEN: 'abc' },
-      permissions: PERMS_NO_FS,
-      probe,
-    });
+    const result = await wrapSpawn({ argv: BASE_ARGV, permissions: PERMS_NO_FS, probe });
     expect(result.sandboxed).toBe(true);
     expect(result.argv[0]).toBe('/bin/bash');
-    expect(result.env.MY_TOKEN).toBe('abc');
+    // Only the wrapper's own non-secret vars; the tool env is delivered over IPC,
+    // never via this spawn env, so a tool-controlled shell var cannot land here.
+    for (const key of Object.keys(result.env)) {
+      expect(['PATH', 'HOME']).toContain(key);
+    }
   });
 
   it('falls back to the base argv with a one-time warning when unsupported (auto)', async () => {
@@ -119,7 +117,6 @@ describe('wrapSpawn', () => {
     } as never;
     const first = await wrapSpawn({
       argv: BASE_ARGV,
-      env: {},
       permissions: PERMS_NO_FS,
       probe: unsupportedProbe(),
       logger,
@@ -127,7 +124,6 @@ describe('wrapSpawn', () => {
     });
     const second = await wrapSpawn({
       argv: BASE_ARGV,
-      env: {},
       permissions: PERMS_NO_FS,
       probe: unsupportedProbe(),
       logger,
@@ -143,7 +139,6 @@ describe('wrapSpawn', () => {
     await expect(
       wrapSpawn({
         argv: BASE_ARGV,
-        env: {},
         permissions: PERMS_NO_FS,
         probe: unsupportedProbe(),
         sandbox: { mode: 'auto', require: true },
@@ -157,7 +152,6 @@ describe('wrapSpawn', () => {
     });
     const result = await wrapSpawn({
       argv: BASE_ARGV,
-      env: {},
       permissions: PERMS_NO_FS,
       probe,
       sandbox: { mode: 'auto', require: false },
@@ -172,7 +166,6 @@ describe('wrapSpawn', () => {
     });
     const result = await wrapSpawn({
       argv: BASE_ARGV,
-      env: {},
       permissions: PERMS_NO_FS,
       probe,
       sandbox: { mode: 'auto', require: false },
@@ -201,7 +194,6 @@ describe('wrapSpawn', () => {
     const probe = supportedProbe();
     const result = await wrapSpawn({
       argv: BASE_ARGV,
-      env: {},
       permissions: PERMS_NO_FS,
       probe,
       sandbox: { mode: 'off', require: false },

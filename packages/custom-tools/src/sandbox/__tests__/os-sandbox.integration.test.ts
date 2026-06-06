@@ -33,7 +33,6 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     const fixture = path.join(FIXTURES, 'os-escape-write.mjs');
     const { argv, env, sandboxed } = await wrapSpawn({
       argv: [process.execPath, fixture],
-      env: {},
       permissions: { network: false, filesystem: false, env: [] },
     });
     expect(sandboxed).toBe(true);
@@ -68,7 +67,6 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       const fixture = path.join(FIXTURES, 'os-escape-write.mjs');
       const { argv, env } = await wrapSpawn({
         argv: [process.execPath, fixture],
-        env: {},
         permissions: { network: false, filesystem: false, env: [] },
       });
       const [cmd, ...rest] = argv;
@@ -96,7 +94,6 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       const fixture = path.join(FIXTURES, 'os-escape-read.mjs');
       const { argv, env, sandboxed } = await wrapSpawn({
         argv: [process.execPath, fixture],
-        env: {},
         permissions: { network: false, filesystem: false, env: [] },
       });
       expect(sandboxed).toBe(true);
@@ -126,7 +123,6 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     const fixture = path.join(FIXTURES, 'os-hang.mjs');
     const { argv, env, sandboxed } = await wrapSpawn({
       argv: [process.execPath, fixture],
-      env: {},
       permissions: { network: false, filesystem: false, env: [] },
     });
     expect(sandboxed).toBe(true);
@@ -174,5 +170,47 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       outcome: 'ok',
       result: { content: [{ type: 'text', text: 'Hello world' }] },
     });
+  });
+
+  maybe('does not let an allowlisted BASH_ENV run code in the wrapper shell', async () => {
+    // BASH_ENV makes non-interactive bash source a file at startup. If the tool's
+    // allowlisted env reached the wrapper shell, this would run *outside* the OS
+    // sandbox. The marker must never be created.
+    const marker = path.join(os.tmpdir(), `toolbox-bashenv-pwned-${String(process.pid)}.txt`);
+    const evil = path.join(os.tmpdir(), `toolbox-evil-${String(process.pid)}.sh`);
+    fs.writeFileSync(evil, `touch ${marker}\n`);
+    fs.rmSync(marker, { force: true });
+    const previous = process.env.BASH_ENV;
+    process.env.BASH_ENV = evil;
+    try {
+      const manifest: ToolManifest = {
+        name: 'returns',
+        namespace: 'test',
+        exposedName: 'test__returns',
+        title: 'returns',
+        description: 'returns',
+        entry: path.join(FIXTURES, 'returns.ts'),
+        runtime: 'node',
+        enabled: true,
+        timeoutMs: 5000,
+        permissions: { network: false, filesystem: false, env: ['BASH_ENV'] },
+      };
+      const outcome = await runTool(
+        manifest,
+        { who: 'world' },
+        { sandbox: { mode: 'auto', require: true } },
+      );
+      expect(outcome.outcome).toBe('ok');
+      await delay(200);
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.BASH_ENV;
+      } else {
+        process.env.BASH_ENV = previous;
+      }
+      fs.rmSync(evil, { force: true });
+      fs.rmSync(marker, { force: true });
+    }
   });
 });

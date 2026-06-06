@@ -85,10 +85,10 @@ function harnessPath(): string {
 
 /** The env subset the child may see, plus the secret values to redact from logs. */
 function buildEnv(allowlist: readonly string[]): {
-  env: NodeJS.ProcessEnv;
+  env: Record<string, string>;
   secretValues: string[];
 } {
-  const env: NodeJS.ProcessEnv = {};
+  const env: Record<string, string> = {};
   const secretValues: string[] = [];
   for (const key of allowlist) {
     if (FORBIDDEN_CHILD_ENV.has(key.toUpperCase())) {
@@ -178,7 +178,6 @@ async function executeSandbox(
   try {
     wrapped = await wrapSpawn({
       argv: baseArgv,
-      env,
       permissions: manifest.permissions,
       readRoots: [path.dirname(absoluteEntry)],
       logger: options.logger ?? createNoopLogger(),
@@ -325,6 +324,9 @@ async function executeSandbox(
     const request: SandboxRequest = {
       entry: absoluteEntry,
       permissions: manifest.permissions,
+      // The allowlisted env travels in the IPC request, not the spawn env, so it
+      // never reaches the OS-sandbox wrapper shell.
+      env,
       args,
       nonce,
       ...(describe ? { describe: true } : {}),
