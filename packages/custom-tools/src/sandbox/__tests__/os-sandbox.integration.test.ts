@@ -45,6 +45,39 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     expect(fs.existsSync(target)).toBe(false);
   });
 
+  maybe('denies writes to srt default writable paths for filesystem:false', async () => {
+    // srt always re-adds its default writable paths (e.g. /tmp/claude); the
+    // wrapper must deny them so filesystem:false truly means no writes. The
+    // parent creates the dir so the failure is the sandbox (EPERM), not ENOENT.
+    const dir = '/tmp/claude';
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, `toolbox-escape-${String(process.pid)}.txt`);
+    fs.rmSync(target, { force: true });
+    try {
+      const fixture = path.join(FIXTURES, 'os-escape-write.mjs');
+      const { argv, env } = await wrapSpawn({
+        argv: [process.execPath, fixture],
+        env: {},
+        permissions: { network: false, filesystem: false, env: [] },
+      });
+      const [cmd, ...rest] = argv;
+      const child = spawn(cmd as string, rest, {
+        env,
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      });
+      const message = await new Promise<{ write: string }>((resolve, reject) => {
+        child.on('message', (m) => resolve(m as { write: string }));
+        child.on('error', reject);
+        child.on('close', () => reject(new Error('child closed without a message')));
+        child.send({ target });
+      });
+      expect(message.write).toContain('BLOCKED');
+      expect(fs.existsSync(target)).toBe(false);
+    } finally {
+      fs.rmSync(target, { force: true });
+    }
+  });
+
   maybe('contains a filesystem read of a home secret that bypasses the harness seal', async () => {
     const secret = path.join(os.homedir(), `.toolbox-os-escape-read-${String(process.pid)}.txt`);
     fs.writeFileSync(secret, 'top-secret');

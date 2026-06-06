@@ -20,7 +20,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
+import {
+  getDefaultWritePaths,
+  SandboxManager,
+  type SandboxRuntimeConfig,
+} from '@anthropic-ai/sandbox-runtime';
 import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolPermissions } from '../manifest/import.js';
@@ -157,16 +161,35 @@ function filesystemConfig(
   // live) except the minimum roots the child needs to run. A non-empty config
   // engages the sandbox profile, so the child runs sandboxed even though nothing
   // is writable. Reads outside home stay open so system libraries load.
+  //
+  // srt always merges getDefaultWritePaths() into the allowWrite list, so an
+  // empty allowWrite still leaves paths like ~/.npm/_logs, ~/.claude/debug, and
+  // /tmp/claude writable. Deny the non-device defaults (denyWrite takes
+  // precedence over allowWrite) to honor the no-writes contract; the /dev/*
+  // entries stay writable so the child can write to stdout/stderr.
   return {
     denyRead: [os.homedir()],
     allowRead: [...new Set(readRoots)],
     allowWrite: [],
-    denyWrite: [],
+    denyWrite: getDefaultWritePaths().filter((p) => !p.startsWith('/dev/')),
   };
 }
 
+/**
+ * Platforms this wrapper supports. It builds POSIX-quoted `bash -c` commands and
+ * relies on `sandbox-exec`/`bubblewrap` filesystem containment, so Windows is
+ * excluded even when srt-win reports the platform as supported — its command
+ * construction and filesystem boundary differ. Windows falls back to in-process
+ * hardening (or fails closed under `require`).
+ */
+const POSIX_PLATFORMS = new Set<NodeJS.Platform>(['darwin', 'linux']);
+
 function isSupported(probe: PlatformProbe): boolean {
-  return probe.isSupportedPlatform() && probe.checkDependencies().errors.length === 0;
+  return (
+    POSIX_PLATFORMS.has(process.platform) &&
+    probe.isSupportedPlatform() &&
+    probe.checkDependencies().errors.length === 0
+  );
 }
 
 /**

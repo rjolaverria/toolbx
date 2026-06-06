@@ -1,4 +1,5 @@
 import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -52,13 +53,23 @@ describe('wrapSpawn', () => {
       probe,
     });
     const cfg = captureConfig(probe) as {
-      filesystem: { allowWrite: string[]; denyRead: string[]; allowRead: string[] };
+      filesystem: {
+        allowWrite: string[];
+        denyRead: string[];
+        allowRead: string[];
+        denyWrite: string[];
+      };
     };
     expect(cfg.filesystem.allowWrite).toEqual([]);
     expect(cfg.filesystem.denyRead).toEqual([os.homedir()]);
     // The caller-supplied read root and the OS temp dir are re-allowed.
     expect(cfg.filesystem.allowRead).toContain('/cfg/tools/ns');
     expect(cfg.filesystem.allowRead).toContain(os.tmpdir());
+    // srt always re-adds its default writable paths, so they must be denied to
+    // honor "no writes", while the /dev/* defaults stay writable for stdio.
+    expect(cfg.filesystem.denyWrite).toContain(path.join(os.homedir(), '.claude/debug'));
+    expect(cfg.filesystem.denyWrite).toContain('/tmp/claude');
+    expect(cfg.filesystem.denyWrite.some((p) => p.startsWith('/dev/'))).toBe(false);
   });
 
   it('maps filesystem:true to writable home and tmp with reads open', async () => {
