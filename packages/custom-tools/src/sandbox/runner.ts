@@ -25,6 +25,12 @@ import { fileURLToPath } from 'node:url';
 import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
+import {
+  SandboxUnavailableError,
+  wrapSpawn,
+  type PlatformProbe,
+  type SandboxOptions,
+} from './os-sandbox.js';
 import { redactSecrets } from './redact.js';
 import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
 
@@ -62,6 +68,10 @@ export interface RunToolOptions {
    * the tool promptly.
    */
   readonly signal?: AbortSignal;
+  /** OS-level sandbox posture (P3-06). Defaults to `{ mode: 'auto', require: false }`. */
+  readonly sandbox?: SandboxOptions;
+  /** Test seam: platform probe used by the OS sandbox. Defaults to the real srt probe. */
+  readonly sandboxProbe?: PlatformProbe;
 }
 
 /** Resolves the harness file next to this module, matching its extension (.ts/.js). */
@@ -127,6 +137,49 @@ async function executeSandbox(
   // a forged IPC message cannot carry the matching nonce and is ignored by the parent.
   const nonce = randomUUID();
 
+  // The unsandboxed child argv. --disallow-code-generation-from-strings blocks
+  // eval/Function-based import bypasses (e.g. `Function('return import("node:fs")')()`).
+  // --experimental-transform-types is a superset of --experimental-strip-types that also
+  // handles non-erasable TS constructs (enum, namespace) so a valid TS tool doesn't
+  // import-OK then fail at call time. Requires Node >= 22.7.0.
+  const baseArgv = [
+    process.execPath,
+    '--disallow-code-generation-from-strings',
+    '--experimental-transform-types',
+    '--no-warnings',
+    harnessPath(),
+  ];
+
+  // Wrap the spawn with the OS sandbox (P3-06) when available. `wrapSpawn` may
+  // throw SandboxUnavailableError when the config requires a sandbox that the
+  // host cannot provide; surface that as an error outcome rather than running
+  // unsandboxed.
+  let spawnArgv: string[];
+  let spawnEnv: NodeJS.ProcessEnv;
+  try {
+    const wrapped = await wrapSpawn({
+      argv: baseArgv,
+      env,
+      permissions: manifest.permissions,
+      logger: options.logger ?? createNoopLogger(),
+      ...(options.sandbox !== undefined ? { sandbox: options.sandbox } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      ...(options.sandboxProbe !== undefined ? { probe: options.sandboxProbe } : {}),
+    });
+    spawnArgv = wrapped.argv;
+    spawnEnv = wrapped.env;
+  } catch (error) {
+    if (error instanceof SandboxUnavailableError) {
+      return { outcome: 'error', code: 'sandbox-unavailable', message: error.message };
+    }
+    throw error;
+  }
+
+  const [spawnCommand, ...spawnArgs] = spawnArgv;
+  if (spawnCommand === undefined) {
+    return { outcome: 'error', code: 'load-error', message: 'empty sandbox spawn argv' };
+  }
+
   return new Promise<RunOutcome>((resolve) => {
     // Already cancelled before we start: don't spawn a child at all.
     if (options.signal?.aborted === true) {
@@ -134,21 +187,10 @@ async function executeSandbox(
       return;
     }
 
-    const child = spawn(
-      process.execPath,
-      // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
-      // (e.g. `Function('return import("node:fs")')()`) in the sandboxed child.
-      // --experimental-transform-types is a superset of --experimental-strip-types and
-      // also handles non-erasable TS constructs (enum, namespace) so a valid TS tool
-      // doesn't import-OK then fail at call time. Requires Node >= 22.7.0.
-      [
-        '--disallow-code-generation-from-strings',
-        '--experimental-transform-types',
-        '--no-warnings',
-        harnessPath(),
-      ],
-      { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
-    );
+    const child = spawn(spawnCommand, spawnArgs, {
+      env: spawnEnv,
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
 
     let settled = false;
     let detachAbort: (() => void) | undefined;

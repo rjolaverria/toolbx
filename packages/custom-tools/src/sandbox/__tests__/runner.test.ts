@@ -4,7 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import type { ToolManifest } from '../../manifest/import.js';
+import type { PlatformProbe } from '../os-sandbox.js';
 import { runTool } from '../runner.js';
+
+const unsupportedProbe: PlatformProbe = {
+  isSupportedPlatform: () => false,
+  checkDependencies: () => ({ warnings: [], errors: [] }),
+  wrapWithSandboxArgv: () => Promise.resolve({ argv: [], env: {} }),
+};
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -427,6 +434,32 @@ export default function jsgreet(input) {
     expect(outcome).toEqual({
       outcome: 'ok',
       result: { content: [{ type: 'text', text: 'genuine' }] },
+    });
+  });
+});
+
+describe('runTool sandbox strict mode', () => {
+  it('resolves to a sandbox-unavailable error when require is set and unsupported', async () => {
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { sandbox: { mode: 'auto', require: true }, sandboxProbe: unsupportedProbe },
+    );
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('sandbox-unavailable');
+    }
+  });
+
+  it('runs normally when mode is off (in-process only)', async () => {
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'world' },
+      { sandbox: { mode: 'off', require: false } },
+    );
+    expect(outcome).toEqual({
+      outcome: 'ok',
+      result: { content: [{ type: 'text', text: 'Hello world' }] },
     });
   });
 });
