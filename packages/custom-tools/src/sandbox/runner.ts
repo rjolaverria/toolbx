@@ -180,7 +180,12 @@ async function executeSandbox(
       argv: baseArgv,
       env,
       permissions: manifest.permissions,
-      readRoots: [path.dirname(absoluteEntry)],
+      // Allow reading the tool's own directory and its parent: a stored `.js`
+      // tool lives at `tools/<namespace>/<name>.js` and loads as ESM via the
+      // `tools/package.json` ({"type":"module"}) marker one level up, which Node
+      // reads during module resolution. Under a home config dir, denyRead(home)
+      // would otherwise hide that marker and break `.js` tools.
+      readRoots: [path.dirname(absoluteEntry), path.dirname(path.dirname(absoluteEntry))],
       logger: options.logger ?? createNoopLogger(),
       ...(options.sandbox !== undefined ? { sandbox: options.sandbox } : {}),
       ...(options.signal !== undefined ? { signal: options.signal } : {}),

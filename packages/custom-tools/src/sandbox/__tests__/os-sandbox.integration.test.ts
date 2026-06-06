@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { describe, expect, it } from 'vitest';
 
-import type { ToolManifest } from '../../manifest/import.js';
+import { importTool, type ToolManifest } from '../../manifest/import.js';
 import { killProcessTree, wrapSpawn } from '../os-sandbox.js';
 import { runTool } from '../runner.js';
 
@@ -174,6 +174,48 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       outcome: 'ok',
       result: { content: [{ type: 'text', text: 'Hello world' }] },
     });
+  });
+
+  maybe('loads an imported .js tool from a home config dir under the sandbox', async () => {
+    // A stored .js tool loads as ESM via tools/package.json one level above its
+    // namespace dir. With the config dir under $HOME, denyRead(home) must still
+    // let Node read that marker, or the tool fails to load.
+    const configDir = fs.mkdtempSync(path.join(os.homedir(), '.toolbox-os-test-'));
+    const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolbox-os-src-'));
+    try {
+      const source = `/**
+ * @toolbox-tool name jsgreet
+ * @toolbox-tool title JsGreet
+ * @toolbox-tool description ESM JS tool.
+ * @toolbox-tool namespace personal
+ */
+export const inputSchema = {
+  type: 'object',
+  properties: { who: { type: 'string' } },
+  required: ['who'],
+  additionalProperties: false,
+};
+export default function jsgreet(input) {
+  return { content: [{ type: 'text', text: 'js ' + input.who }] };
+}
+`;
+      const srcPath = path.join(srcDir, 'jsgreet.js');
+      fs.writeFileSync(srcPath, source, 'utf8');
+      const { manifest } = await importTool(srcPath, { configDir });
+
+      const outcome = await runTool(
+        manifest,
+        { who: 'world' },
+        { configDir, sandbox: { mode: 'auto', require: true } },
+      );
+      expect(outcome).toEqual({
+        outcome: 'ok',
+        result: { content: [{ type: 'text', text: 'js world' }] },
+      });
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+      fs.rmSync(srcDir, { recursive: true, force: true });
+    }
   });
 
   maybe('does not let an allowlisted BASH_ENV run code in the wrapper shell', async () => {
