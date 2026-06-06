@@ -33,6 +33,7 @@ const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
     storage: { type: 'keychain' },
   },
   tools: {},
+  customTools: { sandbox: { mode: 'auto', require: false } },
 };
 
 function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {

@@ -48,3 +48,10 @@ export {
   type SandboxEnvelope,
 } from './sandbox/protocol.js';
 export { redactSecrets } from './sandbox/redact.js';
+export {
+  wrapSpawn,
+  SandboxUnavailableError,
+  type SandboxOptions,
+  type PlatformProbe,
+  type WrapSpawnResult,
+} from './sandbox/os-sandbox.js';

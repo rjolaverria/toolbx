@@ -99,6 +99,7 @@ export function makeIntegrationConfig(options: MakeConfigOptions = {}): ToolBoxC
       },
     },
     tools: options.tools ?? {},
+    customTools: { sandbox: { mode: 'auto', require: false } },
   };
 }
 

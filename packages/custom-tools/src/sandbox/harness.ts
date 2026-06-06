@@ -172,6 +172,26 @@ function applyNetworkGate(networkAllowed: boolean): void {
   Object.defineProperty(globalThis, 'WebSocket', { value: blocked, configurable: true });
 }
 
+/**
+ * Sets the child's environment to exactly the allowlisted tool env. The values
+ * arrive over IPC (in the request), not via the spawn environment, so they never
+ * reach the outer sandbox-wrapper shell, where a shell-control var such as
+ * `BASH_ENV` could execute code before the OS sandbox starts. Whatever the
+ * wrapper needed (PATH/HOME) and Node's injected NODE_CHANNEL_FD are dropped from
+ * the tool's view here — the IPC channel is already established, so removing
+ * NODE_CHANNEL_FD does not close it — leaving the tool exactly its allowlist.
+ */
+function applyToolEnv(env: Record<string, string>): void {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in env)) {
+      delete process.env[key];
+    }
+  }
+  for (const [key, value] of Object.entries(env)) {
+    process.env[key] = value;
+  }
+}
+
 async function run(request: SandboxRequest): Promise<void> {
   const nonce = request.nonce;
   const send = (response: SandboxResponse): Promise<void> => sendWithNonce(nonce, response);
@@ -180,6 +200,7 @@ async function run(request: SandboxRequest): Promise<void> {
 
   sealEscapeHatches();
   applyNetworkGate(request.permissions.network);
+  applyToolEnv(request.env);
 
   // Re-validate purity in the child before importing the mutable on-disk file. This runs
   // inside the timeout-killable child, so a pathological file cannot block the parent.

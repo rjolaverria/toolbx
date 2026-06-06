@@ -15,6 +15,7 @@ import {
   ToolManifestError,
   type DescribeOutcome,
   type RunOutcome,
+  type SandboxOptions,
   type ToolManifest,
 } from '@toolbox/custom-tools';
 
@@ -62,18 +63,20 @@ export interface CustomToolHostDeps {
    * shadow that entry in the registry.
    */
   readonly separator: string;
+  /** OS-level sandbox posture for custom-tool execution (P3-06). */
+  readonly sandbox?: SandboxOptions;
   /** Test seam: read the manifest. Defaults to the real `readToolManifest`. */
   readonly readManifest?: (configDir: string) => Promise<ToolManifest[]>;
   /** Test seam: resolve a tool's schema. Defaults to the real `describeTool`. */
   readonly describe?: (
     manifest: ToolManifest,
-    options: { configDir: string },
+    options: { configDir: string; logger?: Logger; sandbox?: SandboxOptions },
   ) => Promise<DescribeOutcome>;
   /** Test seam: execute a tool. Defaults to the real `runTool`. */
   readonly run?: (
     manifest: ToolManifest,
     args: unknown,
-    options: { configDir: string; logger: Logger; signal?: AbortSignal },
+    options: { configDir: string; logger: Logger; signal?: AbortSignal; sandbox?: SandboxOptions },
   ) => Promise<RunOutcome>;
 }
 
@@ -224,7 +227,11 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
   async function describeEligible(entry: ToolManifest): Promise<CustomToolInput | undefined> {
     let outcome: DescribeOutcome;
     try {
-      outcome = await describe(entry, { configDir: deps.configDir });
+      outcome = await describe(entry, {
+        configDir: deps.configDir,
+        logger: log,
+        ...(deps.sandbox !== undefined ? { sandbox: deps.sandbox } : {}),
+      });
     } catch (error) {
       log.warn({ err: error, tool: entry.exposedName }, 'failed to describe custom tool; skipping');
       return undefined;
@@ -297,6 +304,7 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
         configDir: deps.configDir,
         logger: log,
         ...(signal !== undefined ? { signal } : {}),
+        ...(deps.sandbox !== undefined ? { sandbox: deps.sandbox } : {}),
       });
       return toRouteResult(view, manifest, outcome);
     },

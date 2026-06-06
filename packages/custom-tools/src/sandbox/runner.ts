@@ -25,6 +25,14 @@ import { fileURLToPath } from 'node:url';
 import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
+import {
+  killProcessTree,
+  SandboxUnavailableError,
+  wrapSpawn,
+  type PlatformProbe,
+  type SandboxOptions,
+  type WrapSpawnResult,
+} from './os-sandbox.js';
 import { redactSecrets } from './redact.js';
 import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
 
@@ -62,6 +70,10 @@ export interface RunToolOptions {
    * the tool promptly.
    */
   readonly signal?: AbortSignal;
+  /** OS-level sandbox posture (P3-06). Defaults to `{ mode: 'auto', require: false }`. */
+  readonly sandbox?: SandboxOptions;
+  /** Test seam: platform probe used by the OS sandbox. Defaults to the real srt probe. */
+  readonly sandboxProbe?: PlatformProbe;
 }
 
 /** Resolves the harness file next to this module, matching its extension (.ts/.js). */
@@ -73,10 +85,10 @@ function harnessPath(): string {
 
 /** The env subset the child may see, plus the secret values to redact from logs. */
 function buildEnv(allowlist: readonly string[]): {
-  env: NodeJS.ProcessEnv;
+  env: Record<string, string>;
   secretValues: string[];
 } {
-  const env: NodeJS.ProcessEnv = {};
+  const env: Record<string, string> = {};
   const secretValues: string[] = [];
   for (const key of allowlist) {
     if (FORBIDDEN_CHILD_ENV.has(key.toUpperCase())) {
@@ -127,31 +139,114 @@ async function executeSandbox(
   // a forged IPC message cannot carry the matching nonce and is ignored by the parent.
   const nonce = randomUUID();
 
+  // The unsandboxed child argv. --disallow-code-generation-from-strings blocks
+  // eval/Function-based import bypasses (e.g. `Function('return import("node:fs")')()`).
+  // --experimental-transform-types is a superset of --experimental-strip-types that also
+  // handles non-erasable TS constructs (enum, namespace) so a valid TS tool doesn't
+  // import-OK then fail at call time. Requires Node >= 22.7.0.
+  const baseArgv = [
+    process.execPath,
+    '--disallow-code-generation-from-strings',
+    '--experimental-transform-types',
+    '--no-warnings',
+    harnessPath(),
+  ];
+
+  // A function (not an inline `=== true`) so TypeScript's control-flow analysis
+  // does not narrow `aborted` to false for the catch below: the signal can flip
+  // to aborted during the awaited `wrapSpawn`, which CFA cannot see.
+  const isAborted = (): boolean => options.signal?.aborted === true;
+  const abortedOutcome: RunOutcome = {
+    outcome: 'error',
+    code: 'tool-error',
+    message: 'custom tool call aborted',
+  };
+
+  // Already cancelled before sandbox setup: resolve to the aborted outcome
+  // without generating a sandbox profile (which can be non-trivial on Linux).
+  if (isAborted()) {
+    return abortedOutcome;
+  }
+
+  // Wrap the spawn with the OS sandbox (P3-06) when available. `wrapSpawn` may
+  // throw SandboxUnavailableError when the config requires a sandbox that the
+  // host cannot provide; surface that as an error outcome rather than running
+  // unsandboxed. It may also reject if the signal aborts mid-wrap (the signal is
+  // forwarded to srt, which can cancel its Linux ripgrep scan) — translate that
+  // into the same aborted outcome the post-spawn path uses.
+  let wrapped: WrapSpawnResult;
+  try {
+    wrapped = await wrapSpawn({
+      argv: baseArgv,
+      env,
+      permissions: manifest.permissions,
+      // Allow reading the tool's own directory and its parent: a stored `.js`
+      // tool lives at `tools/<namespace>/<name>.js` and loads as ESM via the
+      // `tools/package.json` ({"type":"module"}) marker one level up, which Node
+      // reads during module resolution. Under a home config dir, denyRead(home)
+      // would otherwise hide that marker and break `.js` tools.
+      readRoots: [path.dirname(absoluteEntry), path.dirname(path.dirname(absoluteEntry))],
+      logger: options.logger ?? createNoopLogger(),
+      ...(options.sandbox !== undefined ? { sandbox: options.sandbox } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      ...(options.sandboxProbe !== undefined ? { probe: options.sandboxProbe } : {}),
+    });
+  } catch (error) {
+    if (error instanceof SandboxUnavailableError) {
+      return { outcome: 'error', code: 'sandbox-unavailable', message: error.message };
+    }
+    if (isAborted()) {
+      return abortedOutcome;
+    }
+    // Any other sandbox-setup failure must not reject runTool — the router's
+    // call contract is non-throwing — so surface it as a redacted error outcome.
+    return {
+      outcome: 'error',
+      code: 'load-error',
+      message: redactSecrets(error instanceof Error ? error.message : String(error), secretValues),
+    };
+  }
+
+  const [spawnCommand, ...spawnArgs] = wrapped.argv;
+  if (spawnCommand === undefined) {
+    // wrapSpawn already incremented srt's per-command state on Linux, so run its
+    // cleanup before bailing even though no child was spawned.
+    wrapped.cleanup();
+    return { outcome: 'error', code: 'load-error', message: 'empty sandbox spawn argv' };
+  }
+
   return new Promise<RunOutcome>((resolve) => {
-    // Already cancelled before we start: don't spawn a child at all.
+    // Cancelled in the window after wrapSpawn but before spawning: don't spawn a
+    // child, but still run the sandbox cleanup wrapSpawn's setup registered.
     if (options.signal?.aborted === true) {
-      resolve({ outcome: 'error', code: 'tool-error', message: 'custom tool call aborted' });
+      wrapped.cleanup();
+      resolve(abortedOutcome);
       return;
     }
 
-    const child = spawn(
-      process.execPath,
-      // --disallow-code-generation-from-strings blocks eval/Function-based import bypasses
-      // (e.g. `Function('return import("node:fs")')()`) in the sandboxed child.
-      // --experimental-transform-types is a superset of --experimental-strip-types and
-      // also handles non-erasable TS constructs (enum, namespace) so a valid TS tool
-      // doesn't import-OK then fail at call time. Requires Node >= 22.7.0.
-      [
-        '--disallow-code-generation-from-strings',
-        '--experimental-transform-types',
-        '--no-warnings',
-        harnessPath(),
-      ],
-      { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
-    );
+    // `detached` puts the child in its own process group so `killProcessTree`
+    // can SIGKILL the whole group: after OS-sandbox wrapping the direct child is
+    // the wrapper shell, and killing only its PID would orphan the Node harness.
+    const child = spawn(spawnCommand, spawnArgs, {
+      env: wrapped.env,
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      detached: true,
+    });
 
     let settled = false;
     let detachAbort: (() => void) | undefined;
+
+    // srt's per-command cleanup must run exactly once (it decrements the Linux
+    // active-sandbox counter). Idempotent so neither a missed nor a duplicate
+    // `exit` event can skip or double-run it.
+    let cleanedUp = false;
+    const cleanupOnce = (): void => {
+      if (cleanedUp) {
+        return;
+      }
+      cleanedUp = true;
+      wrapped.cleanup();
+    };
 
     function finish(value: RunOutcome): void {
       if (settled) {
@@ -164,8 +259,18 @@ async function executeSandbox(
       child.on('error', () => {
         // Absorb a stray EPIPE from an in-flight send after we have already settled.
       });
-      if (!child.killed) {
-        child.kill('SIGKILL');
+      // Run the sandbox's per-command cleanup once the process has exited (srt
+      // Linux decrements its active-sandbox counter and removes bwrap mount-point
+      // files). Only a child that actually started can emit `exit`; for a failed
+      // spawn (no PID) or an already-exited child, run cleanup immediately so a
+      // never-firing `exit` cannot leak it.
+      const running =
+        child.pid !== undefined && child.exitCode === null && child.signalCode === null;
+      if (running) {
+        child.once('exit', cleanupOnce);
+        killProcessTree(child);
+      } else {
+        cleanupOnce();
       }
       resolve(value);
     }
@@ -231,6 +336,9 @@ async function executeSandbox(
     const request: SandboxRequest = {
       entry: absoluteEntry,
       permissions: manifest.permissions,
+      // The allowlisted env travels in the IPC request, not the spawn env, so it
+      // never reaches the OS-sandbox wrapper shell.
+      env,
       args,
       nonce,
       ...(describe ? { describe: true } : {}),

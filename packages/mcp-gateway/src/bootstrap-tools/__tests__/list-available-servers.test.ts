@@ -55,6 +55,7 @@ const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
     storage: { type: 'keychain' },
   },
   tools: {},
+  customTools: { sandbox: { mode: 'auto', require: false } },
 };
 
 const stdioEnabled: ServerConfig = {

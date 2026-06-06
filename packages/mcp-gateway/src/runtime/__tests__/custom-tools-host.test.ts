@@ -359,4 +359,27 @@ describe('createCustomToolHost', () => {
     );
     expect(outcome).toEqual({ kind: 'unknown_tool' });
   });
+
+  it('forwards the sandbox option into the run and describe seams', async () => {
+    const sandbox = { mode: 'auto' as const, require: true };
+    const runFn = vi.fn(
+      (): Promise<RunOutcome> => Promise.resolve({ outcome: 'ok', result: { content: [] } }),
+    );
+    const describeFn = vi.fn(
+      (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),
+    );
+    const host = createCustomToolHost(deps({ run: runFn, describe: describeFn, sandbox }));
+    const [input] = await host.load();
+    await host.executor.run(view(manifest(), input!.tool), {});
+
+    expect(describeFn).toHaveBeenCalledWith(
+      expect.objectContaining({ exposedName: 'personal__echo' }),
+      expect.objectContaining({ sandbox }),
+    );
+    expect(runFn).toHaveBeenCalledWith(
+      expect.objectContaining({ exposedName: 'personal__echo' }),
+      {},
+      expect.objectContaining({ sandbox }),
+    );
+  });
 });

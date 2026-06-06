@@ -1,10 +1,18 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ToolManifest } from '../../manifest/import.js';
+import type { PlatformProbe } from '../os-sandbox.js';
 import { runTool } from '../runner.js';
+
+const unsupportedProbe: PlatformProbe = {
+  isSupportedPlatform: () => false,
+  checkDependencies: () => ({ warnings: [], errors: [] }),
+  wrapWithSandboxArgv: () => Promise.resolve({ argv: [], env: {} }),
+  cleanupAfterCommand: () => {},
+};
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -90,6 +98,13 @@ describe('runTool', () => {
       ) as string[];
       expect(keys).toContain('SLACK_BOT_TOKEN');
       expect(keys).not.toContain('SECRET_OTHER');
+      // The OS-sandbox wrapper needs PATH/HOME in the shared process env and Node
+      // injects NODE_CHANNEL_FD for the IPC channel, but the harness prunes both
+      // from the tool's view, so a sandboxed tool sees the same allowlist a
+      // non-sandboxed one does.
+      expect(keys).not.toContain('PATH');
+      expect(keys).not.toContain('HOME');
+      expect(keys).not.toContain('NODE_CHANNEL_FD');
     } finally {
       delete process.env.SLACK_BOT_TOKEN;
       delete process.env.SECRET_OTHER;
@@ -428,5 +443,110 @@ export default function jsgreet(input) {
       outcome: 'ok',
       result: { content: [{ type: 'text', text: 'genuine' }] },
     });
+  });
+});
+
+describe('runTool sandbox strict mode', () => {
+  it('resolves to a sandbox-unavailable error when require is set and unsupported', async () => {
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { sandbox: { mode: 'auto', require: true }, sandboxProbe: unsupportedProbe },
+    );
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('sandbox-unavailable');
+    }
+  });
+
+  it('runs normally when mode is off (in-process only)', async () => {
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'world' },
+      { sandbox: { mode: 'off', require: false } },
+    );
+    expect(outcome).toEqual({
+      outcome: 'ok',
+      result: { content: [{ type: 'text', text: 'Hello world' }] },
+    });
+  });
+
+  it('runs sandbox cleanup when aborted after wrap but before spawn', async () => {
+    const controller = new AbortController();
+    const cleanup = vi.fn();
+    // Aborts after the wrap resolves (with a valid argv), so the runner reaches
+    // the pre-spawn abort check and must still run the per-command cleanup.
+    const probe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () => {
+        controller.abort();
+        return Promise.resolve({ argv: ['/bin/echo', 'hi'], env: {} });
+      },
+      cleanupAfterCommand: cleanup,
+    };
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { signal: controller.signal, sandboxProbe: probe },
+    );
+    expect(outcome.outcome).toBe('error');
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs sandbox cleanup when the sandboxed spawn fails to start', async () => {
+    const cleanup = vi.fn();
+    // A wrapped argv pointing at a missing binary makes spawn emit ENOENT with no
+    // PID, so finish() must run cleanup directly rather than waiting for an exit
+    // event that never fires.
+    const probe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () =>
+        Promise.resolve({ argv: ['/nonexistent/toolbox-no-such-binary'], env: {} }),
+      cleanupAfterCommand: cleanup,
+    };
+    const outcome = await runTool(manifest('returns.ts'), { who: 'x' }, { sandboxProbe: probe });
+    expect(outcome.outcome).toBe('error');
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps an unexpected sandbox setup failure to a load-error outcome (never throws)', async () => {
+    const probe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () => Promise.reject(new Error('profile generation failed')),
+      cleanupAfterCommand: () => {},
+    };
+    const outcome = await runTool(manifest('returns.ts'), { who: 'x' }, { sandboxProbe: probe });
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('load-error');
+      expect(outcome.message).toContain('profile generation failed');
+    }
+  });
+
+  it('maps an abort during sandbox wrapping to the aborted outcome', async () => {
+    const controller = new AbortController();
+    // Not aborted at the pre-wrap check, then aborts and rejects mid-wrap — the
+    // path srt takes on Linux when its ripgrep scan is cancelled.
+    const abortingProbe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () => {
+        controller.abort();
+        return Promise.reject(new Error('sandbox scan cancelled'));
+      },
+      cleanupAfterCommand: () => {},
+    };
+    const outcome = await runTool(
+      manifest('returns.ts'),
+      { who: 'x' },
+      { signal: controller.signal, sandboxProbe: abortingProbe },
+    );
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.message).toContain('aborted');
+    }
   });
 });

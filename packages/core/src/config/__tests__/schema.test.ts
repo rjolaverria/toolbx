@@ -459,3 +459,26 @@ describe('SPECS §4.4 example parses through ToolBoxConfigSchema', () => {
     }
   });
 });
+
+describe('customTools.sandbox config', () => {
+  it('defaults customTools.sandbox to auto/non-required when omitted', () => {
+    const parsed = ToolBoxConfigSchema.parse(SPECS_EXAMPLE);
+    expect(parsed.customTools.sandbox).toEqual({ mode: 'auto', require: false });
+  });
+
+  it('accepts mode "off" and require true', () => {
+    const parsed = ToolBoxConfigSchema.parse({
+      ...SPECS_EXAMPLE,
+      customTools: { sandbox: { mode: 'off', require: true } },
+    });
+    expect(parsed.customTools.sandbox).toEqual({ mode: 'off', require: true });
+  });
+
+  it('rejects an unknown sandbox mode', () => {
+    const result = ToolBoxConfigSchema.safeParse({
+      ...SPECS_EXAMPLE,
+      customTools: { sandbox: { mode: 'container' } },
+    });
+    expect(result.success).toBe(false);
+  });
+});

@@ -126,5 +126,5 @@ criteria.)
 - [x] **P3-03** — [Custom tool runtime with timeouts and permissions](tasks/P3-03-tool-runtime.md) — closed by 587229e (branch `p3-03-tool-runtime`)
 - [x] **P3-04** — [`tlbx tool` CLI commands (import/list/inspect/enable/disable/remove)](tasks/P3-04-cli-tool-commands.md) — closed by 92e8d2b (branch `p3-04-cli-tool-commands`)
 - [x] **P3-05** — [Expose custom tools through the MCP gateway and `tlbx run`](tasks/P3-05-expose-custom-tools.md) — closed by PR #81 (branch `p3-05-expose-custom-tools`)
-- [ ] **P3-06** — [OS-level sandbox for custom tools](tasks/P3-06-os-level-sandbox.md) — filed from P3-03 review; stronger isolation deferred per SPECS §6.6
+- [x] **P3-06** — [OS-level sandbox for custom tools](tasks/P3-06-os-level-sandbox.md) — closed by PR #82 (branch `p3-06-os-level-sandbox`)
 - [ ] **P3-07** — [Concurrency-safe config and manifest persistence](tasks/P3-07-concurrent-safe-persistence.md) — project-wide lost-update protection for `config.json` and the tool manifest; surfaced during P3-04

@@ -5,6 +5,14 @@ export interface SandboxRequest {
   /** Absolute path to the tool entry file to load. */
   readonly entry: string;
   readonly permissions: ToolPermissions;
+  /**
+   * The allowlisted tool environment as name→value pairs. Delivered over IPC
+   * (not the spawn environment) so the values never reach the outer sandbox
+   * wrapper shell, where a shell-control var such as `BASH_ENV` could run code
+   * before the OS sandbox starts. The harness applies it as the child's full
+   * `process.env` after the sandbox boundary is active.
+   */
+  readonly env: Record<string, string>;
   /** Arguments to validate against `inputSchema` and pass to the handler. */
   readonly args: unknown;
   /**
@@ -29,7 +37,8 @@ export type RunErrorCode =
   | 'invalid-args'
   | 'load-error'
   | 'forbidden-import'
-  | 'tool-error';
+  | 'tool-error'
+  | 'sandbox-unavailable';
 
 /** Response the child harness sends back over IPC. */
 export type SandboxResponse =
