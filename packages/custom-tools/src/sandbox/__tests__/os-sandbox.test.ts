@@ -151,9 +151,9 @@ describe('wrapSpawn', () => {
     ).rejects.toBeInstanceOf(SandboxUnavailableError);
   });
 
-  it('treats a dependency error as unsupported', async () => {
+  it('treats a missing-bubblewrap dependency error as unsupported', async () => {
     const probe = supportedProbe({
-      checkDependencies: () => ({ warnings: [], errors: ['bubblewrap not found'] }),
+      checkDependencies: () => ({ warnings: [], errors: ['bubblewrap (bwrap) not installed'] }),
     });
     const result = await wrapSpawn({
       argv: BASE_ARGV,
@@ -164,6 +164,21 @@ describe('wrapSpawn', () => {
     });
     expect(result.sandboxed).toBe(false);
     expect(probe.wrapWithSandboxArgv).not.toHaveBeenCalled();
+  });
+
+  it('treats a socat-only dependency error as supported (network proxy unused)', async () => {
+    const probe = supportedProbe({
+      checkDependencies: () => ({ warnings: [], errors: ['socat not installed'] }),
+    });
+    const result = await wrapSpawn({
+      argv: BASE_ARGV,
+      env: {},
+      permissions: PERMS_NO_FS,
+      probe,
+      sandbox: { mode: 'auto', require: false },
+    });
+    expect(result.sandboxed).toBe(true);
+    expect(probe.wrapWithSandboxArgv).toHaveBeenCalled();
   });
 
   it('killProcessTree no-ops when the child has no pid', () => {

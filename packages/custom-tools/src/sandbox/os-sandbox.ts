@@ -222,11 +222,22 @@ function filesystemConfig(
  */
 const POSIX_PLATFORMS = new Set<NodeJS.Platform>(['darwin', 'linux']);
 
+/**
+ * srt's Linux dependency check reports a missing `socat` as an error, but socat
+ * is only needed for its network *proxy* — this wrapper passes a filesystem-only
+ * config and never uses the proxy. Ignore socat errors so a host with working
+ * `bwrap` filesystem sandboxing but no socat keeps its containment; any other
+ * dependency error (e.g. missing `bwrap`) still disqualifies the OS sandbox.
+ */
+function disqualifyingErrors(errors: readonly string[]): readonly string[] {
+  return errors.filter((message) => !/socat/i.test(message));
+}
+
 function isSupported(probe: PlatformProbe): boolean {
   return (
     POSIX_PLATFORMS.has(process.platform) &&
     probe.isSupportedPlatform() &&
-    probe.checkDependencies().errors.length === 0
+    disqualifyingErrors(probe.checkDependencies().errors).length === 0
   );
 }
 
