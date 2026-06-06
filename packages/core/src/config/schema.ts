@@ -172,6 +172,25 @@ export const TopLevelAuthSchema = z
   })
   .strict();
 
+// Custom-tool execution settings. `sandbox.mode` selects the OS-level sandbox
+// posture for imported custom tools (P3-06): `auto` wraps each tool's child
+// process in the OS sandbox when the platform supports it and otherwise falls
+// back to in-process hardening; `off` always uses in-process hardening only.
+// `require` makes an unavailable OS sandbox fail closed (the tool refuses to
+// run) instead of falling back — consulted only in `auto` mode.
+export const CustomToolsSandboxSchema = z
+  .object({
+    mode: z.enum(['auto', 'off']).default('auto'),
+    require: z.boolean().default(false),
+  })
+  .strict();
+
+export const CustomToolsSchema = z
+  .object({
+    sandbox: CustomToolsSandboxSchema.default({ mode: 'auto', require: false }),
+  })
+  .strict();
+
 export const ToolBoxConfigSchema = z
   .object({
     $schema: z.string().min(1).optional(),
@@ -182,6 +201,7 @@ export const ToolBoxConfigSchema = z
     auth: TopLevelAuthSchema.default({ storage: { type: 'keychain' } }),
     servers: ServersMapSchema,
     tools: ToolOverridesMapSchema.default({}),
+    customTools: CustomToolsSchema.default({ sandbox: { mode: 'auto', require: false } }),
   })
   .strict();
 
@@ -197,3 +217,5 @@ export type ProgressiveDisclosureConfig = z.infer<typeof ProgressiveDisclosureSc
 export type NamespacingConfig = z.infer<typeof NamespacingSchema>;
 export type TokenStorage = z.infer<typeof TokenStorageSchema>;
 export type TopLevelAuth = z.infer<typeof TopLevelAuthSchema>;
+export type CustomToolsConfig = z.infer<typeof CustomToolsSchema>;
+export type CustomToolsSandboxConfig = z.infer<typeof CustomToolsSandboxSchema>;

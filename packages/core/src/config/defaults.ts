@@ -33,4 +33,7 @@ export const DEFAULT_CONFIG: ToolBoxConfig = Object.freeze({
   }),
   servers: Object.freeze({}),
   tools: Object.freeze({}),
+  customTools: Object.freeze({
+    sandbox: Object.freeze({ mode: 'auto' as const, require: false }),
+  }),
 });
