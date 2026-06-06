@@ -33,6 +33,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     const fixture = path.join(FIXTURES, 'os-escape-write.mjs');
     const { argv, env, sandboxed } = await wrapSpawn({
       argv: [process.execPath, fixture],
+      env: {},
       permissions: { network: false, filesystem: false, env: [] },
     });
     expect(sandboxed).toBe(true);
@@ -67,6 +68,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       const fixture = path.join(FIXTURES, 'os-escape-write.mjs');
       const { argv, env } = await wrapSpawn({
         argv: [process.execPath, fixture],
+        env: {},
         permissions: { network: false, filesystem: false, env: [] },
       });
       const [cmd, ...rest] = argv;
@@ -94,6 +96,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       const fixture = path.join(FIXTURES, 'os-escape-read.mjs');
       const { argv, env, sandboxed } = await wrapSpawn({
         argv: [process.execPath, fixture],
+        env: {},
         permissions: { network: false, filesystem: false, env: [] },
       });
       expect(sandboxed).toBe(true);
@@ -123,6 +126,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     const fixture = path.join(FIXTURES, 'os-hang.mjs');
     const { argv, env, sandboxed } = await wrapSpawn({
       argv: [process.execPath, fixture],
+      env: {},
       permissions: { network: false, filesystem: false, env: [] },
     });
     expect(sandboxed).toBe(true);

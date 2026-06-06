@@ -178,6 +178,7 @@ async function executeSandbox(
   try {
     wrapped = await wrapSpawn({
       argv: baseArgv,
+      env,
       permissions: manifest.permissions,
       readRoots: [path.dirname(absoluteEntry)],
       logger: options.logger ?? createNoopLogger(),

@@ -100,6 +100,15 @@ export class SandboxUnavailableError extends Error {
 export interface WrapSpawnInput {
   /** Unsandboxed child argv: `[execPath, ...flags, harnessPath]`. */
   readonly argv: readonly string[];
+  /**
+   * Allowlisted tool env as name→value pairs. When sandboxed it is injected into
+   * the *inner* `node` invocation via an `env VAR=val …` prefix — the values are
+   * arguments to that inner `env`, so they reach Node at startup (e.g.
+   * NODE_EXTRA_CA_CERTS) without ever entering the wrapper shell's environment,
+   * where a shell-control var like BASH_ENV could run code before the sandbox.
+   * On the unsandboxed paths (no wrapper shell) it is the child's spawn env.
+   */
+  readonly env: Record<string, string>;
   readonly permissions: ToolPermissions;
   readonly sandbox?: SandboxOptions;
   readonly logger?: Logger;
@@ -258,7 +267,8 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   const baseArgv = [...input.argv];
 
   if (options.mode === 'off') {
-    return { argv: baseArgv, env: {}, sandboxed: false, cleanup: NOOP_CLEANUP };
+    // No wrapper shell: the tool env is the child's spawn env directly.
+    return { argv: baseArgv, env: { ...input.env }, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
   if (!isSupported(probe)) {
@@ -274,21 +284,25 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
         'OS sandbox unavailable; running custom tools with in-process hardening only',
       );
     }
-    return { argv: baseArgv, env: {}, sandboxed: false, cleanup: NOOP_CLEANUP };
+    return { argv: baseArgv, env: { ...input.env }, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
-  const command = baseArgv.map(shellQuote).join(' ');
+  // Inject the tool env into the inner `node` via an `env VAR=val …` prefix. The
+  // assignments are arguments to that inner `env` (run after sandbox-exec/bwrap),
+  // so Node sees them at startup, but they are never part of the wrapper shell's
+  // own environment — a tool-controlled BASH_ENV cannot make the wrapper bash run
+  // code before the sandbox starts.
+  const envAssignments = Object.entries(input.env).map(([key, value]) => `${key}=${value}`);
+  const command = ['env', ...envAssignments, ...baseArgv].map(shellQuote).join(' ');
   const readRoots = defaultReadRoots(baseArgv, input.readRoots ?? []);
   const customConfig: Partial<SandboxRuntimeConfig> = {
     filesystem: filesystemConfig(input.permissions.filesystem, readRoots),
   };
   const { argv } = await probe.wrapWithSandboxArgv(command, undefined, customConfig, input.signal);
 
-  // srt returns the full `process.env`. Ignore it: the wrapper process needs only
-  // the non-secret PATH/HOME to resolve `env`/`sandbox-exec`/`bwrap`. The tool's
-  // allowlisted env is delivered to the harness over IPC (after the sandbox is
-  // active), never here — so a tool-controlled shell var like BASH_ENV cannot
-  // reach the wrapper shell and run code outside the sandbox.
+  // The wrapper process needs only the non-secret PATH/HOME to resolve
+  // `env`/`sandbox-exec`/`bwrap`; the tool env rides in the inner command above,
+  // and the harness later prunes the child's env to exactly the allowlist.
   const env: NodeJS.ProcessEnv = {
     ...(process.env.PATH !== undefined ? { PATH: process.env.PATH } : {}),
     ...(process.env.HOME !== undefined ? { HOME: process.env.HOME } : {}),

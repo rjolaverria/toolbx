@@ -51,6 +51,7 @@ describe('wrapSpawn', () => {
     const probe = supportedProbe();
     await wrapSpawn({
       argv: BASE_ARGV,
+      env: {},
       permissions: PERMS_NO_FS,
       readRoots: ['/cfg/tools/ns'],
       probe,
@@ -77,7 +78,7 @@ describe('wrapSpawn', () => {
 
   it('maps filesystem:true to writable home and tmp with reads open', async () => {
     const probe = supportedProbe();
-    await wrapSpawn({ argv: BASE_ARGV, permissions: PERMS_FS, probe });
+    await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_FS, probe });
     const cfg = captureConfig(probe) as {
       filesystem: { allowWrite: string[]; denyRead: string[] };
     };
@@ -87,7 +88,7 @@ describe('wrapSpawn', () => {
 
   it('wires cleanup to the probe cleanupAfterCommand when sandboxed', async () => {
     const probe = supportedProbe();
-    const result = await wrapSpawn({ argv: BASE_ARGV, permissions: PERMS_NO_FS, probe });
+    const result = await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_NO_FS, probe });
     expect(probe.cleanupAfterCommand).not.toHaveBeenCalled();
     result.cleanup();
     expect(probe.cleanupAfterCommand).toHaveBeenCalledTimes(1);
@@ -95,7 +96,7 @@ describe('wrapSpawn', () => {
 
   it('keeps the wrapper env to non-secret PATH/HOME only (no tool env)', async () => {
     const probe = supportedProbe();
-    const result = await wrapSpawn({ argv: BASE_ARGV, permissions: PERMS_NO_FS, probe });
+    const result = await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_NO_FS, probe });
     expect(result.sandboxed).toBe(true);
     expect(result.argv[0]).toBe('/bin/bash');
     // Only the wrapper's own non-secret vars; the tool env is delivered over IPC,
@@ -103,6 +104,23 @@ describe('wrapSpawn', () => {
     for (const key of Object.keys(result.env)) {
       expect(['PATH', 'HOME']).toContain(key);
     }
+  });
+
+  it('injects the tool env into the inner command, not the wrapper env', async () => {
+    const probe = supportedProbe();
+    const result = await wrapSpawn({
+      argv: BASE_ARGV,
+      env: { NODE_EXTRA_CA_CERTS: '/etc/ca.pem' },
+      permissions: PERMS_NO_FS,
+      probe,
+    });
+    const command = (probe.wrapWithSandboxArgv as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as string;
+    // Delivered to the inner `node` via an `env` prefix, so Node reads it at
+    // startup; never present in the wrapper spawn env.
+    expect(command).toContain("'env'");
+    expect(command).toContain("'NODE_EXTRA_CA_CERTS=/etc/ca.pem'");
+    expect(Object.keys(result.env)).not.toContain('NODE_EXTRA_CA_CERTS');
   });
 
   it('falls back to the base argv with a one-time warning when unsupported (auto)', async () => {
@@ -117,6 +135,7 @@ describe('wrapSpawn', () => {
     } as never;
     const first = await wrapSpawn({
       argv: BASE_ARGV,
+      env: {},
       permissions: PERMS_NO_FS,
       probe: unsupportedProbe(),
       logger,
@@ -124,6 +143,7 @@ describe('wrapSpawn', () => {
     });
     const second = await wrapSpawn({
       argv: BASE_ARGV,
+      env: {},
       permissions: PERMS_NO_FS,
       probe: unsupportedProbe(),
       logger,
@@ -139,6 +159,7 @@ describe('wrapSpawn', () => {
     await expect(
       wrapSpawn({
         argv: BASE_ARGV,
+        env: {},
         permissions: PERMS_NO_FS,
         probe: unsupportedProbe(),
         sandbox: { mode: 'auto', require: true },
@@ -152,6 +173,7 @@ describe('wrapSpawn', () => {
     });
     const result = await wrapSpawn({
       argv: BASE_ARGV,
+      env: {},
       permissions: PERMS_NO_FS,
       probe,
       sandbox: { mode: 'auto', require: false },
@@ -166,6 +188,7 @@ describe('wrapSpawn', () => {
     });
     const result = await wrapSpawn({
       argv: BASE_ARGV,
+      env: {},
       permissions: PERMS_NO_FS,
       probe,
       sandbox: { mode: 'auto', require: false },
@@ -194,6 +217,7 @@ describe('wrapSpawn', () => {
     const probe = supportedProbe();
     const result = await wrapSpawn({
       argv: BASE_ARGV,
+      env: {},
       permissions: PERMS_NO_FS,
       probe,
       sandbox: { mode: 'off', require: false },
