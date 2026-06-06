@@ -198,7 +198,13 @@ async function executeSandbox(
     if (isAborted()) {
       return abortedOutcome;
     }
-    throw error;
+    // Any other sandbox-setup failure must not reject runTool — the router's
+    // call contract is non-throwing — so surface it as a redacted error outcome.
+    return {
+      outcome: 'error',
+      code: 'load-error',
+      message: redactSecrets(error instanceof Error ? error.message : String(error), secretValues),
+    };
   }
 
   const [spawnCommand, ...spawnArgs] = wrapped.argv;

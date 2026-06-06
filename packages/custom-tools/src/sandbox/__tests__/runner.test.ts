@@ -511,6 +511,21 @@ describe('runTool sandbox strict mode', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('maps an unexpected sandbox setup failure to a load-error outcome (never throws)', async () => {
+    const probe: PlatformProbe = {
+      isSupportedPlatform: () => true,
+      checkDependencies: () => ({ warnings: [], errors: [] }),
+      wrapWithSandboxArgv: () => Promise.reject(new Error('profile generation failed')),
+      cleanupAfterCommand: () => {},
+    };
+    const outcome = await runTool(manifest('returns.ts'), { who: 'x' }, { sandboxProbe: probe });
+    expect(outcome.outcome).toBe('error');
+    if (outcome.outcome === 'error') {
+      expect(outcome.code).toBe('load-error');
+      expect(outcome.message).toContain('profile generation failed');
+    }
+  });
+
   it('maps an abort during sandbox wrapping to the aborted outcome', async () => {
     const controller = new AbortController();
     // Not aborted at the pre-wrap check, then aborts and rejects mid-wrap — the

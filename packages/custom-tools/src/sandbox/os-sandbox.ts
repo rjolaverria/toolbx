@@ -226,8 +226,14 @@ function filesystemConfig(
   readRoots: string[],
 ): SandboxRuntimeConfig['filesystem'] {
   if (filesystemAllowed) {
-    // Reads open; writes allowed under the user's home and the OS temp dir.
-    return { denyRead: [], allowWrite: [os.homedir(), os.tmpdir()], denyWrite: [] };
+    // Reads open; writes allowed under the user's home, the OS temp dir, and the
+    // current working directory (the daemon's cwd) so a tool launched from a
+    // workspace outside home (e.g. /workspaces/project) can still write there.
+    return {
+      denyRead: [],
+      allowWrite: [...new Set([os.homedir(), os.tmpdir(), process.cwd()])],
+      denyWrite: [],
+    };
   }
   // No writes anywhere, and reads of the user's home are denied (where secrets
   // live) except the minimum roots the child needs to run. A non-empty config
@@ -273,6 +279,15 @@ function isSupported(probe: PlatformProbe): boolean {
     probe.isSupportedPlatform() &&
     disqualifyingErrors(probe.checkDependencies().errors).length === 0
   );
+}
+
+/**
+ * Whether the OS sandbox would be applied on this host (platform supported, deps
+ * present, ignoring the network-only socat dependency). Exposed so tests gate on
+ * the exact same decision `wrapSpawn` makes rather than a broader dependency check.
+ */
+export function isOsSandboxSupported(probe: PlatformProbe = defaultPlatformProbe): boolean {
+  return isSupported(probe);
 }
 
 /**

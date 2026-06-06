@@ -82,7 +82,9 @@ describe('wrapSpawn', () => {
     const cfg = captureConfig(probe) as {
       filesystem: { allowWrite: string[]; denyRead: string[] };
     };
-    expect(cfg.filesystem.allowWrite).toEqual([os.homedir(), os.tmpdir()]);
+    expect(cfg.filesystem.allowWrite).toContain(os.homedir());
+    expect(cfg.filesystem.allowWrite).toContain(os.tmpdir());
+    expect(cfg.filesystem.allowWrite).toContain(process.cwd());
     expect(cfg.filesystem.denyRead).toEqual([]);
   });
 

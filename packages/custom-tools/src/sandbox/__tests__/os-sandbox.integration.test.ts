@@ -4,11 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { describe, expect, it } from 'vitest';
 
 import { importTool, type ToolManifest } from '../../manifest/import.js';
-import { killProcessTree, wrapSpawn } from '../os-sandbox.js';
+import { isOsSandboxSupported, killProcessTree, wrapSpawn } from '../os-sandbox.js';
 import { runTool } from '../runner.js';
 
 function isAlive(pid: number): boolean {
@@ -24,9 +23,10 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
-const SUPPORTED =
-  SandboxManager.isSupportedPlatform() && SandboxManager.checkDependencies().errors.length === 0;
-const maybe = SUPPORTED ? it : it.skip;
+// Gate on the same decision wrapSpawn makes (POSIX platform, deps present,
+// ignoring the network-only socat dep) so a bwrap-without-socat host that runs
+// the feature also runs these boundary tests.
+const maybe = isOsSandboxSupported() ? it : it.skip;
 
 describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
   maybe('contains a filesystem write that bypasses the harness seal', async () => {
