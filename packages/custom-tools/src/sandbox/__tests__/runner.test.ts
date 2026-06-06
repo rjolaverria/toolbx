@@ -11,6 +11,7 @@ const unsupportedProbe: PlatformProbe = {
   isSupportedPlatform: () => false,
   checkDependencies: () => ({ warnings: [], errors: [] }),
   wrapWithSandboxArgv: () => Promise.resolve({ argv: [], env: {} }),
+  cleanupAfterCommand: () => {},
 };
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -481,6 +482,7 @@ describe('runTool sandbox strict mode', () => {
         controller.abort();
         return Promise.reject(new Error('sandbox scan cancelled'));
       },
+      cleanupAfterCommand: () => {},
     };
     const outcome = await runTool(
       manifest('returns.ts'),

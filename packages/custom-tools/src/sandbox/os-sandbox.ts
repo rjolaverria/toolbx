@@ -16,6 +16,7 @@
  * kernel still denies filesystem writes.
  */
 
+import type { ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -50,15 +51,46 @@ export interface PlatformProbe {
     customConfig: Partial<SandboxRuntimeConfig>,
     abortSignal?: AbortSignal,
   ) => Promise<{ argv: string[]; env: NodeJS.ProcessEnv }>;
+  /** Per-command cleanup (srt Linux: decrement the active-sandbox counter, remove bwrap mounts). */
+  readonly cleanupAfterCommand: () => void;
 }
 
 export const defaultPlatformProbe: PlatformProbe = {
   isSupportedPlatform: () => SandboxManager.isSupportedPlatform(),
   checkDependencies: () => SandboxManager.checkDependencies(),
-  /* c8 ignore next 2 -- thin delegation; exercised only on a sandbox-capable host */
+  /* c8 ignore next 4 -- thin delegations; exercised only on a sandbox-capable host */
   wrapWithSandboxArgv: (command, binShell, customConfig, abortSignal) =>
     SandboxManager.wrapWithSandboxArgv(command, binShell, customConfig, abortSignal),
+  cleanupAfterCommand: () => SandboxManager.cleanupAfterCommand(),
 };
+
+/** No-op cleanup for the unsandboxed paths. */
+const NOOP_CLEANUP = (): void => {};
+
+/**
+ * SIGKILLs a child and its descendants. After OS-sandbox wrapping the direct
+ * child is the wrapper shell (`bash -c "… sandbox-exec … node harness"`), so
+ * killing only its PID would orphan the Node harness. The child is spawned
+ * `detached` (its own process group) and this signals the whole group, falling
+ * back to the direct PID if the group send fails.
+ */
+export function killProcessTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (pid === undefined) {
+    return;
+  }
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    if (!child.killed) {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // already exited
+      }
+    }
+  }
+}
 
 /** Raised when an OS sandbox is required (`require: true`) but unavailable. */
 export class SandboxUnavailableError extends Error {
@@ -89,6 +121,12 @@ export interface WrapSpawnResult {
   readonly argv: string[];
   readonly env: NodeJS.ProcessEnv;
   readonly sandboxed: boolean;
+  /**
+   * Call exactly once after the spawned process has exited. When sandboxed it
+   * runs srt's per-command cleanup (Linux bwrap mount-point removal); otherwise
+   * a no-op.
+   */
+  readonly cleanup: () => void;
 }
 
 const DEFAULT_SANDBOX_OPTIONS: SandboxOptions = { mode: 'auto', require: false };
@@ -205,7 +243,7 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   const baseArgv = [...input.argv];
 
   if (options.mode === 'off') {
-    return { argv: baseArgv, env: input.env, sandboxed: false };
+    return { argv: baseArgv, env: input.env, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
   if (!isSupported(probe)) {
@@ -221,7 +259,7 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
         'OS sandbox unavailable; running custom tools with in-process hardening only',
       );
     }
-    return { argv: baseArgv, env: input.env, sandboxed: false };
+    return { argv: baseArgv, env: input.env, sandboxed: false, cleanup: NOOP_CLEANUP };
   }
 
   const command = baseArgv.map(shellQuote).join(' ');
@@ -240,5 +278,12 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
     ...(process.env.HOME !== undefined ? { HOME: process.env.HOME } : {}),
     ...input.env,
   };
-  return { argv, env, sandboxed: true };
+  return {
+    argv,
+    env,
+    sandboxed: true,
+    cleanup: () => {
+      probe.cleanupAfterCommand();
+    },
+  };
 }

@@ -8,8 +8,19 @@ import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { describe, expect, it } from 'vitest';
 
 import type { ToolManifest } from '../../manifest/import.js';
-import { wrapSpawn } from '../os-sandbox.js';
+import { killProcessTree, wrapSpawn } from '../os-sandbox.js';
 import { runTool } from '../runner.js';
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -106,6 +117,39 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     } finally {
       fs.rmSync(secret, { force: true });
     }
+  });
+
+  maybe('kills the whole sandboxed process tree, not just the wrapper shell', async () => {
+    // After wrapping, the direct child is the bash → sandbox-exec wrapper; the
+    // fixture's reported PID is the Node process underneath. killProcessTree must
+    // reap that whole group, not just the shell.
+    const fixture = path.join(FIXTURES, 'os-hang.mjs');
+    const { argv, env, sandboxed } = await wrapSpawn({
+      argv: [process.execPath, fixture],
+      env: {},
+      permissions: { network: false, filesystem: false, env: [] },
+    });
+    expect(sandboxed).toBe(true);
+
+    const [cmd, ...rest] = argv;
+    const child = spawn(cmd as string, rest, {
+      env,
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      detached: true,
+    });
+    const pid = await new Promise<number>((resolve, reject) => {
+      child.on('message', (m) => resolve((m as { pid: number }).pid));
+      child.on('error', reject);
+      child.on('close', () => reject(new Error('child closed without a message')));
+      child.send({});
+    });
+    expect(isAlive(pid)).toBe(true);
+
+    killProcessTree(child);
+    for (let i = 0; i < 50 && isAlive(pid); i++) {
+      await delay(100);
+    }
+    expect(isAlive(pid)).toBe(false);
   });
 
   maybe('runs a normal custom tool end-to-end under the sandbox (IPC survives)', async () => {

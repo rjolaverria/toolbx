@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -5,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ToolPermissions } from '../../manifest/import.js';
 import {
+  killProcessTree,
   type PlatformProbe,
   SandboxUnavailableError,
   resetSandboxWarningForTesting,
@@ -25,6 +27,7 @@ function supportedProbe(over: Partial<PlatformProbe> = {}): PlatformProbe {
         env: process.env,
       }),
     ),
+    cleanupAfterCommand: vi.fn(),
     ...over,
   };
 }
@@ -34,6 +37,7 @@ function unsupportedProbe(): PlatformProbe {
     isSupportedPlatform: () => false,
     checkDependencies: () => ({ warnings: [], errors: [] }),
     wrapWithSandboxArgv: vi.fn(),
+    cleanupAfterCommand: vi.fn(),
   };
 }
 
@@ -80,6 +84,14 @@ describe('wrapSpawn', () => {
     };
     expect(cfg.filesystem.allowWrite).toEqual([os.homedir(), os.tmpdir()]);
     expect(cfg.filesystem.denyRead).toEqual([]);
+  });
+
+  it('wires cleanup to the probe cleanupAfterCommand when sandboxed', async () => {
+    const probe = supportedProbe();
+    const result = await wrapSpawn({ argv: BASE_ARGV, env: {}, permissions: PERMS_NO_FS, probe });
+    expect(probe.cleanupAfterCommand).not.toHaveBeenCalled();
+    result.cleanup();
+    expect(probe.cleanupAfterCommand).toHaveBeenCalledTimes(1);
   });
 
   it('returns the wrapped argv and a child env carrying the allowlisted secret', async () => {
@@ -152,6 +164,22 @@ describe('wrapSpawn', () => {
     });
     expect(result.sandboxed).toBe(false);
     expect(probe.wrapWithSandboxArgv).not.toHaveBeenCalled();
+  });
+
+  it('killProcessTree no-ops when the child has no pid', () => {
+    const kill = vi.fn();
+    expect(() =>
+      killProcessTree({ pid: undefined, killed: false, kill } as unknown as ChildProcess),
+    ).not.toThrow();
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it('killProcessTree falls back to the direct child when the group signal fails', () => {
+    const kill = vi.fn();
+    // A pid whose process group does not exist makes process.kill(-pid) throw,
+    // so the fallback path kills the direct child instead.
+    killProcessTree({ pid: 2_000_000_000, killed: false, kill } as unknown as ChildProcess);
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
   });
 
   it('mode "off" never wraps, regardless of platform support', async () => {

@@ -26,10 +26,12 @@ import { createNoopLogger, type Logger } from '@toolbox/core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import {
+  killProcessTree,
   SandboxUnavailableError,
   wrapSpawn,
   type PlatformProbe,
   type SandboxOptions,
+  type WrapSpawnResult,
 } from './os-sandbox.js';
 import { redactSecrets } from './redact.js';
 import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
@@ -172,10 +174,9 @@ async function executeSandbox(
   // unsandboxed. It may also reject if the signal aborts mid-wrap (the signal is
   // forwarded to srt, which can cancel its Linux ripgrep scan) — translate that
   // into the same aborted outcome the post-spawn path uses.
-  let spawnArgv: string[];
-  let spawnEnv: NodeJS.ProcessEnv;
+  let wrapped: WrapSpawnResult;
   try {
-    const wrapped = await wrapSpawn({
+    wrapped = await wrapSpawn({
       argv: baseArgv,
       env,
       permissions: manifest.permissions,
@@ -185,8 +186,6 @@ async function executeSandbox(
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
       ...(options.sandboxProbe !== undefined ? { probe: options.sandboxProbe } : {}),
     });
-    spawnArgv = wrapped.argv;
-    spawnEnv = wrapped.env;
   } catch (error) {
     if (error instanceof SandboxUnavailableError) {
       return { outcome: 'error', code: 'sandbox-unavailable', message: error.message };
@@ -197,7 +196,7 @@ async function executeSandbox(
     throw error;
   }
 
-  const [spawnCommand, ...spawnArgs] = spawnArgv;
+  const [spawnCommand, ...spawnArgs] = wrapped.argv;
   if (spawnCommand === undefined) {
     return { outcome: 'error', code: 'load-error', message: 'empty sandbox spawn argv' };
   }
@@ -209,9 +208,13 @@ async function executeSandbox(
       return;
     }
 
+    // `detached` puts the child in its own process group so `killProcessTree`
+    // can SIGKILL the whole group: after OS-sandbox wrapping the direct child is
+    // the wrapper shell, and killing only its PID would orphan the Node harness.
     const child = spawn(spawnCommand, spawnArgs, {
-      env: spawnEnv,
+      env: wrapped.env,
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      detached: true,
     });
 
     let settled = false;
@@ -228,8 +231,17 @@ async function executeSandbox(
       child.on('error', () => {
         // Absorb a stray EPIPE from an in-flight send after we have already settled.
       });
-      if (!child.killed) {
-        child.kill('SIGKILL');
+      // Run the sandbox's per-command cleanup once the process has actually
+      // exited (srt Linux decrements its active-sandbox counter and removes
+      // bwrap mount-point files). Register before killing so the SIGKILL-driven
+      // exit triggers it; if the child already exited, run it now.
+      if (child.exitCode === null && child.signalCode === null) {
+        child.once('exit', () => {
+          wrapped.cleanup();
+        });
+        killProcessTree(child);
+      } else {
+        wrapped.cleanup();
       }
       resolve(value);
     }
