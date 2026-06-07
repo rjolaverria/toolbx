@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG } from '../defaults.js';
 import { loadConfig } from '../load.js';
+import { withConfigLock } from '../lock.js';
 import { saveConfig } from '../save.js';
 
 const tempDirs: string[] = [];
@@ -25,6 +26,19 @@ afterEach(async () => {
 });
 
 describe('saveConfig', () => {
+  it('is re-entrant-safe when called inside an existing config lock', async () => {
+    // Every read-modify-write command calls saveConfig while already holding the
+    // config-dir lock; saveConfig's own lock must re-enter (no-op) rather than
+    // deadlock/time out on the same dir.
+    const dir = await makeTempDir();
+    const file = path.join(dir, 'config.json');
+    await withConfigLock(dir, () => saveConfig(DEFAULT_CONFIG, file), {
+      timeoutMs: 2000,
+    });
+    const loaded = await loadConfig(file);
+    expect(loaded).toEqual(DEFAULT_CONFIG);
+  });
+
   it('round-trips through loadConfig', async () => {
     const dir = await makeTempDir();
     const file = path.join(dir, 'config.json');
