@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -83,6 +83,30 @@ describe('withConfigLock', () => {
     });
     await Promise.all([slow, fast]);
     expect(order).toEqual(['a-start', 'a-end', 'b']);
+  });
+
+  it('serializes two spellings of the same directory via a symlink', async () => {
+    // A symlink pointing at `dir`: locking through the link and through the real
+    // path must share one lock, not interleave.
+    const link = path.join(await mkdtemp(path.join(tmpdir(), 'tlbx-link-')), 'cfg');
+    await symlink(dir, link, 'dir');
+    try {
+      const order: string[] = [];
+      const viaReal = withConfigLock(dir, async () => {
+        order.push('real-start');
+        await new Promise((r) => setTimeout(r, 50));
+        order.push('real-end');
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      const viaLink = withConfigLock(link, () => {
+        order.push('link');
+        return Promise.resolve();
+      });
+      await Promise.all([viaReal, viaLink]);
+      expect(order).toEqual(['real-start', 'real-end', 'link']);
+    } finally {
+      await rm(path.dirname(link), { recursive: true, force: true });
+    }
   });
 
   it('releases the lock when fn throws', async () => {

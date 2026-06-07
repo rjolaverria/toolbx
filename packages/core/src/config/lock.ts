@@ -71,7 +71,10 @@ export async function withConfigLock<T>(
   fn: () => Promise<T>,
   options: WithConfigLockOptions = {},
 ): Promise<T> {
-  const resolved = path.resolve(dir);
+  // Canonicalize so two invocations targeting the same physical directory through
+  // different symlink/realpath spellings share one lock (and one re-entrancy key)
+  // rather than locking distinct `.lock` dirs and interleaving.
+  const resolved = await canonicalizeDir(dir);
   const current = heldDirs.getStore();
   if (current?.has(resolved)) {
     return fn();
@@ -90,6 +93,22 @@ export async function withConfigLock<T>(
     return await heldDirs.run(nextHeld, fn);
   } finally {
     await releaseLock(lockDir, nonce);
+  }
+}
+
+/**
+ * Resolves `dir` to a canonical absolute path so symlink/realpath spelling
+ * differences map to one lock. The directory is created first (the lock lives
+ * inside it) so `realpath` can resolve it; if either step fails, fall back to the
+ * lexically resolved path rather than blocking the mutation.
+ */
+async function canonicalizeDir(dir: string): Promise<string> {
+  const abs = path.resolve(dir);
+  try {
+    await fs.mkdir(abs, { recursive: true });
+    return await fs.realpath(abs);
+  } catch {
+    return abs;
   }
 }
 
