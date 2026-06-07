@@ -378,9 +378,12 @@ describe('runAddHttp — explicit --auth', () => {
     expect(h.stdout.value).toContain('registered (OAuth)');
   });
 
-  it('does not delete a concurrent same-name OAuth winner token when the duplicate is detected', async () => {
+  it('does not overwrite a concurrent same-name OAuth winner token when the duplicate is detected', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
+    // A stale orphan token already exists under this name from a prior failed
+    // attempt, so this command's pre-login snapshot (priorToken) is non-null.
+    await h.store.write('acme', priorRecord);
     // Simulate a competing same-name OAuth registration completing during this
     // command's browser flow: it writes the server entry and stores the winner's
     // token under the same key (the server name).

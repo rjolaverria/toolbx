@@ -48,18 +48,18 @@ const heldDirs = new AsyncLocalStorage<Set<string>>();
  * against each other — closing both the lost-update and cross-store
  * namespace-collision windows.
  *
- * The lock is a `<dir>/.lock` directory (atomic `mkdir` mutex, cross-platform —
- * no POSIX `flock`). A crashed holder cannot deadlock subsequent commands: a
- * same-host lock is stolen only when its recorded owner pid is no longer alive;
- * a live holder is never stolen on age alone (the meta has no heartbeat, so a
- * long critical section just makes waiters time out rather than steal). Age
- * (`staleMs`) is the staleness signal only for a remote-host lock or one with
- * missing/unreadable metadata, whose liveness cannot be probed locally. A steal
- * is an atomic claim-by-rename verified against the observed owner's nonce — not
- * an in-place delete — so two racing waiters cannot each remove the other's
- * freshly acquired lock. Release is likewise ownership-checked via the
- * per-acquire nonce, so a holder whose lock was stolen never removes the new
- * owner's lock.
+ * The lock is a `<dir>/.lock` directory published atomically (a staged dir
+ * carrying its metadata is `rename`d onto `lockDir`, which only succeeds when the
+ * slot is free — cross-platform, no POSIX `flock`). A crashed holder cannot
+ * deadlock subsequent commands: a same-host lock is stolen only when its recorded
+ * owner pid is no longer alive; a live holder is never stolen on age alone (the
+ * meta has no heartbeat, so a long critical section just makes waiters time out
+ * rather than steal). Age (`staleMs`) is the staleness signal only for a
+ * remote-host lock or one with missing/unreadable metadata, whose liveness cannot
+ * be probed locally. Stealing is serialized through a dedicated steal mutex and
+ * re-confirms staleness before removing the lock, so it can never delete a live
+ * holder's lock (see {@link stealStale}). Release is ownership-checked via a
+ * per-acquire nonce.
  *
  * Re-entrant within one async context: a nested call for the same resolved dir
  * runs `fn` directly without re-acquiring, so a command that locks a critical
@@ -141,9 +141,8 @@ async function acquire(
         }
       }
 
-      const evaluation = await evaluateStale(lockDir, staleMs);
-      if (evaluation.steal) {
-        await stealStale(lockDir, evaluation.nonce);
+      if ((await evaluateStale(lockDir, staleMs)).steal) {
+        await stealStale(lockDir, staleMs);
         continue;
       }
       if (Date.now() >= deadline) {
@@ -158,44 +157,78 @@ async function acquire(
   }
 }
 
+/** Max attempts to grab the brief steal mutex before giving up this round. */
+const STEAL_MUTEX_ATTEMPTS = 10;
+const STEAL_MUTEX_POLL_MS = 10;
+
 /**
- * Atomically claims a lock judged stale, instead of deleting it in place. A bare
- * `rm` is a TOCTOU: two waiters can both observe the same stale lock and the
- * second can delete a fresh lock the first just acquired. Renaming to a unique
- * name is atomic — only one waiter can move a given directory; the loser sees
- * `ENOENT` and simply retries `mkdir`. After claiming, the moved dir's nonce is
- * verified against the one observed when the staleness decision was made: if a
- * fresh holder re-created the lock between the evaluation and the rename, the
- * claimed dir carries a different nonce, so it is renamed back rather than
- * deleted — never destroying a live holder's lock.
+ * Removes a lock judged stale, serialized through a dedicated steal mutex so the
+ * removal is provably safe — never deleting a live holder's lock.
+ *
+ * The safety rests on two invariants. (1) Acquirers publish via `rename` onto
+ * `lockDir`, which only succeeds when `lockDir` is absent — so a *present* lock
+ * dir can never be silently replaced by a fresh holder; it can only be removed by
+ * a stealer. (2) The steal mutex (`<lock>.steal`) serializes stealers, so at most
+ * one runs at a time. Holding the mutex, we re-confirm staleness and only then
+ * `rm` the lock: because a present lock can't have become a fresh holder (1) and
+ * no other stealer is racing (2), a still-stale lock here is provably the same
+ * stale instance, so the `rm` cannot delete a live holder. After the `rm`,
+ * normal acquirers race to publish and exactly one wins.
+ *
+ * The re-confirm-before-rm holds even if the steal mutex's own crash-recovery
+ * (age-based) momentarily admitted two stealers: a fresh holder published by the
+ * first is seen live by the second, which then declines to remove it.
+ *
+ * Lease bound: like any TTL/lease lock, correctness assumes a stealer does not
+ * stall longer than `staleMs` *between* its staleness re-check and the `rm`. With
+ * the 10s default and a critical section that only reads metadata and removes a
+ * directory, that requires an effectively-frozen (or crashed) process — in which
+ * case it will not resume to perform the `rm` anyway.
  */
-async function stealStale(lockDir: string, expectedNonce: string | undefined): Promise<void> {
-  const claimed = `${lockDir}.stale-${randomUUID()}`;
-  try {
-    await fs.rename(lockDir, claimed);
-  } catch {
-    // Already stolen by another waiter, or the holder released — retry mkdir.
+async function stealStale(lockDir: string, staleMs: number): Promise<void> {
+  const stealMutex = `${lockDir}.steal`;
+  if (!(await acquireStealMutex(stealMutex, staleMs))) {
+    // Another waiter is already stealing; let the main loop retry.
     return;
   }
-
-  // If the claimed dir now carries a nonce that differs from the one we judged
-  // stale (including the case where we judged a meta-less dir but claimed one a
-  // fresh holder has since stamped), we moved a fresh holder's lock — put it
-  // back rather than delete it.
-  const claimedMeta = await readMeta(claimed);
-  if (claimedMeta?.nonce !== undefined && claimedMeta.nonce !== expectedNonce) {
-    try {
-      await fs.rename(claimed, lockDir);
-      return;
-    } catch {
-      // A third party took the slot during the restore (a vanishingly narrow
-      // window). Drop our claimed copy and let normal contention resolve.
-      await fs.rm(claimed, { recursive: true, force: true }).catch(() => undefined);
-      return;
+  try {
+    if ((await evaluateStale(lockDir, staleMs)).steal) {
+      await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
     }
+  } finally {
+    await fs.rm(stealMutex, { recursive: true, force: true }).catch(() => undefined);
   }
+}
 
-  await fs.rm(claimed, { recursive: true, force: true }).catch(() => undefined);
+/**
+ * Grabs the steal mutex (an `mkdir` mutex holding no user code, so normally held
+ * only microseconds). Returns false if another stealer holds it. A crashed
+ * stealer's mutex is recovered by age — and even a mistaken double-admit is safe,
+ * because {@link stealStale} re-confirms staleness before removing the lock.
+ */
+async function acquireStealMutex(stealMutex: string, staleMs: number): Promise<boolean> {
+  for (let attempt = 0; attempt < STEAL_MUTEX_ATTEMPTS; attempt++) {
+    try {
+      await fs.mkdir(stealMutex);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+    try {
+      const info = await fs.stat(stealMutex);
+      if (Date.now() - info.mtimeMs > staleMs) {
+        await fs.rm(stealMutex, { recursive: true, force: true }).catch(() => undefined);
+        continue;
+      }
+    } catch {
+      // Vanished between mkdir and stat — retry immediately.
+      continue;
+    }
+    await delay(STEAL_MUTEX_POLL_MS);
+  }
+  return false;
 }
 
 /**
@@ -212,12 +245,9 @@ async function releaseLock(lockDir: string, nonce: string): Promise<void> {
   await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
 }
 
-type StaleEvaluation = { steal: false } | { steal: true; nonce?: string };
+type StaleEvaluation = { steal: boolean };
 
-/**
- * Decides whether an existing lock is stale and, if so, the nonce of the owner
- * we judged stale (so the steal can verify it claimed that same instance).
- */
+/** Decides whether an existing lock is stale (and therefore stealable). */
 async function evaluateStale(lockDir: string, staleMs: number): Promise<StaleEvaluation> {
   const meta = await readMeta(lockDir);
 
@@ -227,21 +257,21 @@ async function evaluateStale(lockDir: string, staleMs: number): Promise<StaleEva
     // legitimately looks "old"; waiters must time out instead. Steal only once
     // the recorded pid is gone.
     if (meta.host === hostname() && typeof meta.pid === 'number') {
-      return isAlive(meta.pid) ? { steal: false } : { steal: true, nonce: meta.nonce };
+      return { steal: !isAlive(meta.pid) };
     }
     // Remote-host lock: its process table cannot be probed locally, so fall back
     // to age as the only available staleness signal.
-    return Date.now() - meta.ts > staleMs ? { steal: true, nonce: meta.nonce } : { steal: false };
+    return { steal: Date.now() - meta.ts > staleMs };
   }
 
   // No usable meta: use the lock dir's own age as the staleness signal. A held
-  // lock always writes meta (acquire aborts otherwise), so a meta-less dir is a
-  // genuinely abandoned/corrupt lock, not a live holder mid-write.
+  // lock always writes meta (acquire publishes it atomically), so a meta-less dir
+  // is a genuinely abandoned/corrupt lock, not a live holder mid-write.
   try {
     const info = await fs.stat(lockDir);
-    return Date.now() - info.mtimeMs > staleMs ? { steal: true } : { steal: false };
+    return { steal: Date.now() - info.mtimeMs > staleMs };
   } catch {
-    // The lock dir vanished — treat as stale so the caller retries the mkdir.
+    // The lock dir vanished — treat as stale so the caller retries.
     return { steal: true };
   }
 }

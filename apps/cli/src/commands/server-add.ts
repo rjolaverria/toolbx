@@ -410,20 +410,11 @@ async function runOAuthAndWrite(
   // re-read inside the lock so an unrelated concurrent change is preserved, not
   // clobbered.
   return withConfigLock(path.dirname(target), async () => {
-    // Roll back only THIS command's own token. When a prior token existed,
-    // restore it. Deleting on the rejectDuplicate path needs care: a concurrent
-    // same-name OAuth winner shares this token key, so deleting a freshly-issued
-    // token (no prior one) would destroy the winner's credentials — so on that
-    // path we leave the store alone when there was no prior token (a benign
-    // orphan if the winner is non-OAuth, surfaced by `tlbx doctor`).
+    // Roll back only THIS command's own token. Safe to use when no concurrent
+    // writer shares the token key: restore a prior token, or delete the one we
+    // just issued.
     const rollbackThen = async (code: number): Promise<number> => {
       if (!(await restorePriorToken(tokenStore, name, priorToken))) {
-        deps.stderr(orphanedTokenHint(name));
-      }
-      return code;
-    };
-    const rollbackWithoutDeletingShared = async (code: number): Promise<number> => {
-      if (priorToken !== null && !(await restorePriorToken(tokenStore, name, priorToken))) {
         deps.stderr(orphanedTokenHint(name));
       }
       return code;
@@ -433,9 +424,17 @@ async function runOAuthAndWrite(
     if (latest === null) {
       return rollbackThen(1);
     }
-    // A server with this name may have been added during the browser flow.
+    // A server with this name may have been added during the browser flow. We
+    // cannot prove whether the token now under this key (the server name) is the
+    // one we wrote or a concurrent same-name OAuth winner's, so we leave the
+    // store completely untouched — restoring or deleting could pair the winner's
+    // config with the wrong credentials. Any leftover is surfaced by `tlbx doctor`.
     if (rejectDuplicate(latest, name, target, deps)) {
-      return rollbackWithoutDeletingShared(1);
+      deps.stderr(
+        `A token for "${name}" may have been left behind; ` +
+          `run \`tlbx doctor\` or \`tlbx auth logout ${name}\` if it is unused.\n`,
+      );
+      return 1;
     }
     if (await rejectToolNamespaceCollision(name, target, deps)) {
       // A colliding custom tool writes no token, so deleting our own is safe.

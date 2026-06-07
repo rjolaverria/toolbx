@@ -33,6 +33,40 @@ async function plantLock(meta: {
   };
 }
 
+/**
+ * Fires `count` concurrent acquisitions (optionally over a pre-planted stale
+ * lock) and asserts every critical section ran with no overlap.
+ */
+async function expectExclusive(
+  count: number,
+  stale: { pid: number; host: string; ts: number } | undefined,
+): Promise<void> {
+  if (stale !== undefined) {
+    await plantLock(stale);
+  }
+  let active = 0;
+  let maxActive = 0;
+  let completed = 0;
+  const run = (): Promise<void> =>
+    withConfigLock(
+      dir,
+      async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 3));
+        active -= 1;
+        completed += 1;
+      },
+      // A dead-pid stale lock is stolen via liveness regardless of staleMs; keep
+      // staleMs generous so the brief steal mutex is never age-recovered (which
+      // would be the lease-bound mis-steal) during the test under load.
+      { timeoutMs: 10_000, pollMs: 3, staleMs: 5000 },
+    );
+  await Promise.all(Array.from({ length: count }, run));
+  expect(completed).toBe(count);
+  expect(maxActive).toBe(1);
+}
+
 describe('withConfigLock', () => {
   it('serializes two overlapping critical sections', async () => {
     const order: string[] = [];
@@ -139,28 +173,16 @@ describe('withConfigLock', () => {
   });
 
   it('preserves mutual exclusion under high contention', async () => {
-    // Many waiters contend for an uncontended-at-start lock. The mkdir/rename
-    // mutex must let exactly one critical section run at a time — no overlap.
-    let active = 0;
-    let maxActive = 0;
-    let completed = 0;
-    const run = (): Promise<void> =>
-      withConfigLock(
-        dir,
-        async () => {
-          active += 1;
-          maxActive = Math.max(maxActive, active);
-          await new Promise((r) => setTimeout(r, 3));
-          active -= 1;
-          completed += 1;
-        },
-        { timeoutMs: 5000, pollMs: 3 },
-      );
+    // Many waiters contend for an uncontended-at-start lock. The mutex must let
+    // exactly one critical section run at a time — no overlap.
+    await expectExclusive(8, undefined);
+  });
 
-    await Promise.all(Array.from({ length: 8 }, run));
-
-    expect(completed).toBe(8);
-    expect(maxActive).toBe(1);
+  it('preserves mutual exclusion while many waiters race to steal one stale lock', async () => {
+    // Plant a dead-pid stale lock, then fire many concurrent acquisitions that
+    // all see it as stale and race to steal it. The steal-mutex protocol must
+    // still admit exactly one critical section at a time.
+    await expectExclusive(8, { pid: 2147483646, host: hostname(), ts: Date.now() });
   });
 
   it('writes a meta record while held', async () => {
