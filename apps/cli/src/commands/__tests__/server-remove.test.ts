@@ -2,7 +2,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig, saveConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import { runServerRemove, type RemoveDeps } from '../server-remove.js';
 
@@ -146,5 +146,34 @@ describe('runServerRemove', () => {
     expect(code).toBe(0);
     const reloaded = await loadConfig(cfg.target);
     expect(reloaded.servers['github']).toBeUndefined();
+  });
+
+  it('refuses to remove when the server entry changed during the prompt', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+    // A concurrent edit to the same server while the prompt is open: the user
+    // confirmed removal of the old entry, so removal must abort.
+    h.deps.confirm = async () => {
+      await saveConfig(
+        configWith({
+          github: { type: 'stdio', enabled: false, command: 'true', args: ['--changed'] },
+        }),
+        cfg.target,
+      );
+      return true;
+    };
+
+    const code = await runServerRemove('github', {}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('changed on disk since you were prompted');
+    // The concurrently-edited server is preserved, not removed.
+    const reloaded = await loadConfig(cfg.target);
+    expect(reloaded.servers['github']).toBeDefined();
   });
 });
