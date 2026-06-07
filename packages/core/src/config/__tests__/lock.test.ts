@@ -92,6 +92,24 @@ describe('withConfigLock', () => {
     }
   });
 
+  it('does not steal a live same-host holder even when older than the TTL', async () => {
+    // A long-running critical section legitimately looks "old" (the meta has no
+    // heartbeat). Liveness, not age, is authoritative for same-host locks, so a
+    // waiter must time out rather than steal a live holder's lock.
+    const dispose = await plantLock({
+      pid: process.pid,
+      host: hostname(),
+      ts: Date.now() - 60_000,
+    });
+    try {
+      await expect(
+        withConfigLock(dir, () => Promise.resolve('stolen'), { timeoutMs: 80, staleMs: 1000 }),
+      ).rejects.toBeInstanceOf(ConfigLockError);
+    } finally {
+      await dispose();
+    }
+  });
+
   it('throws ConfigLockError when a live, non-stale lock never frees in time', async () => {
     const dispose = await plantLock({ pid: process.pid, host: hostname(), ts: Date.now() });
     try {
@@ -101,6 +119,23 @@ describe('withConfigLock', () => {
     } finally {
       await dispose();
     }
+  });
+
+  it('leaves a lock that was stolen and re-acquired by another owner intact on release', async () => {
+    // Simulates the steal race: our critical section runs while a competitor has
+    // re-stamped the lock with its own nonce. On release we must not remove the
+    // competitor's lock.
+    const lockDir = path.join(dir, '.lock');
+    await withConfigLock(dir, async () => {
+      // Overwrite the meta as if a competitor stole and re-acquired the lock.
+      await writeFile(
+        path.join(lockDir, 'meta.json'),
+        JSON.stringify({ pid: process.pid, host: hostname(), ts: Date.now(), nonce: 'other' }),
+      );
+    });
+    // The competitor's lock dir is still present (we did not delete it).
+    expect((await stat(lockDir)).isDirectory()).toBe(true);
+    await rm(lockDir, { recursive: true, force: true });
   });
 
   it('writes a meta record while held', async () => {

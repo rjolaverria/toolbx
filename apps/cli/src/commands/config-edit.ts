@@ -11,6 +11,7 @@ import {
   DuplicateKeyError,
   parseConfig,
   saveConfig,
+  withConfigLock,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
@@ -126,9 +127,24 @@ export async function runConfigEdit(
       return 1;
     }
 
-    await saveConfig(validated, target);
-    deps.stdout(`Saved config to ${target}.\n`);
-    return 0;
+    // The editor edits the whole file, so concurrent locked changes can't be
+    // auto-merged. Under the shared lock, confirm the on-disk config still
+    // matches the snapshot opened in the editor; if a concurrent command changed
+    // it meanwhile, refuse rather than clobber that change (P3-07).
+    return withConfigLock(path.dirname(target), async () => {
+      const onDisk = await readSource(target);
+      if (onDisk !== source) {
+        deps.stderr(
+          `Config at ${target} changed on disk while the editor was open; ` +
+            `your edits were not saved to avoid clobbering that change. ` +
+            `Re-run \`tlbx config edit\`.\n`,
+        );
+        return 1;
+      }
+      await saveConfig(validated, target);
+      deps.stdout(`Saved config to ${target}.\n`);
+      return 0;
+    });
   } finally {
     await fs.unlink(tempFile).catch(() => undefined);
   }
