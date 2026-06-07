@@ -114,24 +114,28 @@ async function acquire(
   // Publish the lock atomically: build a fully-formed dir (with its meta) under a
   // unique name, then `rename` it onto `lockDir`. `rename` succeeds only when
   // `lockDir` is absent, so the lock dir is never present without its metadata —
-  // there is no create-then-write window a stealer could exploit. A failed
-  // rename leaves the prepared dir in place to retry, so it is built once.
+  // there is no create-then-write window a stealer could exploit. The staging dir
+  // is built once and reused across attempts.
   const staging = `${lockDir}.acquiring-${nonce}`;
+  const stagingMeta = path.join(staging, 'meta.json');
   await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined);
   await fs.mkdir(staging);
-  await fs.writeFile(
-    path.join(staging, 'meta.json'),
-    JSON.stringify({
-      pid: process.pid,
-      host: hostname(),
-      ts: Date.now(),
-      nonce,
-    } satisfies LockMeta),
-    'utf8',
-  );
 
   try {
     for (;;) {
+      // Refresh the timestamp on every attempt so a lock published after a long
+      // wait carries a current `ts` — otherwise a peer could immediately judge
+      // the freshly-acquired lock stale by age and steal it.
+      await fs.writeFile(
+        stagingMeta,
+        JSON.stringify({
+          pid: process.pid,
+          host: hostname(),
+          ts: Date.now(),
+          nonce,
+        } satisfies LockMeta),
+        'utf8',
+      );
       try {
         await fs.rename(staging, lockDir);
         return;
@@ -170,10 +174,12 @@ const STEAL_MUTEX_POLL_MS = 10;
  * dir can never be silently replaced by a fresh holder; it can only be removed by
  * a stealer. (2) The steal mutex (`<lock>.steal`) serializes stealers, so at most
  * one runs at a time. Holding the mutex, we re-confirm staleness and only then
- * `rm` the lock: because a present lock can't have become a fresh holder (1) and
- * no other stealer is racing (2), a still-stale lock here is provably the same
- * stale instance, so the `rm` cannot delete a live holder. After the `rm`,
- * normal acquirers race to publish and exactly one wins.
+ * remove the lock: because a present lock can't have become a fresh holder (1)
+ * and no other stealer is racing (2), a still-stale lock here is provably the
+ * same stale instance, so the removal cannot delete a live holder. After it,
+ * normal acquirers race to publish and exactly one wins. The removal goes through
+ * {@link discardLockDir} (atomic rename-aside) so it never exposes an empty
+ * `lockDir` an acquirer could rename into mid-removal.
  *
  * The re-confirm-before-rm holds even if the steal mutex's own crash-recovery
  * (age-based) momentarily admitted two stealers: a fresh holder published by the
@@ -193,11 +199,36 @@ async function stealStale(lockDir: string, staleMs: number): Promise<void> {
   }
   try {
     if ((await evaluateStale(lockDir, staleMs)).steal) {
-      await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
+      await discardLockDir(lockDir);
     }
   } finally {
+    // The steal mutex is an empty dir, so a plain recursive rm is a single rmdir
+    // with no empty-contents window to exploit.
     await fs.rm(stealMutex, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/**
+ * Removes a lock directory without ever exposing it as an empty directory.
+ *
+ * A recursive `fs.rm(lockDir)` unlinks `meta.json` and *then* `rmdir`s, leaving a
+ * brief window where `lockDir` exists but is empty — during which an acquirer's
+ * `rename(staging, lockDir)` would succeed (rename replaces an empty dir) and the
+ * in-progress `rm` could then delete the new holder's lock, breaking mutual
+ * exclusion. Renaming the whole dir aside is a single atomic step: `lockDir`
+ * goes straight from present to absent, so an acquirer either fails its rename
+ * (still present) or wins cleanly (already gone). The moved copy is then removed
+ * off-path, where no acquirer targets it.
+ */
+async function discardLockDir(lockDir: string): Promise<void> {
+  const grave = `${lockDir}.discarding-${randomUUID()}`;
+  try {
+    await fs.rename(lockDir, grave);
+  } catch {
+    // Already gone (released/stolen concurrently) — nothing to clean up.
+    return;
+  }
+  await fs.rm(grave, { recursive: true, force: true }).catch(() => undefined);
 }
 
 /**
@@ -242,7 +273,9 @@ async function releaseLock(lockDir: string, nonce: string): Promise<void> {
   if (meta !== undefined && typeof meta.nonce === 'string' && meta.nonce !== nonce) {
     return;
   }
-  await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
+  // Atomic rename-aside (not an in-place recursive rm) so release never exposes
+  // an empty lockDir an acquirer could rename into mid-removal.
+  await discardLockDir(lockDir);
 }
 
 type StaleEvaluation = { steal: boolean };

@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import { readToolManifest, ToolManifestError } from '@toolbox/custom-tools';
 import {
+  ConfigLockError,
   createNoopLogger,
   createTokenStore,
   probeUpstreamAuth,
@@ -37,6 +38,15 @@ import {
  * OAuth flows, not unrelated commands.
  */
 const OAUTH_REGISTRATION_LOCK_DIR = '.oauth-registration';
+
+/**
+ * Acquire timeout for the OAuth registration lock. It is held across the whole
+ * browser login, which can take up to the callback server's 5-minute default, so
+ * a concurrent registration must be willing to wait at least that long before
+ * giving up (otherwise it would fail spuriously instead of reaching its
+ * post-wait duplicate check). Generous margin over the 5-minute callback default.
+ */
+const OAUTH_REGISTRATION_LOCK_TIMEOUT_MS = 6 * 60_000;
 
 export interface ServerAddDeps extends ServerCommandDeps {
   logger: Logger;
@@ -367,7 +377,25 @@ async function runOAuthAndWrite(
   deps: ServerAddDeps,
 ): Promise<number> {
   const configDir = path.dirname(target);
-  return withConfigLock(path.join(configDir, OAUTH_REGISTRATION_LOCK_DIR), async () => {
+  try {
+    // Hoisted function declaration, so it can be referenced before its body below.
+    return await withConfigLock(
+      path.join(configDir, OAUTH_REGISTRATION_LOCK_DIR),
+      runOAuthRegistration,
+      { timeoutMs: OAUTH_REGISTRATION_LOCK_TIMEOUT_MS },
+    );
+  } catch (err) {
+    if (err instanceof ConfigLockError) {
+      deps.stderr(
+        `Another OAuth registration is in progress; ${name} was not registered. ` +
+          `Try again once it finishes.\n`,
+      );
+      return 1;
+    }
+    throw err;
+  }
+
+  async function runOAuthRegistration(): Promise<number> {
     // Re-check duplicate / cross-store collision now that registration is
     // serialized, before any browser side effect: a registration that won the
     // lock has already written its server entry.
@@ -484,7 +512,7 @@ async function runOAuthAndWrite(
       deps.stdout(`✓ ${name} registered (OAuth).\n`);
       return 0;
     });
-  });
+  }
 }
 
 export async function runAddHttp(
