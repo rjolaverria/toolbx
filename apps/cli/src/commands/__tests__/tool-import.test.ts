@@ -160,7 +160,7 @@ describe('runToolImport', () => {
     const code = await runToolImport(sourcePath, {}, deps);
 
     expect(code).toBe(1);
-    expect(base.stderr.value).toContain('now collides with a configured server');
+    expect(base.stderr.value).toContain('collides with a configured upstream server name');
     await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
   });
 

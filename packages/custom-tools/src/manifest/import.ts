@@ -10,7 +10,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { atomicWriteFile, ServerNameSchema, withConfigLock } from '@toolbox/core';
+import { atomicWriteFile, loadConfig, ServerNameSchema, withConfigLock } from '@toolbox/core';
 import { z } from 'zod';
 
 import { parseToolMetadata, type ParseWarning } from './parse.js';
@@ -377,8 +377,22 @@ export async function planImport(
  * the shared config-dir lock (P3-07), so a concurrent `tlbx tool`/`tlbx server`
  * command serializes against this write rather than racing it; the tool-exists
  * guard is re-evaluated against the latest on-disk entries inside the lock.
+ *
+ * The cross-store namespace-collision invariant is also enforced here, not just
+ * in the CLI: under the lock, the namespace is re-checked against the *latest*
+ * server names, so a server added since `planImport`'s snapshot cannot slip a
+ * colliding name past the exported API. `latestServerNames` lets a caller point
+ * the re-check at a non-default config path; otherwise `<configDir>/config.json`
+ * is read.
  */
-export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
+export interface CommitImportOptions {
+  readonly latestServerNames?: () => Promise<readonly string[]>;
+}
+
+export async function commitImport(
+  plan: ImportPlan,
+  options: CommitImportOptions = {},
+): Promise<ImportedTool> {
   // The manifest lives at <configDir>/tools/manifest.json, so the config dir is
   // two levels up — the same dir the config commands lock on.
   const configDir = path.dirname(path.dirname(plan.manifestPath));
@@ -390,6 +404,17 @@ export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
         'tool-exists',
         plan.sourcePath,
         `a custom tool "${plan.manifest.namespace}/${plan.manifest.name}" already exists; pass force to overwrite it`,
+      );
+    }
+
+    const serverNames = options.latestServerNames
+      ? await options.latestServerNames()
+      : await readConfigServerNames(configDir);
+    if (serverNames.includes(plan.manifest.namespace)) {
+      throw new ToolImportError(
+        'namespace-collision',
+        plan.sourcePath,
+        `namespace "${plan.manifest.namespace}" collides with a configured upstream server name`,
       );
     }
 
@@ -420,6 +445,22 @@ export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
       warnings: plan.warnings,
     };
   });
+}
+
+/**
+ * Best-effort read of the upstream server names from `<configDir>/config.json`,
+ * used as the default `latestServerNames` source for the commit-time collision
+ * re-check. Returns `[]` when the config is absent or unreadable rather than
+ * blocking an import — the worst case is the same narrow window the snapshot
+ * check already covered.
+ */
+async function readConfigServerNames(configDir: string): Promise<readonly string[]> {
+  try {
+    const config = await loadConfig(path.join(configDir, 'config.json'));
+    return Object.keys(config.servers);
+  } catch {
+    return [];
+  }
 }
 
 export async function importTool(

@@ -124,6 +124,38 @@ describe('withConfigLock', () => {
     expect(result).toBe('inner');
   });
 
+  it('async work that escaped fn re-acquires instead of taking the stale re-entrant bypass', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const body = (): Promise<void> => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      return new Promise((r) =>
+        setTimeout(() => {
+          active -= 1;
+          r();
+        }, 30),
+      );
+    };
+
+    let leaked!: Promise<void>;
+    await withConfigLock(dir, () => {
+      // Scheduled inside fn (so it inherits the held-dir async context) but runs
+      // after this lock has released. With a live re-entrancy key it must NOT
+      // bypass acquisition.
+      leaked = (async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        await withConfigLock(dir, body, { timeoutMs: 5000, pollMs: 3 });
+      })();
+      return new Promise((r) => setTimeout(r, 1));
+    });
+
+    // A real competing holder taken after the outer lock released.
+    const competitor = withConfigLock(dir, body, { timeoutMs: 5000, pollMs: 3 });
+    await Promise.all([leaked, competitor]);
+    expect(maxActive).toBe(1);
+  });
+
   it('steals a lock whose owner pid is dead (same host)', async () => {
     // 2147483646 is well above any real pid on the test host, so kill(pid, 0)
     // reports ESRCH (no such process).

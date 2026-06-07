@@ -37,8 +37,15 @@ interface LockMeta {
   readonly nonce: string;
 }
 
-/** Resolved dirs whose lock is currently held in the active async context. */
-const heldDirs = new AsyncLocalStorage<Set<string>>();
+/** Per-dir hold record. `active` is cleared on release so async work that leaked
+ * out of `fn` (e.g. an unawaited timer) can no longer take the re-entrant bypass
+ * after the outer lock is gone. */
+interface HoldRecord {
+  active: boolean;
+}
+
+/** Held dirs (by canonical path) in the active async context, with live records. */
+const heldDirs = new AsyncLocalStorage<Map<string, HoldRecord>>();
 
 /**
  * Runs `fn` while holding an exclusive, config-dir-scoped advisory lock, so the
@@ -76,7 +83,8 @@ export async function withConfigLock<T>(
   // rather than locking distinct `.lock` dirs and interleaving.
   const resolved = await canonicalizeDir(dir);
   const current = heldDirs.getStore();
-  if (current?.has(resolved)) {
+  if (current?.get(resolved)?.active) {
+    // Genuine re-entrancy within the still-active outer lock scope.
     return fn();
   }
 
@@ -87,11 +95,15 @@ export async function withConfigLock<T>(
 
   const nonce = randomUUID();
   await acquire(lockDir, timeoutMs, staleMs, pollMs, nonce);
-  const nextHeld = new Set(current ?? []);
-  nextHeld.add(resolved);
+  const record: HoldRecord = { active: true };
+  const nextHeld = new Map(current ?? []);
+  nextHeld.set(resolved, record);
   try {
     return await heldDirs.run(nextHeld, fn);
   } finally {
+    // Invalidate the record before releasing so any async work that escaped `fn`
+    // and later calls withConfigLock for this dir re-acquires instead of bypassing.
+    record.active = false;
     await releaseLock(lockDir, nonce);
   }
 }

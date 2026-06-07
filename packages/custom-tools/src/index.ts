@@ -13,6 +13,7 @@ export {
   planImport,
   commitImport,
   ToolImportError,
+  type CommitImportOptions,
   type ImportToolOptions,
   type ImportedTool,
   type ImportPlan,
