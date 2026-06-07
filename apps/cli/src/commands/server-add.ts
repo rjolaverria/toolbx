@@ -31,6 +31,13 @@ import {
   type ServerCommandDeps,
 } from './server-shared.js';
 
+/**
+ * Lock-dir name (under the config dir) that serializes OAuth `add-http`
+ * registrations. Distinct from the config-dir lock so it only blocks concurrent
+ * OAuth flows, not unrelated commands.
+ */
+const OAUTH_REGISTRATION_LOCK_DIR = '.oauth-registration';
+
 export interface ServerAddDeps extends ServerCommandDeps {
   logger: Logger;
   /** Resolves the configured token-store backend. Tests inject an in-memory store. */
@@ -339,6 +346,15 @@ function orphanedTokenHint(name: string): string {
  * 'oauth' }` config entry. The config is written only after login succeeds, and
  * a config-write failure rolls the token store back to its pre-command state
  * (§4.6.2).
+ *
+ * OAuth registration is serialized through a dedicated lock (distinct from the
+ * config-dir lock, so only concurrent OAuth `add-http` runs are blocked, not
+ * other commands). A second OAuth registration for the same name waits, then its
+ * pre-login duplicate check sees the winner's server entry and bails before
+ * opening a browser — so it never runs a competing login that could write a token
+ * under the shared server-name key after the winner's config write. Because no
+ * concurrent OAuth flow can therefore touch this key, the post-login rollbacks
+ * safely revert only this command's own token.
  */
 async function runOAuthAndWrite(
   config: ToolBoxConfig,
@@ -350,69 +366,80 @@ async function runOAuthAndWrite(
   resourceMetadataUrl: URL | undefined,
   deps: ServerAddDeps,
 ): Promise<number> {
-  const tokenStore = deps.createTokenStore(config.auth.storage);
-  const health = await tokenStore.probe();
-  if (health.kind === 'unavailable') {
-    deps.stderr(`Token storage unavailable: ${health.reason}. Run \`tlbx doctor\` for details.\n`);
-    return 3;
-  }
+  const configDir = path.dirname(target);
+  return withConfigLock(path.join(configDir, OAUTH_REGISTRATION_LOCK_DIR), async () => {
+    // Re-check duplicate / cross-store collision now that registration is
+    // serialized, before any browser side effect: a registration that won the
+    // lock has already written its server entry.
+    const pre = await loadOrReportMissing(target, deps);
+    if (pre === null) {
+      return 1;
+    }
+    if (rejectDuplicate(pre, name, target, deps)) {
+      return 1;
+    }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return 1;
+    }
 
-  // Snapshot any pre-existing token BEFORE login so a config-write failure can
-  // restore the exact prior state. A token here means an orphan from a previous
-  // failed attempt — uncommon but real, and §4.6.2 atomicity requires the
-  // (config, token) pair to be unchanged on failure. `read` can still throw on a
-  // corrupt/incompatible record even after `probe()` reported ready, so surface a
-  // readable diagnostic instead of crashing — and do it before opening a browser.
-  let priorToken: StoredOAuthRecord | null;
-  try {
-    priorToken = await tokenStore.read(name);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    deps.stderr(
-      `Could not read stored credentials for ${name}: ${message}. ` +
-        `Run \`tlbx doctor\` or \`tlbx auth logout ${name}\`. ${name} was not registered.\n`,
-    );
-    return 1;
-  }
+    const tokenStore = deps.createTokenStore(config.auth.storage);
+    const health = await tokenStore.probe();
+    if (health.kind === 'unavailable') {
+      deps.stderr(
+        `Token storage unavailable: ${health.reason}. Run \`tlbx doctor\` for details.\n`,
+      );
+      return 3;
+    }
 
-  deps.stdout(`OAuth required for ${name}. Opening browser to authenticate…\n`);
+    // Snapshot any pre-existing token BEFORE login so a config-write failure can
+    // restore the exact prior state. A token here means an orphan from a previous
+    // failed attempt — uncommon but real, and §4.6.2 atomicity requires the
+    // (config, token) pair to be unchanged on failure. `read` can still throw on a
+    // corrupt/incompatible record even after `probe()` reported ready, so surface a
+    // readable diagnostic instead of crashing — and do it before opening a browser.
+    let priorToken: StoredOAuthRecord | null;
+    try {
+      priorToken = await tokenStore.read(name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.stderr(
+        `Could not read stored credentials for ${name}: ${message}. ` +
+          `Run \`tlbx doctor\` or \`tlbx auth logout ${name}\`. ${name} was not registered.\n`,
+      );
+      return 1;
+    }
 
-  const abortController = new AbortController();
-  const onSigint = (): void => abortController.abort();
-  process.on('SIGINT', onSigint);
-  let result: RunOAuthLoginResult;
-  try {
-    result = await deps.runOAuthLogin({
-      serverName: name,
-      serverUrl,
-      ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
-      tokenStore,
-      logger: deps.logger,
-      abortSignal: abortController.signal,
-    });
-  } finally {
-    process.removeListener('SIGINT', onSigint);
-  }
+    deps.stdout(`OAuth required for ${name}. Opening browser to authenticate…\n`);
 
-  if (result.kind === 'cancelled') {
-    deps.stderr(`Authentication cancelled. ${name} was not registered.\n`);
-    return 2;
-  }
-  if (result.kind === 'failed') {
-    deps.stderr(`Authentication failed: ${result.reason}. ${name} was not registered.\n`);
-    return 4;
-  }
+    const abortController = new AbortController();
+    const onSigint = (): void => abortController.abort();
+    process.on('SIGINT', onSigint);
+    let result: RunOAuthLoginResult;
+    try {
+      result = await deps.runOAuthLogin({
+        serverName: name,
+        serverUrl,
+        ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+        tokenStore,
+        logger: deps.logger,
+        abortSignal: abortController.signal,
+      });
+    } finally {
+      process.removeListener('SIGINT', onSigint);
+    }
 
-  // Login succeeded and the token is stored. The duplicate / cross-store
-  // collision re-checks and the config write run under the shared config-dir lock
-  // so a server or a custom tool registered for this name during the browser flow
-  // cannot interleave between the check and the write (P3-07). The config is
-  // re-read inside the lock so an unrelated concurrent change is preserved, not
-  // clobbered.
-  return withConfigLock(path.dirname(target), async () => {
-    // Roll back only THIS command's own token. Safe to use when no concurrent
-    // writer shares the token key: restore a prior token, or delete the one we
-    // just issued.
+    if (result.kind === 'cancelled') {
+      deps.stderr(`Authentication cancelled. ${name} was not registered.\n`);
+      return 2;
+    }
+    if (result.kind === 'failed') {
+      deps.stderr(`Authentication failed: ${result.reason}. ${name} was not registered.\n`);
+      return 4;
+    }
+
+    // Roll back only THIS command's own token. OAuth registration is serialized,
+    // so no concurrent OAuth flow can write this key — restoring a prior token or
+    // deleting the freshly-issued one is always safe.
     const rollbackThen = async (code: number): Promise<number> => {
       if (!(await restorePriorToken(tokenStore, name, priorToken))) {
         deps.stderr(orphanedTokenHint(name));
@@ -420,47 +447,43 @@ async function runOAuthAndWrite(
       return code;
     };
 
-    const latest = await loadOrReportMissing(target, deps);
-    if (latest === null) {
-      return rollbackThen(1);
-    }
-    // A server with this name may have been added during the browser flow. We
-    // cannot prove whether the token now under this key (the server name) is the
-    // one we wrote or a concurrent same-name OAuth winner's, so we leave the
-    // store completely untouched — restoring or deleting could pair the winner's
-    // config with the wrong credentials. Any leftover is surfaced by `tlbx doctor`.
-    if (rejectDuplicate(latest, name, target, deps)) {
-      deps.stderr(
-        `A token for "${name}" may have been left behind; ` +
-          `run \`tlbx doctor\` or \`tlbx auth logout ${name}\` if it is unused.\n`,
-      );
-      return 1;
-    }
-    if (await rejectToolNamespaceCollision(name, target, deps)) {
-      // A colliding custom tool writes no token, so deleting our own is safe.
-      return rollbackThen(1);
-    }
-
-    const entry = buildHttpEntry(options, headers, { type: 'oauth' });
-    const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
-    if (!validated.ok) {
-      // `validateNextConfig` already reported the validation error to stderr.
-      return rollbackThen(1);
-    }
-    try {
-      await deps.saveConfig(validated.next, target);
-    } catch (err) {
-      const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
-      const message = err instanceof Error ? err.message : String(err);
-      deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
-      if (!rolledBack) {
-        deps.stderr(orphanedTokenHint(name));
+    // The config write runs under the config-dir lock so a non-OAuth server or a
+    // custom tool registered for this name during the browser flow cannot
+    // interleave between the re-check and the write (P3-07); the config is re-read
+    // inside so an unrelated concurrent change is preserved, not clobbered.
+    return withConfigLock(configDir, async () => {
+      const latest = await loadOrReportMissing(target, deps);
+      if (latest === null) {
+        return rollbackThen(1);
       }
-      return 1;
-    }
+      if (rejectDuplicate(latest, name, target, deps)) {
+        return rollbackThen(1);
+      }
+      if (await rejectToolNamespaceCollision(name, target, deps)) {
+        return rollbackThen(1);
+      }
 
-    deps.stdout(`✓ ${name} registered (OAuth).\n`);
-    return 0;
+      const entry = buildHttpEntry(options, headers, { type: 'oauth' });
+      const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
+      if (!validated.ok) {
+        // `validateNextConfig` already reported the validation error to stderr.
+        return rollbackThen(1);
+      }
+      try {
+        await deps.saveConfig(validated.next, target);
+      } catch (err) {
+        const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
+        const message = err instanceof Error ? err.message : String(err);
+        deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
+        if (!rolledBack) {
+          deps.stderr(orphanedTokenHint(name));
+        }
+        return 1;
+      }
+
+      deps.stdout(`✓ ${name} registered (OAuth).\n`);
+      return 0;
+    });
   });
 }
 
