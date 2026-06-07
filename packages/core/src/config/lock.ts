@@ -145,12 +145,19 @@ async function acquire(
         }
       }
 
-      if ((await evaluateStale(lockDir, staleMs)).steal) {
-        await stealStale(lockDir, staleMs);
-        continue;
-      }
+      // Enforce the deadline on every path, including stealing: if a steal cannot
+      // make progress (e.g. the steal mutex stays held, or removal keeps
+      // failing), the loop must still give up at the deadline rather than spin
+      // forever.
       if (Date.now() >= deadline) {
         throw new ConfigLockError(lockDir, timeoutMs);
+      }
+
+      if ((await evaluateStale(lockDir, staleMs)).steal) {
+        await stealStale(lockDir, staleMs);
+        // Retry promptly; the deadline is re-checked at the top of the next
+        // iteration after the rename attempt.
+        continue;
       }
       await delay(pollMs + Math.floor(Math.random() * pollMs));
     }

@@ -126,6 +126,25 @@ describe('withConfigLock', () => {
     }
   });
 
+  it('times out instead of spinning when a stale lock cannot be stolen', async () => {
+    // A dead-pid lock is stale, but the steal mutex is held (fresh, not
+    // age-recoverable within the test), so stealing never makes progress. The
+    // acquire loop must still give up at the deadline rather than spin forever.
+    await plantLock({ pid: 2147483646, host: hostname(), ts: Date.now() });
+    await mkdir(path.join(dir, '.lock.steal'));
+    try {
+      await expect(
+        withConfigLock(dir, () => Promise.resolve('x'), {
+          timeoutMs: 80,
+          staleMs: 10_000,
+          pollMs: 10,
+        }),
+      ).rejects.toBeInstanceOf(ConfigLockError);
+    } finally {
+      await rm(path.join(dir, '.lock.steal'), { recursive: true, force: true });
+    }
+  });
+
   it('does not steal a live same-host holder even when older than the TTL', async () => {
     // A long-running critical section legitimately looks "old" (the meta has no
     // heartbeat). Liveness, not age, is authoritative for same-host locks, so a
