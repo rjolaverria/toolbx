@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
   ConfigLoadError,
@@ -6,6 +8,7 @@ import {
   loadConfig,
   saveConfig,
   ToolBoxConfigSchema,
+  withConfigLock,
 } from '@toolbox/core';
 
 import {
@@ -123,46 +126,50 @@ export async function runConfigSet(
     throw error;
   }
 
-  let current;
-  try {
-    current = await loadConfig(target);
-  } catch (error) {
-    if (error instanceof ConfigLoadError) {
-      const cause = error.cause as NodeJS.ErrnoException | undefined;
-      if (cause?.code === 'ENOENT') {
-        deps.stderr(`No ToolBox config found at ${target}. Run \`tlbx init\` first.\n`);
+  // The load-modify-validate-write runs under the shared config-dir lock so a
+  // concurrent command cannot read the same snapshot and clobber this set (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    let current;
+    try {
+      current = await loadConfig(target);
+    } catch (error) {
+      if (error instanceof ConfigLoadError) {
+        const cause = error.cause as NodeJS.ErrnoException | undefined;
+        if (cause?.code === 'ENOENT') {
+          deps.stderr(`No ToolBox config found at ${target}. Run \`tlbx init\` first.\n`);
+          return 1;
+        }
+        deps.stderr(`${error.message}\n`);
         return 1;
       }
-      deps.stderr(`${error.message}\n`);
+      if (error instanceof ConfigValidationError || error instanceof DuplicateKeyError) {
+        deps.stderr(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+
+    let candidate: Record<string, unknown>;
+    try {
+      candidate = setAtPath(current, segments, value);
+    } catch (error) {
+      if (error instanceof InvalidConfigPathError) {
+        deps.stderr(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+
+    const result = ToolBoxConfigSchema.safeParse(candidate);
+    if (!result.success) {
+      deps.stderr(`${new ConfigValidationError(result.error, target).message}\n`);
       return 1;
     }
-    if (error instanceof ConfigValidationError || error instanceof DuplicateKeyError) {
-      deps.stderr(`${error.message}\n`);
-      return 1;
-    }
-    throw error;
-  }
 
-  let candidate: Record<string, unknown>;
-  try {
-    candidate = setAtPath(current, segments, value);
-  } catch (error) {
-    if (error instanceof InvalidConfigPathError) {
-      deps.stderr(`${error.message}\n`);
-      return 1;
-    }
-    throw error;
-  }
-
-  const result = ToolBoxConfigSchema.safeParse(candidate);
-  if (!result.success) {
-    deps.stderr(`${new ConfigValidationError(result.error, target).message}\n`);
-    return 1;
-  }
-
-  await saveConfig(result.data, target);
-  deps.stdout(`Set ${segments.join('.')} = ${JSON.stringify(value)} in ${target}\n`);
-  return 0;
+    await saveConfig(result.data, target);
+    deps.stdout(`Set ${segments.join('.')} = ${JSON.stringify(value)} in ${target}\n`);
+    return 0;
+  });
 }
 
 export function configSetCommand(): CommandUnknownOpts {

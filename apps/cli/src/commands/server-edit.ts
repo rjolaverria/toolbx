@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
+import { saveConfig, withConfigLock, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -133,19 +133,31 @@ export async function runServerEdit(
       return 1;
     }
 
-    const candidate: ToolBoxConfig = {
-      ...config,
-      servers: { ...config.servers, [name]: parsed as ServerConfig },
-    };
-    const validated = validateNextConfig(candidate, target, deps);
-    if (!validated.ok) {
-      return 1;
-    }
+    // The editor session runs against the snapshot above, but the write re-reads
+    // the latest config under the shared lock so a concurrent change made while
+    // the editor was open is not clobbered (P3-07).
+    return withConfigLock(path.dirname(target), async () => {
+      const latest = await loadOrReportMissing(target, deps);
+      if (latest === null) {
+        return 1;
+      }
+      if (requireExistingServer(latest, name, target, deps) === null) {
+        return 1;
+      }
+      const candidate: ToolBoxConfig = {
+        ...latest,
+        servers: { ...latest.servers, [name]: parsed as ServerConfig },
+      };
+      const validated = validateNextConfig(candidate, target, deps);
+      if (!validated.ok) {
+        return 1;
+      }
 
-    await saveConfig(validated.next, target);
-    const updated = validated.next.servers[name];
-    deps.stdout(`${JSON.stringify(updated, null, 2)}\n`);
-    return 0;
+      await saveConfig(validated.next, target);
+      const updated = validated.next.servers[name];
+      deps.stdout(`${JSON.stringify(updated, null, 2)}\n`);
+      return 0;
+    });
   } finally {
     await fs.unlink(tempFile).catch(() => undefined);
   }

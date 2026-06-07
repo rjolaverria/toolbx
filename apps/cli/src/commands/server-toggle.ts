@@ -1,5 +1,7 @@
+import * as path from 'node:path';
+
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
+import { saveConfig, withConfigLock, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -21,32 +23,36 @@ async function applyEnabledChange(
   deps: ServerCommandDeps,
 ): Promise<number> {
   const target = resolveTargetPath(deps, options.config);
-  const config = await loadOrReportMissing(target, deps);
-  if (config === null) {
-    return 1;
-  }
-  const entry = requireExistingServer(config, name, target, deps);
-  if (entry === null) {
-    return 1;
-  }
+  // The read-modify-write runs under the shared config-dir lock so a concurrent
+  // command cannot read the same snapshot and clobber this change (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const config = await loadOrReportMissing(target, deps);
+    if (config === null) {
+      return 1;
+    }
+    const entry = requireExistingServer(config, name, target, deps);
+    if (entry === null) {
+      return 1;
+    }
 
-  if (entry.enabled === desired) {
-    deps.stdout(`Server "${name}" is already ${desired ? 'enabled' : 'disabled'}.\n`);
+    if (entry.enabled === desired) {
+      deps.stdout(`Server "${name}" is already ${desired ? 'enabled' : 'disabled'}.\n`);
+      return 0;
+    }
+
+    const updated: ServerConfig = { ...entry, enabled: desired };
+    const candidate: ToolBoxConfig = {
+      ...config,
+      servers: { ...config.servers, [name]: updated },
+    };
+    const validated = validateNextConfig(candidate, target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveConfig(validated.next, target);
+    deps.stdout(`Server "${name}" ${desired ? 'enabled' : 'disabled'}.\n`);
     return 0;
-  }
-
-  const updated: ServerConfig = { ...entry, enabled: desired };
-  const candidate: ToolBoxConfig = {
-    ...config,
-    servers: { ...config.servers, [name]: updated },
-  };
-  const validated = validateNextConfig(candidate, target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveConfig(validated.next, target);
-  deps.stdout(`Server "${name}" ${desired ? 'enabled' : 'disabled'}.\n`);
-  return 0;
+  });
 }
 
 export function runEnable(

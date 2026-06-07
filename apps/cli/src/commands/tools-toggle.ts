@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 
 import {
@@ -5,6 +7,7 @@ import {
   saveConfig,
   ToolCacheError,
   ToolCacheMissingError,
+  withConfigLock,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
@@ -32,61 +35,67 @@ async function applyToolToggle(
   deps: ToolsCommandDeps,
 ): Promise<number> {
   const target = resolveTargetPath(deps, options.config);
-  const config = await loadOrReportMissing(target, deps);
-  if (config === null) {
-    return 1;
-  }
-
-  let parsed;
-  try {
-    parsed = parseToolReference(reference, config.namespacing);
-  } catch (error) {
-    if (error instanceof ToolReferenceError) {
-      deps.stderr(`${error.message}\n`);
+  // The read-modify-write runs under the shared config-dir lock so a concurrent
+  // command cannot read the same snapshot and clobber this change (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const config = await loadOrReportMissing(target, deps);
+    if (config === null) {
       return 1;
     }
-    throw error;
-  }
 
-  if (config.servers[parsed.serverName] === undefined) {
-    deps.stderr(
-      `Unknown server "${parsed.serverName}" in ${target}; configure it before toggling tools.\n`,
-    );
-    return 1;
-  }
+    let parsed;
+    try {
+      parsed = parseToolReference(reference, config.namespacing);
+    } catch (error) {
+      if (error instanceof ToolReferenceError) {
+        deps.stderr(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
 
-  const cacheCheck = await verifyToolKnown(parsed.exposedName, target, deps);
-  if (cacheCheck === 'unknown') {
-    deps.stderr(`Unknown tool "${reference}". Run \`tlbx tools list\` to see what is available.\n`);
-    return 1;
-  }
-  // 'cache_missing' is non-fatal — we still let the user pre-set an override
-  // before the gateway has run. The override is keyed on the exposed name,
-  // so when the gateway eventually populates the cache it will pick up the
-  // stored preference automatically.
+    if (config.servers[parsed.serverName] === undefined) {
+      deps.stderr(
+        `Unknown server "${parsed.serverName}" in ${target}; configure it before toggling tools.\n`,
+      );
+      return 1;
+    }
 
-  const current = config.tools[parsed.exposedName];
-  if (current?.enabled === desired) {
-    deps.stdout(`Tool "${parsed.exposedName}" is already ${desired ? 'enabled' : 'disabled'}.\n`);
+    const cacheCheck = await verifyToolKnown(parsed.exposedName, target, deps);
+    if (cacheCheck === 'unknown') {
+      deps.stderr(
+        `Unknown tool "${reference}". Run \`tlbx tools list\` to see what is available.\n`,
+      );
+      return 1;
+    }
+    // 'cache_missing' is non-fatal — we still let the user pre-set an override
+    // before the gateway has run. The override is keyed on the exposed name,
+    // so when the gateway eventually populates the cache it will pick up the
+    // stored preference automatically.
+
+    const current = config.tools[parsed.exposedName];
+    if (current?.enabled === desired) {
+      deps.stdout(`Tool "${parsed.exposedName}" is already ${desired ? 'enabled' : 'disabled'}.\n`);
+      return 0;
+    }
+
+    const nextTools: ToolBoxConfig['tools'] = { ...config.tools };
+    if (desired) {
+      // Default state is "enabled"; clear the override rather than persist a
+      // tautology so the config stays minimal.
+      delete nextTools[parsed.exposedName];
+    } else {
+      nextTools[parsed.exposedName] = { enabled: false };
+    }
+    const candidate: ToolBoxConfig = { ...config, tools: nextTools };
+    const validated = validateNextConfig(candidate, target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveConfig(validated.next, target);
+    deps.stdout(`Tool "${parsed.exposedName}" ${desired ? 'enabled' : 'disabled'}.\n`);
     return 0;
-  }
-
-  const nextTools: ToolBoxConfig['tools'] = { ...config.tools };
-  if (desired) {
-    // Default state is "enabled"; clear the override rather than persist a
-    // tautology so the config stays minimal.
-    delete nextTools[parsed.exposedName];
-  } else {
-    nextTools[parsed.exposedName] = { enabled: false };
-  }
-  const candidate: ToolBoxConfig = { ...config, tools: nextTools };
-  const validated = validateNextConfig(candidate, target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveConfig(validated.next, target);
-  deps.stdout(`Tool "${parsed.exposedName}" ${desired ? 'enabled' : 'disabled'}.\n`);
-  return 0;
+  });
 }
 
 type CacheCheckResult = 'known' | 'unknown' | 'cache_missing';

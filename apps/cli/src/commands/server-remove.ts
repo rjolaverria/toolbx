@@ -1,7 +1,8 @@
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ToolBoxConfig } from '@toolbox/core';
+import { saveConfig, withConfigLock, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -68,16 +69,28 @@ export async function runServerRemove(
     }
   }
 
-  const nextServers: ToolBoxConfig['servers'] = { ...config.servers };
-  delete nextServers[name];
-  const candidate: ToolBoxConfig = { ...config, servers: nextServers };
-  const validated = validateNextConfig(candidate, target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveConfig(validated.next, target);
-  deps.stdout(`Removed server "${name}".\n`);
-  return 0;
+  // The confirmation prompt runs against the snapshot above, but the actual
+  // mutation re-reads the latest config under the shared lock so a concurrent
+  // change made during the prompt is not clobbered (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const latest = await loadOrReportMissing(target, deps);
+    if (latest === null) {
+      return 1;
+    }
+    if (requireExistingServer(latest, name, target, deps) === null) {
+      return 1;
+    }
+    const nextServers: ToolBoxConfig['servers'] = { ...latest.servers };
+    delete nextServers[name];
+    const candidate: ToolBoxConfig = { ...latest, servers: nextServers };
+    const validated = validateNextConfig(candidate, target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveConfig(validated.next, target);
+    deps.stdout(`Removed server "${name}".\n`);
+    return 0;
+  });
 }
 
 export function removeCommand(): CommandUnknownOpts {
