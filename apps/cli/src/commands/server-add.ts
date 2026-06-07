@@ -403,22 +403,27 @@ async function runOAuthAndWrite(
     return 4;
   }
 
-  // Login succeeded and the token is stored. The cross-store collision re-check
-  // and the config write run under the shared config-dir lock so a custom tool
-  // whose namespace equals this name, imported during the browser flow, cannot
-  // interleave between the check and the write (P3-07). The config is re-read
-  // inside the lock so an unrelated concurrent change is preserved, not
-  // clobbered; a failure of THIS command rolls its own token back.
-  //
-  // We deliberately do NOT re-check server-name duplication here. A token rollback
-  // on that path would delete the token of a concurrent same-name OAuth winner
-  // (its store key is the same server name), losing the winner's credentials. The
-  // server-vs-server same-name race is a pre-existing, out-of-scope edge whose
-  // semantics stay last-writer-wins; the rollbacks that remain only ever revert
-  // this command's own token (a colliding tool import writes no token).
+  // Login succeeded and the token is stored. The duplicate / cross-store
+  // collision re-checks and the config write run under the shared config-dir lock
+  // so a server or a custom tool registered for this name during the browser flow
+  // cannot interleave between the check and the write (P3-07). The config is
+  // re-read inside the lock so an unrelated concurrent change is preserved, not
+  // clobbered.
   return withConfigLock(path.dirname(target), async () => {
+    // Roll back only THIS command's own token. When a prior token existed,
+    // restore it. Deleting on the rejectDuplicate path needs care: a concurrent
+    // same-name OAuth winner shares this token key, so deleting a freshly-issued
+    // token (no prior one) would destroy the winner's credentials — so on that
+    // path we leave the store alone when there was no prior token (a benign
+    // orphan if the winner is non-OAuth, surfaced by `tlbx doctor`).
     const rollbackThen = async (code: number): Promise<number> => {
       if (!(await restorePriorToken(tokenStore, name, priorToken))) {
+        deps.stderr(orphanedTokenHint(name));
+      }
+      return code;
+    };
+    const rollbackWithoutDeletingShared = async (code: number): Promise<number> => {
+      if (priorToken !== null && !(await restorePriorToken(tokenStore, name, priorToken))) {
         deps.stderr(orphanedTokenHint(name));
       }
       return code;
@@ -428,7 +433,12 @@ async function runOAuthAndWrite(
     if (latest === null) {
       return rollbackThen(1);
     }
+    // A server with this name may have been added during the browser flow.
+    if (rejectDuplicate(latest, name, target, deps)) {
+      return rollbackWithoutDeletingShared(1);
+    }
     if (await rejectToolNamespaceCollision(name, target, deps)) {
+      // A colliding custom tool writes no token, so deleting our own is safe.
       return rollbackThen(1);
     }
 

@@ -138,6 +138,31 @@ describe('withConfigLock', () => {
     await rm(lockDir, { recursive: true, force: true });
   });
 
+  it('preserves mutual exclusion under high contention', async () => {
+    // Many waiters contend for an uncontended-at-start lock. The mkdir/rename
+    // mutex must let exactly one critical section run at a time — no overlap.
+    let active = 0;
+    let maxActive = 0;
+    let completed = 0;
+    const run = (): Promise<void> =>
+      withConfigLock(
+        dir,
+        async () => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await new Promise((r) => setTimeout(r, 3));
+          active -= 1;
+          completed += 1;
+        },
+        { timeoutMs: 5000, pollMs: 3 },
+      );
+
+    await Promise.all(Array.from({ length: 8 }, run));
+
+    expect(completed).toBe(8);
+    expect(maxActive).toBe(1);
+  });
+
   it('writes a meta record while held', async () => {
     let metaExists = false;
     await withConfigLock(dir, async () => {

@@ -17,14 +17,17 @@ windows. It deliberately does **not** hold that lock across the interactive
 browser OAuth flow (doing so would block every other `tlbx` command for the
 whole login, timing them out).
 
-That leaves one residual, pre-existing edge: two `add-http --auth oauth`
-commands for the **same** brand-new server name, run at the same time. Both pass
-the pre-login duplicate check, both open a browser, and both write a token to the
-same store key (the server name). The config write is then last-writer-wins, and
-the token store holds whichever login finished last — so the registered config
-and the stored credentials can disagree. P3-07 removed an over-eager token
-rollback that made this worse (it could delete the winner's token), restoring the
-prior last-writer-wins behaviour, but it did not make the path correct.
+That leaves one residual edge: two `add-http --auth oauth` commands for the
+**same** brand-new server name, run at the same time. Both pass the pre-login
+duplicate check and both open a browser before either writes config. P3-07 made
+this safe — under the config lock the loser now detects the duplicate after login
+and fails without deleting the winner's token (its token-store key is the same
+server name), at worst leaving a benign orphan token surfaced by `tlbx doctor`.
+What remains is an **optimization/UX gap**, not a correctness gap: the loser
+still completes a full browser login before discovering the name is taken, and a
+non-OAuth winner can leave the loser's orphan token behind. Serializing OAuth
+registration per server name before the browser flow would let the loser fail
+fast and avoid the orphan entirely.
 
 This is an auth-subsystem concern (not config/manifest persistence) and a
 degenerate race (two simultaneous interactive logins for one identical new

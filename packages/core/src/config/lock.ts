@@ -54,9 +54,12 @@ const heldDirs = new AsyncLocalStorage<Set<string>>();
  * a live holder is never stolen on age alone (the meta has no heartbeat, so a
  * long critical section just makes waiters time out rather than steal). Age
  * (`staleMs`) is the staleness signal only for a remote-host lock or one with
- * missing/unreadable metadata, whose liveness cannot be probed locally. Release
- * is ownership-checked via a per-acquire nonce, so a holder whose lock was
- * stolen never removes the new owner's lock.
+ * missing/unreadable metadata, whose liveness cannot be probed locally. A steal
+ * is an atomic claim-by-rename verified against the observed owner's nonce — not
+ * an in-place delete — so two racing waiters cannot each remove the other's
+ * freshly acquired lock. Release is likewise ownership-checked via the
+ * per-acquire nonce, so a holder whose lock was stolen never removes the new
+ * owner's lock.
  *
  * Re-entrant within one async context: a nested call for the same resolved dir
  * runs `fn` directly without re-acquiring, so a command that locks a critical
@@ -90,6 +93,14 @@ export async function withConfigLock<T>(
   }
 }
 
+/** Rename-onto-existing error codes that mean the lock dir is already held. */
+function isLockHeldError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  // POSIX rejects a rename onto a non-empty dir with ENOTEMPTY (some kernels
+  // EEXIST); Windows reports EEXIST/EPERM/EACCES for the same replace attempt.
+  return code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'EPERM' || code === 'EACCES';
+}
+
 async function acquire(
   lockDir: string,
   timeoutMs: number,
@@ -100,28 +111,91 @@ async function acquire(
   const deadline = Date.now() + timeoutMs;
   await fs.mkdir(path.dirname(lockDir), { recursive: true });
 
-  for (;;) {
-    try {
-      await fs.mkdir(lockDir);
-      await writeMeta(lockDir, nonce);
-      return;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        throw error;
+  // Publish the lock atomically: build a fully-formed dir (with its meta) under a
+  // unique name, then `rename` it onto `lockDir`. `rename` succeeds only when
+  // `lockDir` is absent, so the lock dir is never present without its metadata —
+  // there is no create-then-write window a stealer could exploit. A failed
+  // rename leaves the prepared dir in place to retry, so it is built once.
+  const staging = `${lockDir}.acquiring-${nonce}`;
+  await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined);
+  await fs.mkdir(staging);
+  await fs.writeFile(
+    path.join(staging, 'meta.json'),
+    JSON.stringify({
+      pid: process.pid,
+      host: hostname(),
+      ts: Date.now(),
+      nonce,
+    } satisfies LockMeta),
+    'utf8',
+  );
+
+  try {
+    for (;;) {
+      try {
+        await fs.rename(staging, lockDir);
+        return;
+      } catch (error) {
+        if (!isLockHeldError(error)) {
+          throw error;
+        }
       }
-    }
 
-    if (await isStale(lockDir, staleMs)) {
-      // Best-effort steal: remove and let the next mkdir race decide the winner.
-      await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
-      continue;
+      const evaluation = await evaluateStale(lockDir, staleMs);
+      if (evaluation.steal) {
+        await stealStale(lockDir, evaluation.nonce);
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new ConfigLockError(lockDir, timeoutMs);
+      }
+      await delay(pollMs + Math.floor(Math.random() * pollMs));
     }
-
-    if (Date.now() >= deadline) {
-      throw new ConfigLockError(lockDir, timeoutMs);
-    }
-    await delay(pollMs + Math.floor(Math.random() * pollMs));
+  } finally {
+    // On a successful rename the staging dir is gone (consumed); on timeout/error
+    // it lingers, so clean it up.
+    await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/**
+ * Atomically claims a lock judged stale, instead of deleting it in place. A bare
+ * `rm` is a TOCTOU: two waiters can both observe the same stale lock and the
+ * second can delete a fresh lock the first just acquired. Renaming to a unique
+ * name is atomic — only one waiter can move a given directory; the loser sees
+ * `ENOENT` and simply retries `mkdir`. After claiming, the moved dir's nonce is
+ * verified against the one observed when the staleness decision was made: if a
+ * fresh holder re-created the lock between the evaluation and the rename, the
+ * claimed dir carries a different nonce, so it is renamed back rather than
+ * deleted — never destroying a live holder's lock.
+ */
+async function stealStale(lockDir: string, expectedNonce: string | undefined): Promise<void> {
+  const claimed = `${lockDir}.stale-${randomUUID()}`;
+  try {
+    await fs.rename(lockDir, claimed);
+  } catch {
+    // Already stolen by another waiter, or the holder released — retry mkdir.
+    return;
+  }
+
+  // If the claimed dir now carries a nonce that differs from the one we judged
+  // stale (including the case where we judged a meta-less dir but claimed one a
+  // fresh holder has since stamped), we moved a fresh holder's lock — put it
+  // back rather than delete it.
+  const claimedMeta = await readMeta(claimed);
+  if (claimedMeta?.nonce !== undefined && claimedMeta.nonce !== expectedNonce) {
+    try {
+      await fs.rename(claimed, lockDir);
+      return;
+    } catch {
+      // A third party took the slot during the restore (a vanishingly narrow
+      // window). Drop our claimed copy and let normal contention resolve.
+      await fs.rm(claimed, { recursive: true, force: true }).catch(() => undefined);
+      return;
+    }
+  }
+
+  await fs.rm(claimed, { recursive: true, force: true }).catch(() => undefined);
 }
 
 /**
@@ -138,14 +212,13 @@ async function releaseLock(lockDir: string, nonce: string): Promise<void> {
   await fs.rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
 }
 
-async function writeMeta(lockDir: string, nonce: string): Promise<void> {
-  const meta: LockMeta = { pid: process.pid, host: hostname(), ts: Date.now(), nonce };
-  await fs
-    .writeFile(path.join(lockDir, 'meta.json'), JSON.stringify(meta), 'utf8')
-    .catch(() => undefined);
-}
+type StaleEvaluation = { steal: false } | { steal: true; nonce?: string };
 
-async function isStale(lockDir: string, staleMs: number): Promise<boolean> {
+/**
+ * Decides whether an existing lock is stale and, if so, the nonce of the owner
+ * we judged stale (so the steal can verify it claimed that same instance).
+ */
+async function evaluateStale(lockDir: string, staleMs: number): Promise<StaleEvaluation> {
   const meta = await readMeta(lockDir);
 
   if (meta && typeof meta.ts === 'number') {
@@ -154,20 +227,22 @@ async function isStale(lockDir: string, staleMs: number): Promise<boolean> {
     // legitimately looks "old"; waiters must time out instead. Steal only once
     // the recorded pid is gone.
     if (meta.host === hostname() && typeof meta.pid === 'number') {
-      return !isAlive(meta.pid);
+      return isAlive(meta.pid) ? { steal: false } : { steal: true, nonce: meta.nonce };
     }
     // Remote-host lock: its process table cannot be probed locally, so fall back
     // to age as the only available staleness signal.
-    return Date.now() - meta.ts > staleMs;
+    return Date.now() - meta.ts > staleMs ? { steal: true, nonce: meta.nonce } : { steal: false };
   }
 
-  // No usable meta: use the lock dir's own age as the staleness signal.
+  // No usable meta: use the lock dir's own age as the staleness signal. A held
+  // lock always writes meta (acquire aborts otherwise), so a meta-less dir is a
+  // genuinely abandoned/corrupt lock, not a live holder mid-write.
   try {
     const info = await fs.stat(lockDir);
-    return Date.now() - info.mtimeMs > staleMs;
+    return Date.now() - info.mtimeMs > staleMs ? { steal: true } : { steal: false };
   } catch {
     // The lock dir vanished — treat as stale so the caller retries the mkdir.
-    return true;
+    return { steal: true };
   }
 }
 

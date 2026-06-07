@@ -378,6 +378,50 @@ describe('runAddHttp — explicit --auth', () => {
     expect(h.stdout.value).toContain('registered (OAuth)');
   });
 
+  it('does not delete a concurrent same-name OAuth winner token when the duplicate is detected', async () => {
+    const target = await makeTempConfig();
+    const h = makeHarness(target);
+    // Simulate a competing same-name OAuth registration completing during this
+    // command's browser flow: it writes the server entry and stores the winner's
+    // token under the same key (the server name).
+    h.deps.runOAuthLogin = vi.fn(
+      async (input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> => {
+        const current = await loadConfig(target);
+        await saveConfig(
+          {
+            ...current,
+            servers: {
+              ...current.servers,
+              acme: {
+                type: 'http',
+                enabled: true,
+                url: 'https://winner.test/mcp',
+                auth: { type: 'oauth' },
+              },
+            },
+          },
+          target,
+        );
+        await input.tokenStore.write('acme', sampleRecord);
+        return { kind: 'success' };
+      },
+    );
+
+    const code = await runAddHttp(
+      'acme',
+      httpOpts('https://acme.test/mcp', { auth: 'oauth' }),
+      h.deps,
+    );
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('already exists');
+    // The winner's token survives — it was not deleted by the loser's rollback.
+    expect(await h.store.read('acme')).toEqual(sampleRecord);
+    // The winner's config entry is intact, not overwritten by the loser.
+    const config = await loadConfig(target);
+    expect(config.servers.acme).toMatchObject({ url: 'https://winner.test/mcp' });
+  });
+
   it('accumulates --header KEY=VALUE entries on the explicit bearer path', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);
