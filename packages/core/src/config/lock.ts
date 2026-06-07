@@ -270,18 +270,24 @@ async function acquireStealMutex(stealMutex: string, staleMs: number): Promise<b
 }
 
 /**
- * Removes the lock directory only if we still own it (the on-disk nonce matches
- * the one written at acquire), so a holder whose lock was stolen as stale does
- * not delete the new owner's lock. A missing/unreadable meta is treated as ours
- * to remove — best-effort cleanup of a lock nobody else has re-stamped.
+ * Removes our lock on release, but only if it is still ours: the nonce check
+ * skips removal when the on-disk lock no longer carries our token, and the
+ * removal itself is an atomic rename-aside ({@link discardLockDir}).
+ *
+ * This read-then-rename needs no removal mutex in the supported single-host
+ * model. Same-host staleness is decided by pid liveness, not age (see
+ * {@link evaluateStale}), and the releasing process is by definition alive, so no
+ * stealer ever judges our lock stale and removes it — the lock under our path
+ * cannot change between the `readMeta` and the rename. The only ways it could are
+ * a cross-host age-based steal (multi-host is an explicit non-goal) or externally
+ * corrupted metadata; the nonce check still refuses to remove a lock bearing a
+ * different token.
  */
 async function releaseLock(lockDir: string, nonce: string): Promise<void> {
   const meta = await readMeta(lockDir);
   if (meta !== undefined && typeof meta.nonce === 'string' && meta.nonce !== nonce) {
     return;
   }
-  // Atomic rename-aside (not an in-place recursive rm) so release never exposes
-  // an empty lockDir an acquirer could rename into mid-removal.
   await discardLockDir(lockDir);
 }
 
