@@ -134,14 +134,25 @@ export async function runServerEdit(
     }
 
     // The editor session runs against the snapshot above, but the write re-reads
-    // the latest config under the shared lock so a concurrent change made while
-    // the editor was open is not clobbered (P3-07).
+    // the latest config under the shared lock so a concurrent change to a
+    // *different* server is preserved, not clobbered (P3-07). Edits to *this*
+    // server can't be auto-merged with an arbitrary editor result, so if the
+    // entry itself changed on disk while the editor was open, refuse rather than
+    // overwrite the concurrent change.
     return withConfigLock(path.dirname(target), async () => {
       const latest = await loadOrReportMissing(target, deps);
       if (latest === null) {
         return 1;
       }
-      if (requireExistingServer(latest, name, target, deps) === null) {
+      const latestEntry = requireExistingServer(latest, name, target, deps);
+      if (latestEntry === null) {
+        return 1;
+      }
+      if (JSON.stringify(latestEntry) !== JSON.stringify(entry)) {
+        deps.stderr(
+          `Server "${name}" changed on disk while the editor was open; your edits were ` +
+            `not saved to avoid clobbering that change. Re-run \`tlbx server edit ${name}\`.\n`,
+        );
         return 1;
       }
       const candidate: ToolBoxConfig = {

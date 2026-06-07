@@ -403,12 +403,19 @@ async function runOAuthAndWrite(
     return 4;
   }
 
-  // Login succeeded and the token is stored. The collision re-check and the
-  // config write run under the shared config-dir lock so a custom tool with this
-  // namespace (or a colliding server) imported/added during the browser flow
-  // cannot interleave between the check and the write (P3-07). The config is
-  // re-read inside the lock so a concurrent change is merged, not clobbered; any
-  // failure rolls the token back so the command leaves no partial state.
+  // Login succeeded and the token is stored. The cross-store collision re-check
+  // and the config write run under the shared config-dir lock so a custom tool
+  // whose namespace equals this name, imported during the browser flow, cannot
+  // interleave between the check and the write (P3-07). The config is re-read
+  // inside the lock so an unrelated concurrent change is preserved, not
+  // clobbered; a failure of THIS command rolls its own token back.
+  //
+  // We deliberately do NOT re-check server-name duplication here. A token rollback
+  // on that path would delete the token of a concurrent same-name OAuth winner
+  // (its store key is the same server name), losing the winner's credentials. The
+  // server-vs-server same-name race is a pre-existing, out-of-scope edge whose
+  // semantics stay last-writer-wins; the rollbacks that remain only ever revert
+  // this command's own token (a colliding tool import writes no token).
   return withConfigLock(path.dirname(target), async () => {
     const rollbackThen = async (code: number): Promise<number> => {
       if (!(await restorePriorToken(tokenStore, name, priorToken))) {
@@ -419,9 +426,6 @@ async function runOAuthAndWrite(
 
     const latest = await loadOrReportMissing(target, deps);
     if (latest === null) {
-      return rollbackThen(1);
-    }
-    if (rejectDuplicate(latest, name, target, deps)) {
       return rollbackThen(1);
     }
     if (await rejectToolNamespaceCollision(name, target, deps)) {

@@ -128,3 +128,4 @@ criteria.)
 - [x] **P3-05** — [Expose custom tools through the MCP gateway and `tlbx run`](tasks/P3-05-expose-custom-tools.md) — closed by PR #81 (branch `p3-05-expose-custom-tools`)
 - [x] **P3-06** — [OS-level sandbox for custom tools](tasks/P3-06-os-level-sandbox.md) — closed by PR #82 (branch `p3-06-os-level-sandbox`)
 - [ ] **P3-07** — [Concurrency-safe config and manifest persistence](tasks/P3-07-concurrent-safe-persistence.md) — project-wide lost-update protection for `config.json` and the tool manifest; surfaced during P3-04
+- [ ] **P3-08** — [Per-server-name serialization of OAuth registration](tasks/P3-08-oauth-registration-serialization.md) — serialize concurrent same-name `add-http --auth oauth` so the winner's token/config can't be clobbered; surfaced during P3-07 review
