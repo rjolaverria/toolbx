@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import { withConfigLock } from '@toolbox/core';
 import {
   commitImport,
   planImport,
@@ -104,42 +105,46 @@ export async function runToolImport(
     }
   }
 
-  // Re-check the namespace against the latest servers immediately before the
-  // write: a server with this name may have been added during the prompt. This
-  // narrows the window on the import side of the collision invariant; the
-  // server-add side re-checks the manifest symmetrically before its own write.
-  // (Fully closing it needs cross-store serialization — see task P3-07.)
-  const latest = await loadOrReportMissing(target, deps);
-  if (latest === null) {
-    return 1;
-  }
-  if (Object.prototype.hasOwnProperty.call(latest.servers, plan.manifest.namespace)) {
-    deps.stderr(
-      `Namespace "${plan.manifest.namespace}" now collides with a configured server added ` +
-        `since the preview. "${plan.manifest.exposedName}" was not imported.\n`,
-    );
-    return 1;
-  }
-
-  // commitImport re-reads the manifest, so it can fail late (a tool imported
-  // concurrently during the prompt, or a manifest that became corrupt). Surface
-  // those as a normal command error rather than letting them reach the
-  // top-level handler.
-  let result: Awaited<ReturnType<typeof commitImport>>;
-  try {
-    result = await commitImport(plan);
-  } catch (error) {
-    if (error instanceof ToolImportError) {
-      deps.stderr(`${error.message}\n`);
+  // The server-collision re-check and the manifest write run under the shared
+  // config-dir lock so a server with this name added concurrently (and the
+  // symmetric server-add side) cannot interleave between the check and the write
+  // — fully closing the cross-store collision window (P3-07). `commitImport`
+  // re-acquires the same dir's lock re-entrantly, so its own manifest
+  // read-modify-write stays inside this held lock. The interactive prompt above
+  // stays outside the lock.
+  return withConfigLock(configDir, async () => {
+    const latest = await loadOrReportMissing(target, deps);
+    if (latest === null) {
       return 1;
     }
-    throw error;
-  }
-  deps.stdout(
-    `Imported "${result.manifest.exposedName}" (disabled). ` +
-      `Enable it with \`tlbx tool enable ${result.manifest.exposedName}\`.\n`,
-  );
-  return 0;
+    if (Object.prototype.hasOwnProperty.call(latest.servers, plan.manifest.namespace)) {
+      deps.stderr(
+        `Namespace "${plan.manifest.namespace}" now collides with a configured server added ` +
+          `since the preview. "${plan.manifest.exposedName}" was not imported.\n`,
+      );
+      return 1;
+    }
+
+    // commitImport re-reads the manifest, so it can fail late (a tool imported
+    // concurrently during the prompt, or a manifest that became corrupt). Surface
+    // those as a normal command error rather than letting them reach the
+    // top-level handler.
+    let result: Awaited<ReturnType<typeof commitImport>>;
+    try {
+      result = await commitImport(plan);
+    } catch (error) {
+      if (error instanceof ToolImportError) {
+        deps.stderr(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+    deps.stdout(
+      `Imported "${result.manifest.exposedName}" (disabled). ` +
+        `Enable it with \`tlbx tool enable ${result.manifest.exposedName}\`.\n`,
+    );
+    return 0;
+  });
 }
 
 export function toolImportCommand(): CommandUnknownOpts {

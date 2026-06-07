@@ -9,6 +9,7 @@ import {
   runOAuthLogin,
   saveConfig,
   ServerNameSchema,
+  withConfigLock,
   type AuthHint,
   type HttpServerConfig,
   type Logger,
@@ -199,33 +200,38 @@ export async function runAddStdio(
     env = parsed.map;
   }
 
-  const config = await loadOrReportMissing(target, deps);
-  if (config === null) {
-    return 1;
-  }
-  if (rejectDuplicate(config, name, target, deps)) {
-    return 1;
-  }
-  if (await rejectToolNamespaceCollision(name, target, deps)) {
-    return 1;
-  }
+  // The duplicate/collision re-check and the write run under the shared
+  // config-dir lock so a concurrent `tlbx server`/`tlbx tool` command cannot
+  // slip a colliding name in between the check and the write (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const config = await loadOrReportMissing(target, deps);
+    if (config === null) {
+      return 1;
+    }
+    if (rejectDuplicate(config, name, target, deps)) {
+      return 1;
+    }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return 1;
+    }
 
-  const entry: StdioServerConfig = {
-    type: 'stdio',
-    enabled: options.disabled !== true,
-    command,
-    args,
-    ...(env !== undefined ? { env } : {}),
-    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-    ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
-  };
+    const entry: StdioServerConfig = {
+      type: 'stdio',
+      enabled: options.disabled !== true,
+      command,
+      args,
+      ...(env !== undefined ? { env } : {}),
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+    };
 
-  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveAndPrint(validated.next, name, target, deps);
-  return 0;
+    const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveAndPrint(validated.next, name, target, deps);
+    return 0;
+  });
 }
 
 function buildHttpEntry(
@@ -249,7 +255,6 @@ function buildHttpEntry(
  * preserving the pre-OAuth behavior exactly.
  */
 async function writeStaticHttpEntry(
-  config: ToolBoxConfig,
   name: string,
   target: string,
   options: AddHttpOptions,
@@ -257,13 +262,28 @@ async function writeStaticHttpEntry(
   auth: HttpServerConfig['auth'] | undefined,
   deps: ServerCommandDeps,
 ): Promise<number> {
-  const entry = buildHttpEntry(options, headers, auth);
-  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveAndPrint(validated.next, name, target, deps);
-  return 0;
+  // Re-load and re-check under the shared config-dir lock so the duplicate /
+  // namespace-collision guards and the write cannot be interleaved by a
+  // concurrent `tlbx server`/`tlbx tool` command (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const config = await loadOrReportMissing(target, deps);
+    if (config === null) {
+      return 1;
+    }
+    if (rejectDuplicate(config, name, target, deps)) {
+      return 1;
+    }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return 1;
+    }
+    const entry = buildHttpEntry(options, headers, auth);
+    const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveAndPrint(validated.next, name, target, deps);
+    return 0;
+  });
 }
 
 /** Parse an http(s) URL, reporting a clear error (and returning null) on failure. */
@@ -383,41 +403,52 @@ async function runOAuthAndWrite(
     return 4;
   }
 
-  // Login succeeded and the token is stored. A custom tool with this namespace
-  // could have been imported during the browser flow; re-check before writing,
-  // rolling the token back on collision so the command leaves no partial state.
-  if (await rejectToolNamespaceCollision(name, target, deps)) {
-    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
-      deps.stderr(orphanedTokenHint(name));
-    }
-    return 1;
-  }
+  // Login succeeded and the token is stored. The collision re-check and the
+  // config write run under the shared config-dir lock so a custom tool with this
+  // namespace (or a colliding server) imported/added during the browser flow
+  // cannot interleave between the check and the write (P3-07). The config is
+  // re-read inside the lock so a concurrent change is merged, not clobbered; any
+  // failure rolls the token back so the command leaves no partial state.
+  return withConfigLock(path.dirname(target), async () => {
+    const rollbackThen = async (code: number): Promise<number> => {
+      if (!(await restorePriorToken(tokenStore, name, priorToken))) {
+        deps.stderr(orphanedTokenHint(name));
+      }
+      return code;
+    };
 
-  // Write the config entry; any failure here must roll the token back so the
-  // command leaves no partial state.
-  const entry = buildHttpEntry(options, headers, { type: 'oauth' });
-  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-  if (!validated.ok) {
-    // `validateNextConfig` already reported the validation error to stderr.
-    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
-      deps.stderr(orphanedTokenHint(name));
+    const latest = await loadOrReportMissing(target, deps);
+    if (latest === null) {
+      return rollbackThen(1);
     }
-    return 1;
-  }
-  try {
-    await deps.saveConfig(validated.next, target);
-  } catch (err) {
-    const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
-    const message = err instanceof Error ? err.message : String(err);
-    deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
-    if (!rolledBack) {
-      deps.stderr(orphanedTokenHint(name));
+    if (rejectDuplicate(latest, name, target, deps)) {
+      return rollbackThen(1);
     }
-    return 1;
-  }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return rollbackThen(1);
+    }
 
-  deps.stdout(`✓ ${name} registered (OAuth).\n`);
-  return 0;
+    const entry = buildHttpEntry(options, headers, { type: 'oauth' });
+    const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
+    if (!validated.ok) {
+      // `validateNextConfig` already reported the validation error to stderr.
+      return rollbackThen(1);
+    }
+    try {
+      await deps.saveConfig(validated.next, target);
+    } catch (err) {
+      const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
+      const message = err instanceof Error ? err.message : String(err);
+      deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
+      if (!rolledBack) {
+        deps.stderr(orphanedTokenHint(name));
+      }
+      return 1;
+    }
+
+    deps.stdout(`✓ ${name} registered (OAuth).\n`);
+    return 0;
+  });
 }
 
 export async function runAddHttp(
@@ -473,11 +504,10 @@ export async function runAddHttp(
 
   // Explicit `--auth` short-circuits the discovery probe (§4.6.2).
   if (options.auth === 'none') {
-    return writeStaticHttpEntry(config, name, target, options, headers, undefined, deps);
+    return writeStaticHttpEntry(name, target, options, headers, undefined, deps);
   }
   if (options.auth === 'bearer') {
     return writeStaticHttpEntry(
-      config,
       name,
       target,
       options,
@@ -501,19 +531,30 @@ export async function runAddHttp(
   const hint = await deps.probeAuth(serverUrl);
   switch (hint.kind) {
     case 'none': {
-      // A custom tool with this namespace could have been imported during the
-      // probe; re-check before writing.
-      if (await rejectToolNamespaceCollision(name, target, deps)) {
-        return 1;
-      }
-      const entry = buildHttpEntry(options, headers, { type: 'none' });
-      const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-      if (!validated.ok) {
-        return 1;
-      }
-      await deps.saveConfig(validated.next, target);
-      deps.stdout(`✓ ${name} registered (no auth required).\n`);
-      return 0;
+      // A custom tool with this namespace (or a colliding server) could have
+      // been added during the probe; re-read and re-check under the shared lock
+      // so the check and the write cannot be interleaved by a concurrent
+      // command (P3-07).
+      return withConfigLock(path.dirname(target), async () => {
+        const latest = await loadOrReportMissing(target, deps);
+        if (latest === null) {
+          return 1;
+        }
+        if (rejectDuplicate(latest, name, target, deps)) {
+          return 1;
+        }
+        if (await rejectToolNamespaceCollision(name, target, deps)) {
+          return 1;
+        }
+        const entry = buildHttpEntry(options, headers, { type: 'none' });
+        const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
+        if (!validated.ok) {
+          return 1;
+        }
+        await deps.saveConfig(validated.next, target);
+        deps.stdout(`✓ ${name} registered (no auth required).\n`);
+        return 0;
+      });
     }
     case 'oauth':
       return runOAuthAndWrite(
