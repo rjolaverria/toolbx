@@ -12,9 +12,9 @@ import * as path from 'node:path';
  * propagates, after the temp file is cleaned up.
  *
  * This guarantees write atomicity only; it does NOT serialize a read-modify-write
- * cycle, so two processes that read the same manifest and both write can still
- * lose an update. Cross-process serialization is a config-layer-wide concern
- * tracked separately (see task P3-07).
+ * cycle, so two processes that read the same file and both write can still lose
+ * an update. Cross-process serialization of the read-modify-write cycle is
+ * provided separately by {@link withConfigLock}.
  */
 export async function atomicWriteFile(target: string, payload: string): Promise<void> {
   const dir = path.dirname(target);

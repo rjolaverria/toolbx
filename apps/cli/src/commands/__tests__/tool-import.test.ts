@@ -160,7 +160,24 @@ describe('runToolImport', () => {
     const code = await runToolImport(sourcePath, {}, deps);
 
     expect(code).toBe(1);
-    expect(base.stderr.value).toContain('now collides with a configured server');
+    expect(base.stderr.value).toContain('collides with a configured upstream server name');
+    await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
+  });
+
+  it('aborts without writing the manifest when the config is removed during the prompt', async () => {
+    // If the config can no longer be loaded at commit time, the namespace
+    // collision check can't run, so the import must abort rather than write.
+    const sourcePath = await writeSource();
+    const base = makeHarness(harness.target);
+    const confirm = vi.fn().mockImplementation(async () => {
+      await fs.rm(harness.target);
+      return true;
+    });
+    const deps: ToolImportDeps = { ...base.deps, isTty: () => true, confirm };
+
+    const code = await runToolImport(sourcePath, {}, deps);
+
+    expect(code).toBe(1);
     await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
   });
 

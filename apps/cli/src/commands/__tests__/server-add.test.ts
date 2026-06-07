@@ -378,6 +378,53 @@ describe('runAddHttp — explicit --auth', () => {
     expect(h.stdout.value).toContain('registered (OAuth)');
   });
 
+  it('serializes concurrent same-name OAuth registrations so only one logs in and the token matches the winner', async () => {
+    // Two OAuth add-http for the same name race, sharing one config + token store.
+    // The registration lock must admit exactly one: it logs in and registers; the
+    // other bails at its pre-login duplicate check WITHOUT a browser flow, so it
+    // never writes a competing token that could clobber the winner's credentials.
+    const target = await makeTempConfig();
+    const store = new InMemoryTokenStore();
+    const h1 = makeHarness(target, store);
+    const h2 = makeHarness(target, store);
+    const recordA: StoredOAuthRecord = {
+      ...sampleRecord,
+      tokens: { access_token: 'A', token_type: 'Bearer', refresh_token: 'ra' },
+    };
+    const recordB: StoredOAuthRecord = {
+      ...sampleRecord,
+      tokens: { access_token: 'B', token_type: 'Bearer', refresh_token: 'rb' },
+    };
+    const makeLogin = (record: StoredOAuthRecord) =>
+      vi.fn(async (input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> => {
+        await new Promise((r) => setTimeout(r, 10));
+        await input.tokenStore.write(input.serverName, record);
+        return { kind: 'success' };
+      });
+    h1.deps.runOAuthLogin = makeLogin(recordA);
+    h2.deps.runOAuthLogin = makeLogin(recordB);
+
+    const [c1, c2] = await Promise.all([
+      runAddHttp('acme', httpOpts('https://acme.test/mcp', { auth: 'oauth' }), h1.deps),
+      runAddHttp('acme', httpOpts('https://acme.test/mcp', { auth: 'oauth' }), h2.deps),
+    ]);
+
+    // Exactly one registration succeeds; the other reports the duplicate.
+    expect([c1, c2].filter((c) => c === 0)).toHaveLength(1);
+    // Only the winner ran a browser login; the loser bailed before it.
+    const loginCalls =
+      vi.mocked(h1.deps.runOAuthLogin).mock.calls.length +
+      vi.mocked(h2.deps.runOAuthLogin).mock.calls.length;
+    expect(loginCalls).toBe(1);
+    // The stored token corresponds to the winner that actually logged in — never
+    // a loser's token clobbering it.
+    const winnerRecord =
+      vi.mocked(h1.deps.runOAuthLogin).mock.calls.length === 1 ? recordA : recordB;
+    expect(await store.read('acme')).toEqual(winnerRecord);
+    const config = await loadConfig(target);
+    expect(config.servers.acme).toMatchObject({ auth: { type: 'oauth' } });
+  });
+
   it('accumulates --header KEY=VALUE entries on the explicit bearer path', async () => {
     const target = await makeTempConfig();
     const h = makeHarness(target);

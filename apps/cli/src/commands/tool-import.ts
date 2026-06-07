@@ -22,6 +22,16 @@ export interface ToolImportOptions {
   yes?: true;
 }
 
+/**
+ * Internal sentinel thrown from the `latestServerNames` provider when the config
+ * can no longer be loaded during commit. `loadOrReportMissing` has already
+ * printed the reason, so the catch maps this to a clean exit 1 without a second
+ * message — and crucially, `commitImport` aborts before writing the manifest.
+ */
+class ConfigUnavailableDuringImport extends Error {
+  override readonly name = 'ConfigUnavailableDuringImport';
+}
+
 export type ToolImportDeps = ToolCommandDeps & ConfirmDeps;
 
 export function defaultToolImportDeps(): ToolImportDeps {
@@ -104,31 +114,31 @@ export async function runToolImport(
     }
   }
 
-  // Re-check the namespace against the latest servers immediately before the
-  // write: a server with this name may have been added during the prompt. This
-  // narrows the window on the import side of the collision invariant; the
-  // server-add side re-checks the manifest symmetrically before its own write.
-  // (Fully closing it needs cross-store serialization — see task P3-07.)
-  const latest = await loadOrReportMissing(target, deps);
-  if (latest === null) {
-    return 1;
-  }
-  if (Object.prototype.hasOwnProperty.call(latest.servers, plan.manifest.namespace)) {
-    deps.stderr(
-      `Namespace "${plan.manifest.namespace}" now collides with a configured server added ` +
-        `since the preview. "${plan.manifest.exposedName}" was not imported.\n`,
-    );
-    return 1;
-  }
-
-  // commitImport re-reads the manifest, so it can fail late (a tool imported
-  // concurrently during the prompt, or a manifest that became corrupt). Surface
-  // those as a normal command error rather than letting them reach the
-  // top-level handler.
+  // commitImport serializes the manifest write under the shared config-dir lock
+  // and, under that lock, re-checks the namespace against the latest server names
+  // — supplied here pointed at this command's config path — so a server added
+  // since the preview cannot slip a collision past the write. This fully closes
+  // the cross-store collision window (P3-07). The interactive prompt above stays
+  // outside the lock. commitImport can also fail late (a tool imported
+  // concurrently, or a corrupt manifest); surface those as a normal command error.
   let result: Awaited<ReturnType<typeof commitImport>>;
   try {
-    result = await commitImport(plan);
+    result = await commitImport(plan, {
+      latestServerNames: async () => {
+        const latest = await loadOrReportMissing(target, deps);
+        if (latest === null) {
+          // The config vanished or became invalid during the prompt. We can't
+          // verify the namespace doesn't collide with a server, so abort rather
+          // than write. loadOrReportMissing already printed the reason.
+          throw new ConfigUnavailableDuringImport();
+        }
+        return Object.keys(latest.servers);
+      },
+    });
   } catch (error) {
+    if (error instanceof ConfigUnavailableDuringImport) {
+      return 1;
+    }
     if (error instanceof ToolImportError) {
       deps.stderr(`${error.message}\n`);
       return 1;

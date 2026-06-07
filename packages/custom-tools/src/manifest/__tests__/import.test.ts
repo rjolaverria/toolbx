@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { DEFAULT_CONFIG, saveConfig } from '@toolbox/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -11,6 +12,7 @@ import {
   ToolImportError,
   type ToolManifest,
 } from '../import.js';
+import { readToolManifest } from '../store.js';
 
 /** The SPECS §6.2 example tool source (pure: no imports, JSON Schema input). */
 const SPEC_EXAMPLE = `/**
@@ -211,6 +213,39 @@ describe('importTool', () => {
       await expect(
         importTool(sourcePath, { configDir, serverNames: ['github', 'personal'] }),
       ).rejects.toMatchObject({ name: 'ToolImportError', code: 'namespace-collision' });
+    });
+
+    it('rejects a namespace colliding with the on-disk config even without a serverNames snapshot', async () => {
+      // The exported API enforces the cross-store invariant itself: no serverNames
+      // are passed (so planImport's snapshot can't catch it), yet commitImport
+      // re-reads <configDir>/config.json under the lock and rejects the collision.
+      await saveConfig(
+        {
+          ...DEFAULT_CONFIG,
+          servers: { personal: { type: 'stdio', enabled: true, command: 'echo', args: [] } },
+        },
+        path.join(configDir, 'config.json'),
+      );
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'namespace-collision',
+      });
+      await expect(readToolManifest(configDir)).resolves.toEqual([]);
+    });
+
+    it('blocks the import when the on-disk config is present but unreadable/invalid', async () => {
+      // A missing config means "no servers" and is fine, but an invalid one means
+      // the collision check cannot run — the import must be blocked, not skipped.
+      await fs.writeFile(path.join(configDir, 'config.json'), '{ not valid json', 'utf8');
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'config-unreadable',
+      });
+      await expect(readToolManifest(configDir)).resolves.toEqual([]);
     });
 
     it('rejects the reserved "toolbox" namespace', async () => {

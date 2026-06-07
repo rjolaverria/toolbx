@@ -87,4 +87,28 @@ describe('runEnable / runDisable', () => {
     expect(h.stderr.value).toContain('Unknown server');
     expect(after).toEqual(before);
   });
+
+  it('does not lose an update when two servers are toggled concurrently', async () => {
+    // Without the shared config-dir lock these two read-modify-write cycles race
+    // and one disable clobbers the other; withConfigLock makes both survive.
+    const cfg = await makeTempConfig(
+      configWith({
+        a: { type: 'stdio', enabled: true, command: 'true', args: [] },
+        b: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target);
+
+    const [codeA, codeB] = await Promise.all([
+      runDisable('a', {}, h.deps),
+      runDisable('b', {}, h.deps),
+    ]);
+
+    expect(codeA).toBe(0);
+    expect(codeB).toBe(0);
+    const after = await loadConfig(cfg.target);
+    expect(after.servers['a']?.enabled).toBe(false);
+    expect(after.servers['b']?.enabled).toBe(false);
+  });
 });

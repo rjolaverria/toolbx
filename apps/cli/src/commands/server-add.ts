@@ -3,12 +3,14 @@ import * as path from 'node:path';
 import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import { readToolManifest, ToolManifestError } from '@toolbox/custom-tools';
 import {
+  ConfigLockError,
   createNoopLogger,
   createTokenStore,
   probeUpstreamAuth,
   runOAuthLogin,
   saveConfig,
   ServerNameSchema,
+  withConfigLock,
   type AuthHint,
   type HttpServerConfig,
   type Logger,
@@ -29,6 +31,22 @@ import {
   validateNextConfig,
   type ServerCommandDeps,
 } from './server-shared.js';
+
+/**
+ * Lock-dir name (under the config dir) that serializes OAuth `add-http`
+ * registrations. Distinct from the config-dir lock so it only blocks concurrent
+ * OAuth flows, not unrelated commands.
+ */
+const OAUTH_REGISTRATION_LOCK_DIR = '.oauth-registration';
+
+/**
+ * Acquire timeout for the OAuth registration lock. It is held across the whole
+ * browser login, which can take up to the callback server's 5-minute default, so
+ * a concurrent registration must be willing to wait at least that long before
+ * giving up (otherwise it would fail spuriously instead of reaching its
+ * post-wait duplicate check). Generous margin over the 5-minute callback default.
+ */
+const OAUTH_REGISTRATION_LOCK_TIMEOUT_MS = 6 * 60_000;
 
 export interface ServerAddDeps extends ServerCommandDeps {
   logger: Logger;
@@ -199,33 +217,38 @@ export async function runAddStdio(
     env = parsed.map;
   }
 
-  const config = await loadOrReportMissing(target, deps);
-  if (config === null) {
-    return 1;
-  }
-  if (rejectDuplicate(config, name, target, deps)) {
-    return 1;
-  }
-  if (await rejectToolNamespaceCollision(name, target, deps)) {
-    return 1;
-  }
+  // The duplicate/collision re-check and the write run under the shared
+  // config-dir lock so a concurrent `tlbx server`/`tlbx tool` command cannot
+  // slip a colliding name in between the check and the write (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const config = await loadOrReportMissing(target, deps);
+    if (config === null) {
+      return 1;
+    }
+    if (rejectDuplicate(config, name, target, deps)) {
+      return 1;
+    }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return 1;
+    }
 
-  const entry: StdioServerConfig = {
-    type: 'stdio',
-    enabled: options.disabled !== true,
-    command,
-    args,
-    ...(env !== undefined ? { env } : {}),
-    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-    ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
-  };
+    const entry: StdioServerConfig = {
+      type: 'stdio',
+      enabled: options.disabled !== true,
+      command,
+      args,
+      ...(env !== undefined ? { env } : {}),
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+    };
 
-  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveAndPrint(validated.next, name, target, deps);
-  return 0;
+    const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveAndPrint(validated.next, name, target, deps);
+    return 0;
+  });
 }
 
 function buildHttpEntry(
@@ -249,7 +272,6 @@ function buildHttpEntry(
  * preserving the pre-OAuth behavior exactly.
  */
 async function writeStaticHttpEntry(
-  config: ToolBoxConfig,
   name: string,
   target: string,
   options: AddHttpOptions,
@@ -257,13 +279,28 @@ async function writeStaticHttpEntry(
   auth: HttpServerConfig['auth'] | undefined,
   deps: ServerCommandDeps,
 ): Promise<number> {
-  const entry = buildHttpEntry(options, headers, auth);
-  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveAndPrint(validated.next, name, target, deps);
-  return 0;
+  // Re-load and re-check under the shared config-dir lock so the duplicate /
+  // namespace-collision guards and the write cannot be interleaved by a
+  // concurrent `tlbx server`/`tlbx tool` command (P3-07).
+  return withConfigLock(path.dirname(target), async () => {
+    const config = await loadOrReportMissing(target, deps);
+    if (config === null) {
+      return 1;
+    }
+    if (rejectDuplicate(config, name, target, deps)) {
+      return 1;
+    }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return 1;
+    }
+    const entry = buildHttpEntry(options, headers, auth);
+    const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveAndPrint(validated.next, name, target, deps);
+    return 0;
+  });
 }
 
 /** Parse an http(s) URL, reporting a clear error (and returning null) on failure. */
@@ -319,6 +356,15 @@ function orphanedTokenHint(name: string): string {
  * 'oauth' }` config entry. The config is written only after login succeeds, and
  * a config-write failure rolls the token store back to its pre-command state
  * (§4.6.2).
+ *
+ * OAuth registration is serialized through a dedicated lock (distinct from the
+ * config-dir lock, so only concurrent OAuth `add-http` runs are blocked, not
+ * other commands). A second OAuth registration for the same name waits, then its
+ * pre-login duplicate check sees the winner's server entry and bails before
+ * opening a browser — so it never runs a competing login that could write a token
+ * under the shared server-name key after the winner's config write. Because no
+ * concurrent OAuth flow can therefore touch this key, the post-login rollbacks
+ * safely revert only this command's own token.
  */
 async function runOAuthAndWrite(
   config: ToolBoxConfig,
@@ -330,94 +376,156 @@ async function runOAuthAndWrite(
   resourceMetadataUrl: URL | undefined,
   deps: ServerAddDeps,
 ): Promise<number> {
-  const tokenStore = deps.createTokenStore(config.auth.storage);
-  const health = await tokenStore.probe();
-  if (health.kind === 'unavailable') {
-    deps.stderr(`Token storage unavailable: ${health.reason}. Run \`tlbx doctor\` for details.\n`);
-    return 3;
-  }
-
-  // Snapshot any pre-existing token BEFORE login so a config-write failure can
-  // restore the exact prior state. A token here means an orphan from a previous
-  // failed attempt — uncommon but real, and §4.6.2 atomicity requires the
-  // (config, token) pair to be unchanged on failure. `read` can still throw on a
-  // corrupt/incompatible record even after `probe()` reported ready, so surface a
-  // readable diagnostic instead of crashing — and do it before opening a browser.
-  let priorToken: StoredOAuthRecord | null;
+  const configDir = path.dirname(target);
   try {
-    priorToken = await tokenStore.read(name);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    deps.stderr(
-      `Could not read stored credentials for ${name}: ${message}. ` +
-        `Run \`tlbx doctor\` or \`tlbx auth logout ${name}\`. ${name} was not registered.\n`,
+    // Hoisted function declaration, so it can be referenced before its body below.
+    return await withConfigLock(
+      path.join(configDir, OAUTH_REGISTRATION_LOCK_DIR),
+      runOAuthRegistration,
+      { timeoutMs: OAUTH_REGISTRATION_LOCK_TIMEOUT_MS },
     );
-    return 1;
-  }
-
-  deps.stdout(`OAuth required for ${name}. Opening browser to authenticate…\n`);
-
-  const abortController = new AbortController();
-  const onSigint = (): void => abortController.abort();
-  process.on('SIGINT', onSigint);
-  let result: RunOAuthLoginResult;
-  try {
-    result = await deps.runOAuthLogin({
-      serverName: name,
-      serverUrl,
-      ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
-      tokenStore,
-      logger: deps.logger,
-      abortSignal: abortController.signal,
-    });
-  } finally {
-    process.removeListener('SIGINT', onSigint);
-  }
-
-  if (result.kind === 'cancelled') {
-    deps.stderr(`Authentication cancelled. ${name} was not registered.\n`);
-    return 2;
-  }
-  if (result.kind === 'failed') {
-    deps.stderr(`Authentication failed: ${result.reason}. ${name} was not registered.\n`);
-    return 4;
-  }
-
-  // Login succeeded and the token is stored. A custom tool with this namespace
-  // could have been imported during the browser flow; re-check before writing,
-  // rolling the token back on collision so the command leaves no partial state.
-  if (await rejectToolNamespaceCollision(name, target, deps)) {
-    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
-      deps.stderr(orphanedTokenHint(name));
-    }
-    return 1;
-  }
-
-  // Write the config entry; any failure here must roll the token back so the
-  // command leaves no partial state.
-  const entry = buildHttpEntry(options, headers, { type: 'oauth' });
-  const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-  if (!validated.ok) {
-    // `validateNextConfig` already reported the validation error to stderr.
-    if (!(await restorePriorToken(tokenStore, name, priorToken))) {
-      deps.stderr(orphanedTokenHint(name));
-    }
-    return 1;
-  }
-  try {
-    await deps.saveConfig(validated.next, target);
   } catch (err) {
-    const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
-    const message = err instanceof Error ? err.message : String(err);
-    deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
-    if (!rolledBack) {
-      deps.stderr(orphanedTokenHint(name));
+    if (err instanceof ConfigLockError) {
+      deps.stderr(
+        `Another OAuth registration is in progress; ${name} was not registered. ` +
+          `Try again once it finishes.\n`,
+      );
+      return 1;
     }
-    return 1;
+    throw err;
   }
 
-  deps.stdout(`✓ ${name} registered (OAuth).\n`);
-  return 0;
+  async function runOAuthRegistration(): Promise<number> {
+    // Re-check duplicate / cross-store collision now that registration is
+    // serialized, before any browser side effect: a registration that won the
+    // lock has already written its server entry.
+    const pre = await loadOrReportMissing(target, deps);
+    if (pre === null) {
+      return 1;
+    }
+    if (rejectDuplicate(pre, name, target, deps)) {
+      return 1;
+    }
+    if (await rejectToolNamespaceCollision(name, target, deps)) {
+      return 1;
+    }
+
+    const tokenStore = deps.createTokenStore(config.auth.storage);
+    const health = await tokenStore.probe();
+    if (health.kind === 'unavailable') {
+      deps.stderr(
+        `Token storage unavailable: ${health.reason}. Run \`tlbx doctor\` for details.\n`,
+      );
+      return 3;
+    }
+
+    // Snapshot any pre-existing token BEFORE login so a config-write failure can
+    // restore the exact prior state. A token here means an orphan from a previous
+    // failed attempt — uncommon but real, and §4.6.2 atomicity requires the
+    // (config, token) pair to be unchanged on failure. `read` can still throw on a
+    // corrupt/incompatible record even after `probe()` reported ready, so surface a
+    // readable diagnostic instead of crashing — and do it before opening a browser.
+    let priorToken: StoredOAuthRecord | null;
+    try {
+      priorToken = await tokenStore.read(name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.stderr(
+        `Could not read stored credentials for ${name}: ${message}. ` +
+          `Run \`tlbx doctor\` or \`tlbx auth logout ${name}\`. ${name} was not registered.\n`,
+      );
+      return 1;
+    }
+
+    deps.stdout(`OAuth required for ${name}. Opening browser to authenticate…\n`);
+
+    const abortController = new AbortController();
+    const onSigint = (): void => abortController.abort();
+    process.on('SIGINT', onSigint);
+    let result: RunOAuthLoginResult;
+    try {
+      result = await deps.runOAuthLogin({
+        serverName: name,
+        serverUrl,
+        ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+        tokenStore,
+        logger: deps.logger,
+        abortSignal: abortController.signal,
+      });
+    } finally {
+      process.removeListener('SIGINT', onSigint);
+    }
+
+    if (result.kind === 'cancelled') {
+      deps.stderr(`Authentication cancelled. ${name} was not registered.\n`);
+      return 2;
+    }
+    if (result.kind === 'failed') {
+      deps.stderr(`Authentication failed: ${result.reason}. ${name} was not registered.\n`);
+      return 4;
+    }
+
+    // Roll back only THIS command's own token. OAuth registration is serialized,
+    // so no concurrent OAuth flow can write this key — restoring a prior token or
+    // deleting the freshly-issued one is always safe.
+    const rollbackThen = async (code: number): Promise<number> => {
+      if (!(await restorePriorToken(tokenStore, name, priorToken))) {
+        deps.stderr(orphanedTokenHint(name));
+      }
+      return code;
+    };
+
+    // The config write runs under the config-dir lock so a non-OAuth server or a
+    // custom tool registered for this name during the browser flow cannot
+    // interleave between the re-check and the write (P3-07); the config is re-read
+    // inside so an unrelated concurrent change is preserved, not clobbered.
+    //
+    // Acquiring that lock can itself time out (another command holding it past
+    // the timeout). That happens *after* login wrote the token, so it must roll
+    // the token back like any other post-login failure — otherwise the command
+    // returns an error while leaving an orphaned credential.
+    try {
+      return await withConfigLock(configDir, async () => {
+        const latest = await loadOrReportMissing(target, deps);
+        if (latest === null) {
+          return rollbackThen(1);
+        }
+        if (rejectDuplicate(latest, name, target, deps)) {
+          return rollbackThen(1);
+        }
+        if (await rejectToolNamespaceCollision(name, target, deps)) {
+          return rollbackThen(1);
+        }
+
+        const entry = buildHttpEntry(options, headers, { type: 'oauth' });
+        const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
+        if (!validated.ok) {
+          // `validateNextConfig` already reported the validation error to stderr.
+          return rollbackThen(1);
+        }
+        try {
+          await deps.saveConfig(validated.next, target);
+        } catch (err) {
+          const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
+          const message = err instanceof Error ? err.message : String(err);
+          deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
+          if (!rolledBack) {
+            deps.stderr(orphanedTokenHint(name));
+          }
+          return 1;
+        }
+
+        deps.stdout(`✓ ${name} registered (OAuth).\n`);
+        return 0;
+      });
+    } catch (err) {
+      if (err instanceof ConfigLockError) {
+        deps.stderr(`Could not acquire the config lock to register ${name}: ${err.message}\n`);
+        return rollbackThen(1);
+      }
+      throw err;
+    }
+  }
 }
 
 export async function runAddHttp(
@@ -473,11 +581,10 @@ export async function runAddHttp(
 
   // Explicit `--auth` short-circuits the discovery probe (§4.6.2).
   if (options.auth === 'none') {
-    return writeStaticHttpEntry(config, name, target, options, headers, undefined, deps);
+    return writeStaticHttpEntry(name, target, options, headers, undefined, deps);
   }
   if (options.auth === 'bearer') {
     return writeStaticHttpEntry(
-      config,
       name,
       target,
       options,
@@ -501,19 +608,30 @@ export async function runAddHttp(
   const hint = await deps.probeAuth(serverUrl);
   switch (hint.kind) {
     case 'none': {
-      // A custom tool with this namespace could have been imported during the
-      // probe; re-check before writing.
-      if (await rejectToolNamespaceCollision(name, target, deps)) {
-        return 1;
-      }
-      const entry = buildHttpEntry(options, headers, { type: 'none' });
-      const validated = validateNextConfig(buildCandidate(config, name, entry), target, deps);
-      if (!validated.ok) {
-        return 1;
-      }
-      await deps.saveConfig(validated.next, target);
-      deps.stdout(`✓ ${name} registered (no auth required).\n`);
-      return 0;
+      // A custom tool with this namespace (or a colliding server) could have
+      // been added during the probe; re-read and re-check under the shared lock
+      // so the check and the write cannot be interleaved by a concurrent
+      // command (P3-07).
+      return withConfigLock(path.dirname(target), async () => {
+        const latest = await loadOrReportMissing(target, deps);
+        if (latest === null) {
+          return 1;
+        }
+        if (rejectDuplicate(latest, name, target, deps)) {
+          return 1;
+        }
+        if (await rejectToolNamespaceCollision(name, target, deps)) {
+          return 1;
+        }
+        const entry = buildHttpEntry(options, headers, { type: 'none' });
+        const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
+        if (!validated.ok) {
+          return 1;
+        }
+        await deps.saveConfig(validated.next, target);
+        deps.stdout(`✓ ${name} registered (no auth required).\n`);
+        return 0;
+      });
     }
     case 'oauth':
       return runOAuthAndWrite(

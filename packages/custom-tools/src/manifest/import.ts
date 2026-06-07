@@ -10,10 +10,15 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { ServerNameSchema } from '@toolbox/core';
+import {
+  atomicWriteFile,
+  ConfigLoadError,
+  loadConfig,
+  ServerNameSchema,
+  withConfigLock,
+} from '@toolbox/core';
 import { z } from 'zod';
 
-import { atomicWriteFile } from './atomic-write.js';
 import { parseToolMetadata, type ParseWarning } from './parse.js';
 
 /** Tool source files ToolBox can import, keyed to their stored runtime. */
@@ -118,7 +123,8 @@ export type ToolImportErrorCode =
   | 'imports-not-allowed'
   | 'namespace-collision'
   | 'tool-exists'
-  | 'invalid-manifest';
+  | 'invalid-manifest'
+  | 'config-unreadable';
 
 /** Raised when a tool file cannot be imported. Names the source path. */
 export class ToolImportError extends Error {
@@ -374,48 +380,109 @@ export async function planImport(
  *
  * The manifest is re-read here, not taken from the plan: `planImport` may have
  * run before an interactive preview/prompt, during which another `tlbx tool`
- * command could have changed the manifest. Re-reading and re-checking the
- * tool-exists guard against the latest entries means a concurrent change is
- * merged with, not clobbered by, this write. The residual window is just the
- * read-then-write, the same as a single-call import.
+ * command could have changed the manifest. The re-read-check-write runs under
+ * the shared config-dir lock (P3-07), so a concurrent `tlbx tool`/`tlbx server`
+ * command serializes against this write rather than racing it; the tool-exists
+ * guard is re-evaluated against the latest on-disk entries inside the lock.
+ *
+ * The cross-store namespace-collision invariant is also enforced here, not just
+ * in the CLI: under the lock, the namespace is re-checked against the *latest*
+ * server names, so a server added since `planImport`'s snapshot cannot slip a
+ * colliding name past the exported API. `latestServerNames` lets a caller point
+ * the re-check at a non-default config path; otherwise `<configDir>/config.json`
+ * is read.
  */
-export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
-  const manifest = await readManifest(plan.manifestPath, plan.sourcePath);
-  const existingIndex = findExistingIndex(manifest, plan.manifest.namespace, plan.manifest.name);
-  if (existingIndex !== -1 && !plan.force) {
+export interface CommitImportOptions {
+  readonly latestServerNames?: () => Promise<readonly string[]>;
+}
+
+export async function commitImport(
+  plan: ImportPlan,
+  options: CommitImportOptions = {},
+): Promise<ImportedTool> {
+  // The manifest lives at <configDir>/tools/manifest.json, so the config dir is
+  // two levels up — the same dir the config commands lock on.
+  const configDir = path.dirname(path.dirname(plan.manifestPath));
+  return withConfigLock(configDir, async () => {
+    const manifest = await readManifest(plan.manifestPath, plan.sourcePath);
+    const existingIndex = findExistingIndex(manifest, plan.manifest.namespace, plan.manifest.name);
+    if (existingIndex !== -1 && !plan.force) {
+      throw new ToolImportError(
+        'tool-exists',
+        plan.sourcePath,
+        `a custom tool "${plan.manifest.namespace}/${plan.manifest.name}" already exists; pass force to overwrite it`,
+      );
+    }
+
+    const serverNames = options.latestServerNames
+      ? await options.latestServerNames()
+      : await readConfigServerNames(configDir, plan.sourcePath);
+    if (serverNames.includes(plan.manifest.namespace)) {
+      throw new ToolImportError(
+        'namespace-collision',
+        plan.sourcePath,
+        `namespace "${plan.manifest.namespace}" collides with a configured upstream server name`,
+      );
+    }
+
+    await fs.mkdir(path.dirname(plan.entryPath), { recursive: true });
+    await fs.writeFile(plan.entryPath, plan.source, 'utf8');
+
+    // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
+    // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
+    // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
+    const toolsPackageJsonPath = path.join(path.dirname(plan.manifestPath), 'package.json');
+    await fs.writeFile(
+      toolsPackageJsonPath,
+      `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
+      'utf8',
+    );
+
+    const nextManifest =
+      existingIndex === -1
+        ? [...manifest, plan.manifest]
+        : manifest.map((entry, index) => (index === existingIndex ? plan.manifest : entry));
+
+    await atomicWriteFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
+
+    return {
+      manifest: plan.manifest,
+      entryPath: plan.entryPath,
+      manifestPath: plan.manifestPath,
+      warnings: plan.warnings,
+    };
+  });
+}
+
+/**
+ * Reads the upstream server names from `<configDir>/config.json`, the default
+ * `latestServerNames` source for the commit-time collision re-check. A *missing*
+ * config means no servers (`[]`) — a fresh install legitimately has none. Any
+ * other failure (unreadable or schema-invalid config) is fatal: we cannot verify
+ * the namespace does not collide, so block the import rather than silently skip
+ * the check.
+ */
+async function readConfigServerNames(
+  configDir: string,
+  sourcePath: string,
+): Promise<readonly string[]> {
+  try {
+    const config = await loadConfig(path.join(configDir, 'config.json'));
+    return Object.keys(config.servers);
+  } catch (error) {
+    if (
+      error instanceof ConfigLoadError &&
+      (error.cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+    ) {
+      return [];
+    }
     throw new ToolImportError(
-      'tool-exists',
-      plan.sourcePath,
-      `a custom tool "${plan.manifest.namespace}/${plan.manifest.name}" already exists; pass force to overwrite it`,
+      'config-unreadable',
+      sourcePath,
+      `the ToolBox config could not be read to verify "${path.basename(sourcePath)}"'s namespace ` +
+        `does not collide with a configured server`,
     );
   }
-
-  await fs.mkdir(path.dirname(plan.entryPath), { recursive: true });
-  await fs.writeFile(plan.entryPath, plan.source, 'utf8');
-
-  // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
-  // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
-  // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
-  const toolsPackageJsonPath = path.join(path.dirname(plan.manifestPath), 'package.json');
-  await fs.writeFile(
-    toolsPackageJsonPath,
-    `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
-    'utf8',
-  );
-
-  const nextManifest =
-    existingIndex === -1
-      ? [...manifest, plan.manifest]
-      : manifest.map((entry, index) => (index === existingIndex ? plan.manifest : entry));
-
-  await atomicWriteFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
-
-  return {
-    manifest: plan.manifest,
-    entryPath: plan.entryPath,
-    manifestPath: plan.manifestPath,
-    warnings: plan.warnings,
-  };
 }
 
 export async function importTool(

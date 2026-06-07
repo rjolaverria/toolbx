@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig, saveConfig, type ToolBoxConfig } from '@toolbox/core';
 
 import { runServerEdit, splitEditorCommand, type EditDeps } from '../server-edit.js';
 
@@ -160,6 +160,48 @@ describe('runServerEdit', () => {
     expect(entry?.enabled).toBe(false);
     if (entry?.type === 'stdio') {
       expect(entry.args).toEqual(['--flag']);
+    }
+  });
+
+  it('refuses to save when the same server changed on disk while editing', async () => {
+    const cfg = await makeTempConfig(
+      configWith({
+        github: { type: 'stdio', enabled: true, command: 'true', args: [] },
+      }),
+    );
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      edit: async (file) => {
+        // A valid edit to the temp file...
+        await fs.writeFile(
+          file,
+          JSON.stringify({
+            type: 'stdio',
+            enabled: true,
+            command: 'true',
+            args: ['--from-editor'],
+          }),
+        );
+        // ...but a concurrent command disables the same server meanwhile.
+        await saveConfig(
+          configWith({
+            github: { type: 'stdio', enabled: false, command: 'true', args: [] },
+          }),
+          cfg.target,
+        );
+      },
+    });
+
+    const code = await runServerEdit('github', {}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('changed on disk while the editor was open');
+    // The concurrent change survives; the editor's stale-based edit is discarded.
+    const reloaded = await loadConfig(cfg.target);
+    const entry = reloaded.servers['github'];
+    expect(entry?.enabled).toBe(false);
+    if (entry?.type === 'stdio') {
+      expect(entry.args).toEqual([]);
     }
   });
 

@@ -93,6 +93,39 @@ describe('runConfigEdit', () => {
     expect(reloaded.progressiveDisclosure.enabled).toBe(false);
   });
 
+  it('refuses to save when the config changed on disk while the editor was open', async () => {
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const h = makeHarness(cfg.target, {
+      edit: async (file) => {
+        // Write a valid edit to the editor's temp file...
+        const edited = {
+          ...DEFAULT_CONFIG,
+          progressiveDisclosure: { ...DEFAULT_CONFIG.progressiveDisclosure, enabled: false },
+        };
+        await fs.writeFile(file, `${JSON.stringify(edited, null, 2)}\n`);
+        // ...but simulate a concurrent command changing the on-disk config
+        // while the editor session is open.
+        const concurrent = {
+          ...DEFAULT_CONFIG,
+          servers: {
+            other: { type: 'stdio' as const, enabled: true, command: 'true', args: [] },
+          },
+        };
+        await saveConfig(concurrent, cfg.target);
+      },
+    });
+
+    const code = await runConfigEdit({}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('changed on disk while the editor was open');
+    // The concurrent change is preserved, not clobbered by the editor snapshot.
+    const reloaded = await loadConfig(cfg.target);
+    expect(reloaded.servers['other']?.enabled).toBe(true);
+    expect(reloaded.progressiveDisclosure.enabled).toBe(true);
+  });
+
   it('refuses to save invalid JSON and leaves config untouched', async () => {
     const cfg = await makeTempConfig();
     harnesses.push(cfg);

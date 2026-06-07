@@ -1,7 +1,8 @@
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, type ToolBoxConfig } from '@toolbox/core';
+import { saveConfig, withConfigLock, type ToolBoxConfig } from '@toolbox/core';
 
 import {
   defaultServerCommandDeps,
@@ -68,16 +69,39 @@ export async function runServerRemove(
     }
   }
 
-  const nextServers: ToolBoxConfig['servers'] = { ...config.servers };
-  delete nextServers[name];
-  const candidate: ToolBoxConfig = { ...config, servers: nextServers };
-  const validated = validateNextConfig(candidate, target, deps);
-  if (!validated.ok) {
-    return 1;
-  }
-  await saveConfig(validated.next, target);
-  deps.stdout(`Removed server "${name}".\n`);
-  return 0;
+  // The confirmation prompt runs against the snapshot above, but the actual
+  // mutation re-reads the latest config under the shared lock so a concurrent
+  // change to a *different* server is not clobbered (P3-07). The user confirmed
+  // removal of the entry they saw; if *this* server's entry changed while the
+  // prompt was open (e.g. edited, or removed and re-added as something else),
+  // refuse rather than remove a server they did not confirm.
+  return withConfigLock(path.dirname(target), async () => {
+    const latest = await loadOrReportMissing(target, deps);
+    if (latest === null) {
+      return 1;
+    }
+    const latestEntry = requireExistingServer(latest, name, target, deps);
+    if (latestEntry === null) {
+      return 1;
+    }
+    if (JSON.stringify(latestEntry) !== JSON.stringify(entry)) {
+      deps.stderr(
+        `Server "${name}" changed on disk since you were prompted; it was not removed. ` +
+          `Re-run \`tlbx server remove ${name}\`.\n`,
+      );
+      return 1;
+    }
+    const nextServers: ToolBoxConfig['servers'] = { ...latest.servers };
+    delete nextServers[name];
+    const candidate: ToolBoxConfig = { ...latest, servers: nextServers };
+    const validated = validateNextConfig(candidate, target, deps);
+    if (!validated.ok) {
+      return 1;
+    }
+    await saveConfig(validated.next, target);
+    deps.stdout(`Removed server "${name}".\n`);
+    return 0;
+  });
 }
 
 export function removeCommand(): CommandUnknownOpts {
