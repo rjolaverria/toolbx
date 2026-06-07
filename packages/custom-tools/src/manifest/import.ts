@@ -10,7 +10,13 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { atomicWriteFile, loadConfig, ServerNameSchema, withConfigLock } from '@toolbox/core';
+import {
+  atomicWriteFile,
+  ConfigLoadError,
+  loadConfig,
+  ServerNameSchema,
+  withConfigLock,
+} from '@toolbox/core';
 import { z } from 'zod';
 
 import { parseToolMetadata, type ParseWarning } from './parse.js';
@@ -117,7 +123,8 @@ export type ToolImportErrorCode =
   | 'imports-not-allowed'
   | 'namespace-collision'
   | 'tool-exists'
-  | 'invalid-manifest';
+  | 'invalid-manifest'
+  | 'config-unreadable';
 
 /** Raised when a tool file cannot be imported. Names the source path. */
 export class ToolImportError extends Error {
@@ -409,7 +416,7 @@ export async function commitImport(
 
     const serverNames = options.latestServerNames
       ? await options.latestServerNames()
-      : await readConfigServerNames(configDir);
+      : await readConfigServerNames(configDir, plan.sourcePath);
     if (serverNames.includes(plan.manifest.namespace)) {
       throw new ToolImportError(
         'namespace-collision',
@@ -448,18 +455,33 @@ export async function commitImport(
 }
 
 /**
- * Best-effort read of the upstream server names from `<configDir>/config.json`,
- * used as the default `latestServerNames` source for the commit-time collision
- * re-check. Returns `[]` when the config is absent or unreadable rather than
- * blocking an import — the worst case is the same narrow window the snapshot
- * check already covered.
+ * Reads the upstream server names from `<configDir>/config.json`, the default
+ * `latestServerNames` source for the commit-time collision re-check. A *missing*
+ * config means no servers (`[]`) — a fresh install legitimately has none. Any
+ * other failure (unreadable or schema-invalid config) is fatal: we cannot verify
+ * the namespace does not collide, so block the import rather than silently skip
+ * the check.
  */
-async function readConfigServerNames(configDir: string): Promise<readonly string[]> {
+async function readConfigServerNames(
+  configDir: string,
+  sourcePath: string,
+): Promise<readonly string[]> {
   try {
     const config = await loadConfig(path.join(configDir, 'config.json'));
     return Object.keys(config.servers);
-  } catch {
-    return [];
+  } catch (error) {
+    if (
+      error instanceof ConfigLoadError &&
+      (error.cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+    ) {
+      return [];
+    }
+    throw new ToolImportError(
+      'config-unreadable',
+      sourcePath,
+      `the ToolBox config could not be read to verify "${path.basename(sourcePath)}"'s namespace ` +
+        `does not collide with a configured server`,
+    );
   }
 }
 

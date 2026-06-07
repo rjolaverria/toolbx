@@ -164,6 +164,23 @@ describe('runToolImport', () => {
     await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
   });
 
+  it('aborts without writing the manifest when the config is removed during the prompt', async () => {
+    // If the config can no longer be loaded at commit time, the namespace
+    // collision check can't run, so the import must abort rather than write.
+    const sourcePath = await writeSource();
+    const base = makeHarness(harness.target);
+    const confirm = vi.fn().mockImplementation(async () => {
+      await fs.rm(harness.target);
+      return true;
+    });
+    const deps: ToolImportDeps = { ...base.deps, isTty: () => true, confirm };
+
+    const code = await runToolImport(sourcePath, {}, deps);
+
+    expect(code).toBe(1);
+    await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
+  });
+
   it('reports a missing config and tells the user to init', async () => {
     const missingTarget = path.join(harness.dir, 'missing', 'config.json');
     const sourcePath = await writeSource();

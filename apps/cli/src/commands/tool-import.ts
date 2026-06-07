@@ -22,6 +22,16 @@ export interface ToolImportOptions {
   yes?: true;
 }
 
+/**
+ * Internal sentinel thrown from the `latestServerNames` provider when the config
+ * can no longer be loaded during commit. `loadOrReportMissing` has already
+ * printed the reason, so the catch maps this to a clean exit 1 without a second
+ * message — and crucially, `commitImport` aborts before writing the manifest.
+ */
+class ConfigUnavailableDuringImport extends Error {
+  override readonly name = 'ConfigUnavailableDuringImport';
+}
+
 export type ToolImportDeps = ToolCommandDeps & ConfirmDeps;
 
 export function defaultToolImportDeps(): ToolImportDeps {
@@ -116,10 +126,19 @@ export async function runToolImport(
     result = await commitImport(plan, {
       latestServerNames: async () => {
         const latest = await loadOrReportMissing(target, deps);
-        return latest === null ? [] : Object.keys(latest.servers);
+        if (latest === null) {
+          // The config vanished or became invalid during the prompt. We can't
+          // verify the namespace doesn't collide with a server, so abort rather
+          // than write. loadOrReportMissing already printed the reason.
+          throw new ConfigUnavailableDuringImport();
+        }
+        return Object.keys(latest.servers);
       },
     });
   } catch (error) {
+    if (error instanceof ConfigUnavailableDuringImport) {
+      return 1;
+    }
     if (error instanceof ToolImportError) {
       deps.stderr(`${error.message}\n`);
       return 1;

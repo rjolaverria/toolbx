@@ -235,6 +235,19 @@ describe('importTool', () => {
       await expect(readToolManifest(configDir)).resolves.toEqual([]);
     });
 
+    it('blocks the import when the on-disk config is present but unreadable/invalid', async () => {
+      // A missing config means "no servers" and is fine, but an invalid one means
+      // the collision check cannot run — the import must be blocked, not skipped.
+      await fs.writeFile(path.join(configDir, 'config.json'), '{ not valid json', 'utf8');
+      const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
+
+      await expect(importTool(sourcePath, { configDir })).rejects.toMatchObject({
+        name: 'ToolImportError',
+        code: 'config-unreadable',
+      });
+      await expect(readToolManifest(configDir)).resolves.toEqual([]);
+    });
+
     it('rejects the reserved "toolbox" namespace', async () => {
       const reserved = SPEC_EXAMPLE.replace(
         '@toolbox-tool namespace personal',
