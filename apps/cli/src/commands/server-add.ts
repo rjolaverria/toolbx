@@ -479,39 +479,52 @@ async function runOAuthAndWrite(
     // custom tool registered for this name during the browser flow cannot
     // interleave between the re-check and the write (P3-07); the config is re-read
     // inside so an unrelated concurrent change is preserved, not clobbered.
-    return withConfigLock(configDir, async () => {
-      const latest = await loadOrReportMissing(target, deps);
-      if (latest === null) {
-        return rollbackThen(1);
-      }
-      if (rejectDuplicate(latest, name, target, deps)) {
-        return rollbackThen(1);
-      }
-      if (await rejectToolNamespaceCollision(name, target, deps)) {
-        return rollbackThen(1);
-      }
-
-      const entry = buildHttpEntry(options, headers, { type: 'oauth' });
-      const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
-      if (!validated.ok) {
-        // `validateNextConfig` already reported the validation error to stderr.
-        return rollbackThen(1);
-      }
-      try {
-        await deps.saveConfig(validated.next, target);
-      } catch (err) {
-        const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
-        const message = err instanceof Error ? err.message : String(err);
-        deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
-        if (!rolledBack) {
-          deps.stderr(orphanedTokenHint(name));
+    //
+    // Acquiring that lock can itself time out (another command holding it past
+    // the timeout). That happens *after* login wrote the token, so it must roll
+    // the token back like any other post-login failure — otherwise the command
+    // returns an error while leaving an orphaned credential.
+    try {
+      return await withConfigLock(configDir, async () => {
+        const latest = await loadOrReportMissing(target, deps);
+        if (latest === null) {
+          return rollbackThen(1);
         }
-        return 1;
-      }
+        if (rejectDuplicate(latest, name, target, deps)) {
+          return rollbackThen(1);
+        }
+        if (await rejectToolNamespaceCollision(name, target, deps)) {
+          return rollbackThen(1);
+        }
 
-      deps.stdout(`✓ ${name} registered (OAuth).\n`);
-      return 0;
-    });
+        const entry = buildHttpEntry(options, headers, { type: 'oauth' });
+        const validated = validateNextConfig(buildCandidate(latest, name, entry), target, deps);
+        if (!validated.ok) {
+          // `validateNextConfig` already reported the validation error to stderr.
+          return rollbackThen(1);
+        }
+        try {
+          await deps.saveConfig(validated.next, target);
+        } catch (err) {
+          const rolledBack = await restorePriorToken(tokenStore, name, priorToken);
+          const message = err instanceof Error ? err.message : String(err);
+          deps.stderr(`Failed to write config: ${message}. ${name} was not registered.\n`);
+          if (!rolledBack) {
+            deps.stderr(orphanedTokenHint(name));
+          }
+          return 1;
+        }
+
+        deps.stdout(`✓ ${name} registered (OAuth).\n`);
+        return 0;
+      });
+    } catch (err) {
+      if (err instanceof ConfigLockError) {
+        deps.stderr(`Could not acquire the config lock to register ${name}: ${err.message}\n`);
+        return rollbackThen(1);
+      }
+      throw err;
+    }
   }
 }
 
