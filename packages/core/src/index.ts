@@ -55,6 +55,10 @@ export {
 
 export { saveConfig } from './config/save.js';
 
+export { atomicWriteFile } from './config/atomic-write.js';
+
+export { withConfigLock, ConfigLockError, type WithConfigLockOptions } from './config/lock.js';
+
 export {
   CONFIG_SCHEMA_URL,
   DEFAULT_CONFIG,
