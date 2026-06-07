@@ -10,10 +10,9 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { ServerNameSchema } from '@toolbox/core';
+import { atomicWriteFile, ServerNameSchema, withConfigLock } from '@toolbox/core';
 import { z } from 'zod';
 
-import { atomicWriteFile } from './atomic-write.js';
 import { parseToolMetadata, type ParseWarning } from './parse.js';
 
 /** Tool source files ToolBox can import, keyed to their stored runtime. */
@@ -374,48 +373,53 @@ export async function planImport(
  *
  * The manifest is re-read here, not taken from the plan: `planImport` may have
  * run before an interactive preview/prompt, during which another `tlbx tool`
- * command could have changed the manifest. Re-reading and re-checking the
- * tool-exists guard against the latest entries means a concurrent change is
- * merged with, not clobbered by, this write. The residual window is just the
- * read-then-write, the same as a single-call import.
+ * command could have changed the manifest. The re-read-check-write runs under
+ * the shared config-dir lock (P3-07), so a concurrent `tlbx tool`/`tlbx server`
+ * command serializes against this write rather than racing it; the tool-exists
+ * guard is re-evaluated against the latest on-disk entries inside the lock.
  */
 export async function commitImport(plan: ImportPlan): Promise<ImportedTool> {
-  const manifest = await readManifest(plan.manifestPath, plan.sourcePath);
-  const existingIndex = findExistingIndex(manifest, plan.manifest.namespace, plan.manifest.name);
-  if (existingIndex !== -1 && !plan.force) {
-    throw new ToolImportError(
-      'tool-exists',
-      plan.sourcePath,
-      `a custom tool "${plan.manifest.namespace}/${plan.manifest.name}" already exists; pass force to overwrite it`,
+  // The manifest lives at <configDir>/tools/manifest.json, so the config dir is
+  // two levels up — the same dir the config commands lock on.
+  const configDir = path.dirname(path.dirname(plan.manifestPath));
+  return withConfigLock(configDir, async () => {
+    const manifest = await readManifest(plan.manifestPath, plan.sourcePath);
+    const existingIndex = findExistingIndex(manifest, plan.manifest.namespace, plan.manifest.name);
+    if (existingIndex !== -1 && !plan.force) {
+      throw new ToolImportError(
+        'tool-exists',
+        plan.sourcePath,
+        `a custom tool "${plan.manifest.namespace}/${plan.manifest.name}" already exists; pass force to overwrite it`,
+      );
+    }
+
+    await fs.mkdir(path.dirname(plan.entryPath), { recursive: true });
+    await fs.writeFile(plan.entryPath, plan.source, 'utf8');
+
+    // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
+    // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
+    // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
+    const toolsPackageJsonPath = path.join(path.dirname(plan.manifestPath), 'package.json');
+    await fs.writeFile(
+      toolsPackageJsonPath,
+      `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
+      'utf8',
     );
-  }
 
-  await fs.mkdir(path.dirname(plan.entryPath), { recursive: true });
-  await fs.writeFile(plan.entryPath, plan.source, 'utf8');
+    const nextManifest =
+      existingIndex === -1
+        ? [...manifest, plan.manifest]
+        : manifest.map((entry, index) => (index === existingIndex ? plan.manifest : entry));
 
-  // Stored `.js` tools live under tools/ with no package.json of their own, so Node would
-  // load them as CommonJS and reject ESM `export` syntax. A type:module marker in tools/
-  // makes every stored `.js` tool load as ESM (matching how they are parsed at import).
-  const toolsPackageJsonPath = path.join(path.dirname(plan.manifestPath), 'package.json');
-  await fs.writeFile(
-    toolsPackageJsonPath,
-    `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
-    'utf8',
-  );
+    await atomicWriteFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
 
-  const nextManifest =
-    existingIndex === -1
-      ? [...manifest, plan.manifest]
-      : manifest.map((entry, index) => (index === existingIndex ? plan.manifest : entry));
-
-  await atomicWriteFile(plan.manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
-
-  return {
-    manifest: plan.manifest,
-    entryPath: plan.entryPath,
-    manifestPath: plan.manifestPath,
-    warnings: plan.warnings,
-  };
+    return {
+      manifest: plan.manifest,
+      entryPath: plan.entryPath,
+      manifestPath: plan.manifestPath,
+      warnings: plan.warnings,
+    };
+  });
 }
 
 export async function importTool(

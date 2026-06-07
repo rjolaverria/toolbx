@@ -11,7 +11,8 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { atomicWriteFile } from './atomic-write.js';
+import { atomicWriteFile, withConfigLock } from '@toolbox/core';
+
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
 
 /** A manifest entry annotated with a digest of its source file (enabled tools only). */
@@ -240,24 +241,29 @@ export async function setToolEnabled(
   exposedName: string,
   enabled: boolean,
 ): Promise<SetEnabledResult> {
-  const entries = await readToolManifest(configDir);
-  const index = entries.findIndex((entry) => entry.exposedName === exposedName);
-  if (index === -1) {
-    throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
-  }
-  const current = entries[index] as ToolManifest;
-  if (enabled) {
-    // Throws ToolManifestError('invalid-manifest') for a tampered entry path.
-    const entryPath = resolveToolEntryPath(configDir, current);
-    await assertEnableableSource(exposedName, entryPath);
-  }
-  if (current.enabled === enabled) {
-    return { manifest: current, changed: false };
-  }
-  const updated: ToolManifest = { ...current, enabled };
-  const next = entries.map((entry, i) => (i === index ? updated : entry));
-  await writeToolManifest(configDir, next);
-  return { manifest: updated, changed: true };
+  // The whole read-check-write runs under the shared config-dir lock so a
+  // concurrent `tlbx tool`/`tlbx server` command cannot read the same snapshot
+  // and clobber this change (P3-07).
+  return withConfigLock(configDir, async () => {
+    const entries = await readToolManifest(configDir);
+    const index = entries.findIndex((entry) => entry.exposedName === exposedName);
+    if (index === -1) {
+      throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
+    }
+    const current = entries[index] as ToolManifest;
+    if (enabled) {
+      // Throws ToolManifestError('invalid-manifest') for a tampered entry path.
+      const entryPath = resolveToolEntryPath(configDir, current);
+      await assertEnableableSource(exposedName, entryPath);
+    }
+    if (current.enabled === enabled) {
+      return { manifest: current, changed: false };
+    }
+    const updated: ToolManifest = { ...current, enabled };
+    const next = entries.map((entry, i) => (i === index ? updated : entry));
+    await writeToolManifest(configDir, next);
+    return { manifest: updated, changed: true };
+  });
 }
 
 export interface RemoveToolResult {
@@ -291,31 +297,35 @@ export async function removeTool(
   configDir: string,
   exposedName: string,
 ): Promise<RemoveToolResult> {
-  const entries = await readToolManifest(configDir);
-  const index = entries.findIndex((entry) => entry.exposedName === exposedName);
-  if (index === -1) {
-    throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
-  }
-  const target = entries[index] as ToolManifest;
-  // Only ever delete this record's own canonical tools/<ns>/<name>.<ext> path;
-  // a tampered entry pointing elsewhere is rejected, not followed.
-  const entryPath = resolveToolEntryPath(configDir, target);
-
-  const next = entries.filter((_, i) => i !== index);
-  await writeToolManifest(configDir, next);
-
-  try {
-    await fs.rm(entryPath);
-    return { manifest: target, entryPath, sourceRemoved: true };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { manifest: target, entryPath, sourceRemoved: false };
+  // Read-check-write under the shared lock so a concurrent mutation cannot drop
+  // this removal (or be dropped by it) (P3-07).
+  return withConfigLock(configDir, async () => {
+    const entries = await readToolManifest(configDir);
+    const index = entries.findIndex((entry) => entry.exposedName === exposedName);
+    if (index === -1) {
+      throw new ToolManifestError('tool-not-found', `no custom tool named "${exposedName}"`);
     }
-    return {
-      manifest: target,
-      entryPath,
-      sourceRemoved: false,
-      sourceError: (error as Error).message,
-    };
-  }
+    const target = entries[index] as ToolManifest;
+    // Only ever delete this record's own canonical tools/<ns>/<name>.<ext> path;
+    // a tampered entry pointing elsewhere is rejected, not followed.
+    const entryPath = resolveToolEntryPath(configDir, target);
+
+    const next = entries.filter((_, i) => i !== index);
+    await writeToolManifest(configDir, next);
+
+    try {
+      await fs.rm(entryPath);
+      return { manifest: target, entryPath, sourceRemoved: true };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { manifest: target, entryPath, sourceRemoved: false };
+      }
+      return {
+        manifest: target,
+        entryPath,
+        sourceRemoved: false,
+        sourceError: (error as Error).message,
+      };
+    }
+  });
 }
