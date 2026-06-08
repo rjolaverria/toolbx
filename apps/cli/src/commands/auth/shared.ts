@@ -60,15 +60,17 @@ export function defaultAuthCommandDeps(): AuthCommandDeps {
 export const CREDENTIAL_LOGIN_LOCK_TIMEOUT_MS = 6 * 60_000;
 
 /**
- * Acquire timeout for the credential lock around the *quick* credential commands
- * (`auth logout | refresh`, `doctor --fix`). They only ever hold the lock for a
- * read-then-write that takes milliseconds, so the sole reason one waits is a
- * concurrent login/`add-http` holding it across a multi-minute browser flow —
- * against which the right behavior is to fail fast with a clear message rather
- * than block the terminal on `withConfigLock`'s much longer default. Comfortably
- * outlasts a competing quick operation while still feeling immediate.
+ * Acquire timeout for the credential lock around the non-interactive credential
+ * commands (`auth logout | refresh`, `doctor --fix`). These never open a browser,
+ * but `auth refresh` does hold the lock across a token-endpoint round-trip, so
+ * the timeout is sized to comfortably outlast a normal non-interactive refresh
+ * (discovery + refresh ≈ sub-second to a few seconds) — letting a concurrent
+ * `logout`/`doctor` wait it out and then proceed — while staying far below the
+ * multi-minute hold of an interactive login/`add-http`, against which these
+ * commands still fail fast with a clear "in progress" message rather than
+ * blocking the terminal. (`withConfigLock`'s own default is longer still.)
  */
-export const CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS = 2_000;
+export const CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS = 5_000;
 
 /** Stderr message when a credential lock cannot be acquired because a same-name
  * login is in progress. */
