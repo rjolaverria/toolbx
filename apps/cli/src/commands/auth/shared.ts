@@ -14,6 +14,7 @@ import {
   type ServerConfig,
   type TokenStorage,
   type TokenStore,
+  type WithConfigLockOptions,
 } from '@toolbox/core';
 
 import { defaultServerCommandDeps, type ServerCommandDeps } from '../server-shared.js';
@@ -30,6 +31,12 @@ export interface AuthCommandDeps extends ServerCommandDeps {
   probeAuth: (url: URL) => Promise<AuthHint>;
   runOAuthLogin: (input: RunOAuthLoginInput) => Promise<RunOAuthLoginResult>;
   runOAuthRefresh: (input: RunOAuthRefreshInput) => Promise<RunOAuthRefreshResult>;
+  /**
+   * Credential-lock acquire options. Production leaves this undefined so each
+   * command uses its own default timeout; tests inject a short timeout to
+   * exercise the busy-contention path quickly.
+   */
+  lockOptions?: WithConfigLockOptions;
 }
 
 export function defaultAuthCommandDeps(): AuthCommandDeps {
@@ -42,6 +49,20 @@ export function defaultAuthCommandDeps(): AuthCommandDeps {
     runOAuthLogin,
     runOAuthRefresh,
   };
+}
+
+/**
+ * Acquire timeout for the credential lock around `auth login`. Like `add-http`,
+ * login holds the lock across the browser handshake (up to the 5-minute callback
+ * default), so a competing same-name credential command must wait at least that
+ * long rather than failing spuriously. Generous margin over the callback default.
+ */
+export const CREDENTIAL_LOGIN_LOCK_TIMEOUT_MS = 6 * 60_000;
+
+/** Stderr message when a credential lock cannot be acquired because a same-name
+ * login is in progress. */
+export function credentialBusyMessage(name: string): string {
+  return `Another credential operation for ${name} is in progress; try again once it finishes.\n`;
 }
 
 /**
