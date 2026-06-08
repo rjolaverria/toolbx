@@ -4,7 +4,12 @@ import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import { ConfigLockError, withCredentialLock } from '@toolbox/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
-import { credentialBusyMessage, defaultAuthCommandDeps, type AuthCommandDeps } from './shared.js';
+import {
+  credentialBusyMessage,
+  CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS,
+  defaultAuthCommandDeps,
+  type AuthCommandDeps,
+} from './shared.js';
 
 export interface AuthRefreshOptions {
   config?: string;
@@ -66,7 +71,7 @@ export async function runAuthRefresh(
         deps.stderr(`Refresh failed: ${result.reason}\n`);
         return 4;
       },
-      deps.lockOptions ?? {},
+      deps.lockOptions ?? { timeoutMs: CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS },
     );
   } catch (err) {
     if (err instanceof ConfigLockError) {
