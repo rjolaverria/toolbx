@@ -1,7 +1,10 @@
+import * as path from 'node:path';
+
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import { ConfigLockError, withCredentialLock } from '@toolbox/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
-import { defaultAuthCommandDeps, type AuthCommandDeps } from './shared.js';
+import { credentialBusyMessage, defaultAuthCommandDeps, type AuthCommandDeps } from './shared.js';
 
 export interface AuthRefreshOptions {
   config?: string;
@@ -18,40 +21,60 @@ export async function runAuthRefresh(
     return 1;
   }
 
-  const tokenStore = deps.createTokenStore(config.auth.storage);
-  let stored;
+  // Serialize against any concurrent same-name credential command so refresh's
+  // read-then-write cannot interleave with a logout/login/add-http on the same key.
   try {
-    stored = await tokenStore.read(serverName);
-  } catch (error) {
-    // A keychain backend can throw on locked/unavailable storage or a corrupt
-    // record; surface a readable diagnostic instead of an unhandled crash.
-    deps.stderr(
-      `Could not read stored credentials for ${serverName}: ${
-        error instanceof Error ? error.message : String(error)
-      }. Run \`tlbx doctor\` for details.\n`,
+    return await withCredentialLock(
+      path.dirname(target),
+      serverName,
+      async () => {
+        const tokenStore = deps.createTokenStore(config.auth.storage);
+        let stored;
+        try {
+          stored = await tokenStore.read(serverName);
+        } catch (error) {
+          // A keychain backend can throw on locked/unavailable storage or a
+          // corrupt record; surface a readable diagnostic instead of an
+          // unhandled crash.
+          deps.stderr(
+            `Could not read stored credentials for ${serverName}: ${
+              error instanceof Error ? error.message : String(error)
+            }. Run \`tlbx doctor\` for details.\n`,
+          );
+          return 1;
+        }
+        if (stored === null) {
+          deps.stderr(
+            `No stored token for ${serverName}. Run \`tlbx auth login ${serverName}\`.\n`,
+          );
+          return 1;
+        }
+
+        // Refresh runs entirely off the stored record (authorization server,
+        // client info, refresh token), so it does not need the config server
+        // entry or a network probe of the resource server.
+        const result = await deps.runOAuthRefresh({
+          serverName,
+          tokenStore,
+          logger: deps.logger,
+        });
+
+        if (result.kind === 'success') {
+          deps.stdout(`✓ ${serverName} token refreshed.\n`);
+          return 0;
+        }
+        deps.stderr(`Refresh failed: ${result.reason}\n`);
+        return 4;
+      },
+      deps.lockOptions ?? {},
     );
-    return 1;
+  } catch (err) {
+    if (err instanceof ConfigLockError) {
+      deps.stderr(credentialBusyMessage(serverName));
+      return 1;
+    }
+    throw err;
   }
-  if (stored === null) {
-    deps.stderr(`No stored token for ${serverName}. Run \`tlbx auth login ${serverName}\`.\n`);
-    return 1;
-  }
-
-  // Refresh runs entirely off the stored record (authorization server, client
-  // info, refresh token), so it does not need the config server entry or a
-  // network probe of the resource server.
-  const result = await deps.runOAuthRefresh({
-    serverName,
-    tokenStore,
-    logger: deps.logger,
-  });
-
-  if (result.kind === 'success') {
-    deps.stdout(`✓ ${serverName} token refreshed.\n`);
-    return 0;
-  }
-  deps.stderr(`Refresh failed: ${result.reason}\n`);
-  return 4;
 }
 
 export function authRefreshCommand(): CommandUnknownOpts {
