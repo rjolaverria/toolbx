@@ -15,6 +15,7 @@ import {
   saveConfig,
   ToolBoxConfigSchema,
   ToolCacheMissingError,
+  withCredentialLock,
   type CachedTool,
   type TokenStorage,
   type TokenStore,
@@ -754,7 +755,7 @@ async function fixOrphanToken(
   // can still fail (permission denied, store became unavailable) — report that
   // as a skipped fix rather than letting it abort the whole doctor run.
   try {
-    await tokenStore.delete(name);
+    await withCredentialLock(path.dirname(ctx.target), name, () => tokenStore.delete(name));
   } catch (error) {
     return {
       status: 'SKIPPED_NO_FIX',
