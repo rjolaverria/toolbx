@@ -380,9 +380,10 @@ describe('runAddHttp — explicit --auth', () => {
 
   it('serializes concurrent same-name OAuth registrations so only one logs in and the token matches the winner', async () => {
     // Two OAuth add-http for the same name race, sharing one config + token store.
-    // The registration lock must admit exactly one: it logs in and registers; the
-    // other bails at its pre-login duplicate check WITHOUT a browser flow, so it
-    // never writes a competing token that could clobber the winner's credentials.
+    // The per-name credential lock must admit exactly one: it logs in and
+    // registers; the other bails at its pre-login duplicate check WITHOUT a
+    // browser flow, so it never writes a competing token that could clobber the
+    // winner's credentials.
     const target = await makeTempConfig();
     const store = new InMemoryTokenStore();
     const h1 = makeHarness(target, store);

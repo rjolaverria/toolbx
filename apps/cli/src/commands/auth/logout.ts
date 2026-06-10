@@ -1,7 +1,15 @@
+import * as path from 'node:path';
+
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
+import { ConfigLockError, withCredentialLock } from '@toolbox/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
-import { defaultAuthCommandDeps, type AuthCommandDeps } from './shared.js';
+import {
+  credentialBusyMessage,
+  CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS,
+  defaultAuthCommandDeps,
+  type AuthCommandDeps,
+} from './shared.js';
 
 export interface AuthLogoutOptions {
   config?: string;
@@ -18,34 +26,53 @@ export async function runAuthLogout(
     return 1;
   }
 
-  // Logout never edits config.json — it only clears stored credentials, so a
-  // server whose entry was already removed can still have a stale token cleared.
-  const tokenStore = deps.createTokenStore(config.auth.storage);
-
-  // Probe for an existing record only to choose the message. A corrupt or
-  // schema-incompatible record throws on read — but logout must still be able to
-  // clear exactly that kind of bad entry, so a read failure must not block the
-  // delete. Treat an unreadable record as present and proceed.
-  let hadToken: boolean;
+  // Serialize against any concurrent same-name credential command (e.g. an
+  // `add-http`/`auth login` mid-flow) so logout cannot delete a token while
+  // another command is between its login write and its config save/rollback.
   try {
-    hadToken = (await tokenStore.read(serverName)) !== null;
-  } catch {
-    hadToken = true;
-  }
+    return await withCredentialLock(
+      path.dirname(target),
+      serverName,
+      async () => {
+        // Logout never edits config.json — it only clears stored credentials, so
+        // a server whose entry was already removed can still have a stale token
+        // cleared.
+        const tokenStore = deps.createTokenStore(config.auth.storage);
 
-  try {
-    await tokenStore.delete(serverName);
-  } catch (error) {
-    deps.stderr(`Logout failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
-  }
+        // Probe for an existing record only to choose the message. A corrupt or
+        // schema-incompatible record throws on read — but logout must still be
+        // able to clear exactly that kind of bad entry, so a read failure must
+        // not block the delete. Treat an unreadable record as present and proceed.
+        let hadToken: boolean;
+        try {
+          hadToken = (await tokenStore.read(serverName)) !== null;
+        } catch {
+          hadToken = true;
+        }
 
-  deps.stdout(
-    hadToken
-      ? `✓ ${serverName} logged out.\n`
-      : `✓ ${serverName} logged out (no token was stored).\n`,
-  );
-  return 0;
+        try {
+          await tokenStore.delete(serverName);
+        } catch (error) {
+          deps.stderr(`Logout failed: ${error instanceof Error ? error.message : String(error)}\n`);
+          return 1;
+        }
+
+        deps.stdout(
+          hadToken
+            ? `✓ ${serverName} logged out.\n`
+            : `✓ ${serverName} logged out (no token was stored).\n`,
+        );
+        return 0;
+      },
+      deps.lockOptions ?? { timeoutMs: CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS },
+    );
+  } catch (err) {
+    if (err instanceof ConfigLockError) {
+      deps.stderr(credentialBusyMessage(serverName));
+      return 1;
+    }
+    throw err;
+  }
 }
 
 export function authLogoutCommand(): CommandUnknownOpts {

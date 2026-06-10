@@ -14,6 +14,7 @@ import {
   type ServerConfig,
   type TokenStorage,
   type TokenStore,
+  type WithConfigLockOptions,
 } from '@toolbox/core';
 
 import { defaultServerCommandDeps, type ServerCommandDeps } from '../server-shared.js';
@@ -30,6 +31,12 @@ export interface AuthCommandDeps extends ServerCommandDeps {
   probeAuth: (url: URL) => Promise<AuthHint>;
   runOAuthLogin: (input: RunOAuthLoginInput) => Promise<RunOAuthLoginResult>;
   runOAuthRefresh: (input: RunOAuthRefreshInput) => Promise<RunOAuthRefreshResult>;
+  /**
+   * Credential-lock acquire options. Production leaves this undefined so each
+   * command uses its own default timeout; tests inject a short timeout to
+   * exercise the busy-contention path quickly.
+   */
+  lockOptions?: WithConfigLockOptions;
 }
 
 export function defaultAuthCommandDeps(): AuthCommandDeps {
@@ -42,6 +49,33 @@ export function defaultAuthCommandDeps(): AuthCommandDeps {
     runOAuthLogin,
     runOAuthRefresh,
   };
+}
+
+/**
+ * Acquire timeout for the credential lock around `auth login`. Like `add-http`,
+ * login holds the lock across the browser handshake (up to the 5-minute callback
+ * default), so a competing same-name credential command must wait at least that
+ * long rather than failing spuriously. Generous margin over the callback default.
+ */
+export const CREDENTIAL_LOGIN_LOCK_TIMEOUT_MS = 6 * 60_000;
+
+/**
+ * Acquire timeout for the credential lock around the non-interactive credential
+ * commands (`auth logout | refresh`, `doctor --fix`). These never open a browser,
+ * but `auth refresh` does hold the lock across a token-endpoint round-trip, so
+ * the timeout is sized to comfortably outlast a normal non-interactive refresh
+ * (discovery + refresh ≈ sub-second to a few seconds) — letting a concurrent
+ * `logout`/`doctor` wait it out and then proceed — while staying far below the
+ * multi-minute hold of an interactive login/`add-http`, against which these
+ * commands still fail fast with a clear "in progress" message rather than
+ * blocking the terminal. (`withConfigLock`'s own default is longer still.)
+ */
+export const CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS = 5_000;
+
+/** Stderr message when a credential lock cannot be acquired because a same-name
+ * login is in progress. */
+export function credentialBusyMessage(name: string): string {
+  return `Another credential operation for ${name} is in progress; try again once it finishes.\n`;
 }
 
 /**

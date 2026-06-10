@@ -1,5 +1,8 @@
+import * as path from 'node:path';
+
 import {
   DEFAULT_CONFIG,
+  withCredentialLock,
   type StoredOAuthRecord,
   type TokenStore,
   type ToolBoxConfig,
@@ -57,6 +60,32 @@ describe('runAuthLogout', () => {
     expect(code).toBe(0);
     expect(h.stdout.value).toContain('✓ acme logged out');
     expect(await h.store.read('acme')).toBeNull();
+  });
+
+  it('fails fast with a clean message when a same-name login holds the lock', async () => {
+    const h = await harness();
+    await h.store.write('acme', record);
+    h.deps.lockOptions = { timeoutMs: 150, pollMs: 10 };
+
+    // Hold the per-name credential lock for longer than logout's acquire timeout.
+    const configDir = path.dirname(h.deps.resolvePath());
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = withCredentialLock(configDir, 'acme', () => held);
+    // Give the holder a tick to actually acquire before logout contends.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const code = await runAuthLogout('acme', {}, h.deps);
+
+    expect(code).toBe(1);
+    expect(h.stderr.value).toContain('in progress');
+    // The token is untouched because logout never entered its critical section.
+    expect(await h.store.read('acme')).not.toBeNull();
+
+    release();
+    await holding;
   });
 
   it('still deletes a corrupt entry whose read throws', async () => {

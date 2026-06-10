@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
+  ConfigLockError,
   createNoopLogger,
   createTokenStore,
   DEFAULT_CONFIG,
@@ -15,13 +16,14 @@ import {
   saveConfig,
   ToolBoxConfigSchema,
   ToolCacheMissingError,
+  withCredentialLock,
   type CachedTool,
   type TokenStorage,
   type TokenStore,
   type ToolBoxConfig,
 } from '@toolbox/core';
 
-import { isOAuthServer } from './auth/shared.js';
+import { CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS, isOAuthServer } from './auth/shared.js';
 import {
   collectIssues,
   defaultConfigValidateDeps,
@@ -754,8 +756,19 @@ async function fixOrphanToken(
   // can still fail (permission denied, store became unavailable) — report that
   // as a skipped fix rather than letting it abort the whole doctor run.
   try {
-    await tokenStore.delete(name);
+    await withCredentialLock(path.dirname(ctx.target), name, () => tokenStore.delete(name), {
+      timeoutMs: CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS,
+    });
   } catch (error) {
+    if (error instanceof ConfigLockError) {
+      // A same-name credential command (e.g. an in-progress login) holds the
+      // lock. Skip cleanly and tell the user to retry — never surface the raw
+      // lock-file removal advice as if doctor's own state were corrupt.
+      return {
+        status: 'SKIPPED_NO_FIX',
+        summary: `another credential operation for "${name}" is in progress; skipped (re-run \`tlbx doctor --fix\` once it finishes)`,
+      };
+    }
     return {
       status: 'SKIPPED_NO_FIX',
       summary: `could not delete orphan token for "${name}": ${

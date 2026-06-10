@@ -11,6 +11,7 @@ import {
   saveConfig,
   ServerNameSchema,
   withConfigLock,
+  withCredentialLock,
   type AuthHint,
   type HttpServerConfig,
   type Logger,
@@ -33,20 +34,13 @@ import {
 } from './server-shared.js';
 
 /**
- * Lock-dir name (under the config dir) that serializes OAuth `add-http`
- * registrations. Distinct from the config-dir lock so it only blocks concurrent
- * OAuth flows, not unrelated commands.
+ * Acquire timeout for the per-name credential lock around an OAuth `add-http`.
+ * The lock is held across the whole browser login, which can take up to the
+ * callback server's 5-minute default, so a competing same-name credential
+ * command must be willing to wait at least that long before giving up. Generous
+ * margin over the 5-minute callback default.
  */
-const OAUTH_REGISTRATION_LOCK_DIR = '.oauth-registration';
-
-/**
- * Acquire timeout for the OAuth registration lock. It is held across the whole
- * browser login, which can take up to the callback server's 5-minute default, so
- * a concurrent registration must be willing to wait at least that long before
- * giving up (otherwise it would fail spuriously instead of reaching its
- * post-wait duplicate check). Generous margin over the 5-minute callback default.
- */
-const OAUTH_REGISTRATION_LOCK_TIMEOUT_MS = 6 * 60_000;
+const OAUTH_LOGIN_LOCK_TIMEOUT_MS = 6 * 60_000;
 
 export interface ServerAddDeps extends ServerCommandDeps {
   logger: Logger;
@@ -357,14 +351,14 @@ function orphanedTokenHint(name: string): string {
  * a config-write failure rolls the token store back to its pre-command state
  * (§4.6.2).
  *
- * OAuth registration is serialized through a dedicated lock (distinct from the
- * config-dir lock, so only concurrent OAuth `add-http` runs are blocked, not
- * other commands). A second OAuth registration for the same name waits, then its
- * pre-login duplicate check sees the winner's server entry and bails before
- * opening a browser — so it never runs a competing login that could write a token
- * under the shared server-name key after the winner's config write. Because no
- * concurrent OAuth flow can therefore touch this key, the post-login rollbacks
- * safely revert only this command's own token.
+ * The whole registration is serialized through the per-name credential lock, so
+ * no other credential command (`auth login | logout | refresh`, `doctor --fix`,
+ * or a second `add-http`) for this name can touch the token store between the
+ * login write and the config save/rollback. A second OAuth registration for the
+ * same name waits, then its pre-login duplicate check sees the winner's server
+ * entry and bails before opening a browser. Because no concurrent command can
+ * therefore touch this key, the post-login rollbacks safely revert only this
+ * command's own token. Registrations for different names are not blocked.
  */
 async function runOAuthAndWrite(
   config: ToolBoxConfig,
@@ -379,15 +373,13 @@ async function runOAuthAndWrite(
   const configDir = path.dirname(target);
   try {
     // Hoisted function declaration, so it can be referenced before its body below.
-    return await withConfigLock(
-      path.join(configDir, OAUTH_REGISTRATION_LOCK_DIR),
-      runOAuthRegistration,
-      { timeoutMs: OAUTH_REGISTRATION_LOCK_TIMEOUT_MS },
-    );
+    return await withCredentialLock(configDir, name, runOAuthRegistration, {
+      timeoutMs: OAUTH_LOGIN_LOCK_TIMEOUT_MS,
+    });
   } catch (err) {
     if (err instanceof ConfigLockError) {
       deps.stderr(
-        `Another OAuth registration is in progress; ${name} was not registered. ` +
+        `Another credential operation for ${name} is in progress; ${name} was not registered. ` +
           `Try again once it finishes.\n`,
       );
       return 1;

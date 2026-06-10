@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { hostname } from 'node:os';
 import * as path from 'node:path';
@@ -379,4 +379,27 @@ function isAlive(pid: number): boolean {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Serializes token-store mutations for a single server name. Delegates to
+ * {@link withConfigLock} with a per-name lock root under the config dir, so two
+ * credential commands (`server add-http` OAuth, `auth login | logout | refresh`,
+ * `doctor --fix`) can never interleave their read-modify-write on the same
+ * credential key, while operations for different names and non-credential
+ * commands stay unblocked.
+ *
+ * The server name is hashed to a fixed-length hex string for the lock-root
+ * directory, so any name — including one no longer present in `config.json`,
+ * which `auth logout` still accepts — maps to a stable, filesystem-safe path
+ * with no concatenation collisions.
+ */
+export function withCredentialLock<T>(
+  configDir: string,
+  serverName: string,
+  fn: () => Promise<T>,
+  options: WithConfigLockOptions = {},
+): Promise<T> {
+  const key = createHash('sha256').update(serverName, 'utf8').digest('hex');
+  return withConfigLock(path.join(configDir, '.credentials', key), fn, options);
 }
