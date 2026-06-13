@@ -221,7 +221,7 @@ export {
 
 export {
   createTokenStore,
-  CredentialRemovedDuringRefreshError,
+  CredentialChangedDuringRefreshError,
   InMemoryTokenStore,
   probeUpstreamAuth,
   runOAuthLogin,

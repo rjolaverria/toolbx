@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
-  CredentialRemovedDuringRefreshError,
+  CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
   ToolBoxOAuthProvider,
   type HttpServerConfig,
@@ -122,10 +122,11 @@ export function createHttpUpstreamClient(
     if (
       !(error instanceof SuppressedRedirectError) &&
       !(error instanceof UnauthorizedError) &&
-      // A refresh whose record was removed mid-flight (e.g. by `tlbx auth
-      // logout`) is an auth failure too: the store read below finds no record
-      // and classifies it as auth_required.
-      !(error instanceof CredentialRemovedDuringRefreshError)
+      // A refresh whose record was removed or replaced mid-flight (e.g. by `tlbx
+      // auth logout` or a concurrent `tlbx auth login`) is an auth failure too:
+      // the store re-read below classifies it — absent ⇒ auth_required, present
+      // (a newer login) ⇒ auth_expired, which then recovers on the next read.
+      !(error instanceof CredentialChangedDuringRefreshError)
     ) {
       return null;
     }

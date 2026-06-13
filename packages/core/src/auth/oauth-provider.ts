@@ -50,18 +50,21 @@ export interface ToolBoxOAuthProviderOpts {
 
 /**
  * Thrown by `saveTokens` when a refresh-grant save (no authorization-code
- * exchange) finds no stored record for the server: the credential was removed
- * (e.g. by `tlbx auth logout`) after the refresh began, and persisting the
- * refreshed tokens would silently re-create a record the user deleted. The
- * gateway classifies this as `auth_required`.
+ * exchange) finds the stored credential is no longer the one the refresh was
+ * based on — it was removed (e.g. by `tlbx auth logout`) or replaced by a newer
+ * `tlbx auth login` after the refresh began. Persisting the refreshed tokens
+ * would silently re-create a deleted record or clobber the newer login with
+ * stale-lineage tokens, so the save aborts instead. The gateway classifies this
+ * by re-reading the store: absent ⇒ `auth_required`, present ⇒ `auth_expired`
+ * (then recovers on the next read-through, picking up the newer login).
  */
-export class CredentialRemovedDuringRefreshError extends Error {
-  override readonly name = 'CredentialRemovedDuringRefreshError';
+export class CredentialChangedDuringRefreshError extends Error {
+  override readonly name = 'CredentialChangedDuringRefreshError';
 
   constructor(public readonly serverName: string) {
     super(
-      `Stored credentials for ${serverName} were removed while a token refresh ` +
-        'was in flight; the refreshed tokens were not persisted.',
+      `Stored credentials for ${serverName} were removed or replaced while a token ` +
+        'refresh was in flight; the refreshed tokens were not persisted.',
     );
   }
 }
@@ -125,6 +128,14 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   private authorizationCodeExchangeInFlight = false;
   private useDiscoveredResourceForCodeExchange = false;
   private latestDiscoveredResourceSelection: DiscoveredResourceSelection = { kind: 'none' };
+  // The refresh token the most recent `tokens()` read returned to the SDK. A
+  // refresh grant is exchanged against exactly this value, and the SDK does not
+  // re-read `tokens()` between that read and the `saveTokens` it triggers — so
+  // at save time this is the lineage the in-flight refresh started from. Under
+  // the credential lock, `persistTokens` compares it against the current stored
+  // record to detect a concurrent `tlbx auth login` that rebound the credential
+  // mid-refresh, and aborts rather than clobbering the newer login.
+  private refreshSourceRefreshToken: string | undefined;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -291,6 +302,10 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       return undefined;
     }
     const record = await this.load();
+    // Remember the refresh token handed to the SDK: a refresh grant is exchanged
+    // against this exact value, and `persistTokens` uses it under the lock to
+    // detect a credential rebound out from under the in-flight refresh.
+    this.refreshSourceRefreshToken = record?.tokens.refresh_token;
     return record?.tokens;
   }
 
@@ -327,11 +342,21 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
 
   private async persistTokens(tokens: OAuthTokens): Promise<void> {
     const existing = await this.load();
-    // A refresh grant only ever starts from a stored record (that is where
-    // the refresh token came from). Finding none here means the credential
-    // was deleted after the refresh began — do not resurrect it.
-    if (!this.authorizationCodeExchangeInFlight && existing === null) {
-      throw new CredentialRemovedDuringRefreshError(this.opts.serverName);
+    // A refresh grant only ever starts from a stored record (that is where the
+    // refresh token came from). Under the lock, the stored credential must still
+    // be the one this refresh was based on: a missing record means it was deleted
+    // (`tlbx auth logout`), and a changed refresh token means a newer `tlbx auth
+    // login` rebound it — both after the refresh began. Writing the refreshed,
+    // stale-lineage tokens would resurrect a deleted record or clobber the newer
+    // login, so abort instead. The code-exchange (interactive login) path is
+    // authoritative and intentionally overwrites, so it skips this guard.
+    if (!this.authorizationCodeExchangeInFlight) {
+      const sourceChanged =
+        this.refreshSourceRefreshToken !== undefined &&
+        existing?.tokens.refresh_token !== this.refreshSourceRefreshToken;
+      if (existing === null || sourceChanged) {
+        throw new CredentialChangedDuringRefreshError(this.opts.serverName);
+      }
     }
     const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
     if (!clientInformation) {

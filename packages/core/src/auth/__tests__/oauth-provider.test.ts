@@ -738,9 +738,39 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     await store.delete('jira');
 
     await expect(provider.saveTokens(makeTokens({ access_token: 'refreshed' }))).rejects.toThrow(
-      /removed while a token refresh/,
+      /while a token refresh was in flight/,
     );
     expect(await store.read('jira')).toBeNull();
+  });
+
+  it('aborts a refresh-grant save when a concurrent login replaced the stored record', async () => {
+    // The SDK reads the refresh token and POSTs to the token endpoint outside
+    // the credential lock. If `tlbx auth login` writes a fresh credential (new
+    // refresh token) while that POST is in flight, the in-flight refresh — based
+    // on the old refresh token — must not clobber the newer login.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'old', refresh_token: 'rt0' }) }),
+    );
+
+    // The SDK reads the refresh source before exchanging it.
+    expect((await provider.tokens())?.refresh_token).toBe('rt0');
+
+    // Concurrent login rebinds the credential to a fresh refresh token.
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'login', refresh_token: 'rt1' }) }),
+    );
+
+    await expect(
+      provider.saveTokens(makeTokens({ access_token: 'refreshed', refresh_token: 'rt-refreshed' })),
+    ).rejects.toThrow(/while a token refresh was in flight/);
+
+    // The fresh login survives intact.
+    const record = await store.read('jira');
+    expect(record?.tokens.access_token).toBe('login');
+    expect(record?.tokens.refresh_token).toBe('rt1');
   });
 
   it('serializes the saveTokens read-modify-write against a concurrent locked delete', async () => {

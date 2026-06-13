@@ -16,7 +16,7 @@ export {
 } from './oauth-callback-server.js';
 
 export {
-  CredentialRemovedDuringRefreshError,
+  CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
   ToolBoxOAuthProvider,
   type ToolBoxOAuthProviderOpts,
