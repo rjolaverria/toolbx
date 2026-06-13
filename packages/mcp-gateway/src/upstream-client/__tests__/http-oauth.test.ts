@@ -1,4 +1,14 @@
-import { createNoopLogger, InMemoryTokenStore, type StoredOAuthRecord } from '@toolbox/core';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import {
+  createNoopLogger,
+  InMemoryTokenStore,
+  withCredentialLock,
+  type StoredOAuthRecord,
+  type TokenStore,
+} from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { UpstreamAuthExpiredError, UpstreamAuthRequiredError } from '../errors.js';
@@ -57,7 +67,7 @@ function makeRecord(
   };
 }
 
-function makeClient(url: string, tokenStore: InMemoryTokenStore) {
+function makeClient(url: string, tokenStore: TokenStore, opts?: { credentialLockDir?: string }) {
   const config: HttpServerConfig = {
     type: 'http',
     enabled: true,
@@ -69,7 +79,18 @@ function makeClient(url: string, tokenStore: InMemoryTokenStore) {
     serverName: 'demo',
     tokenStore,
     connectTimeoutMs: 10_000,
+    ...(opts?.credentialLockDir !== undefined ? { credentialLockDir: opts.credentialLockDir } : {}),
   });
+}
+
+async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      throw new Error('waitFor timed out');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 describe('createHttpUpstreamClient — OAuth', () => {
@@ -156,6 +177,93 @@ describe('createHttpUpstreamClient — OAuth', () => {
 
     const client = makeClient(upstream.url, tokenStore);
     await expect(client.connect()).rejects.toBeInstanceOf(UpstreamAuthRequiredError);
+  }, 15_000);
+
+  it('does not resurrect a record deleted mid-refresh and classifies it as auth_required (P3-09)', async () => {
+    // A logout wins the credential lock just before the refresh persists its
+    // result: the provider's locked read inside saveTokens finds no record.
+    // The refreshed tokens must NOT be written back, and the failure surfaces
+    // as auth_required (no stored credential), not a generic connect error.
+    const upstream = await startServer({ validTokens: ['refreshed-access-token'] });
+    const backing = new InMemoryTokenStore();
+    await backing.write(
+      'demo',
+      makeRecord(upstream.issuer, {
+        access_token: 'stale-access-token',
+        refresh_token: 'valid-refresh-token',
+      }),
+    );
+
+    // Simulate the logout: the first store read after the refresh grant lands
+    // (the provider's load inside saveTokens) observes the record deleted.
+    let logoutPending = true;
+    const store: TokenStore = {
+      read: async (name) => {
+        if (logoutPending && upstream.tokenGrants.includes('refresh_token')) {
+          logoutPending = false;
+          await backing.delete(name);
+        }
+        return backing.read(name);
+      },
+      write: (name, record) => backing.write(name, record),
+      delete: (name) => backing.delete(name),
+      list: () => backing.list(),
+      probe: () => backing.probe(),
+    };
+
+    const client = makeClient(upstream.url, store);
+    await expect(client.connect()).rejects.toBeInstanceOf(UpstreamAuthRequiredError);
+    // The user's logout sticks: the refreshed pair was never persisted.
+    expect(await backing.read('demo')).toBeNull();
+  }, 15_000);
+
+  it('holds the per-server credential lock across the refresh token save (P3-09)', async () => {
+    // The gateway client must thread credentialLockDir down to its OAuth
+    // provider so an SDK-driven refresh contends on the same per-name lock the
+    // CLI credential commands use. While the test holds demo's lock, the
+    // refresh cannot persist; releasing the lock lets it complete.
+    const lockDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tlbx-gw-cred-lock-'));
+    try {
+      const upstream = await startServer({ validTokens: ['refreshed-access-token'] });
+      const tokenStore = new InMemoryTokenStore();
+      await tokenStore.write(
+        'demo',
+        makeRecord(upstream.issuer, {
+          access_token: 'stale-access-token',
+          refresh_token: 'valid-refresh-token',
+        }),
+      );
+
+      let releaseLock = (): void => undefined;
+      const lockGate = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      let signalHeld = (): void => undefined;
+      const held = new Promise<void>((resolve) => {
+        signalHeld = resolve;
+      });
+      const lockHold = withCredentialLock(lockDir, 'demo', async () => {
+        signalHeld();
+        await lockGate;
+      });
+      await held;
+
+      const client = makeClient(upstream.url, tokenStore, { credentialLockDir: lockDir });
+      const connectPromise = client.connect();
+      // Wait until the refresh grant has hit the token endpoint, then give the
+      // save a chance to (incorrectly) land while the lock is held.
+      await waitFor(() => upstream.tokenGrants.includes('refresh_token'));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect((await tokenStore.read('demo'))?.tokens.access_token).toBe('stale-access-token');
+
+      releaseLock();
+      await lockHold;
+      await connectPromise;
+      expect((await tokenStore.read('demo'))?.tokens.access_token).toBe('refreshed-access-token');
+      await client.disconnect();
+    } finally {
+      await fs.rm(lockDir, { recursive: true, force: true });
+    }
   }, 15_000);
 
   it('classifies a ping-time refresh failure as UpstreamAuthExpiredError', async () => {

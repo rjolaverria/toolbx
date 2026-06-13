@@ -1,6 +1,11 @@
-import type { OAuthClientInformation, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
+import type { OAuthClientInformation, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { withCredentialLock } from '../../config/lock.js';
 import { createNoopLogger } from '../../logging/logger.js';
 import {
   SuppressedRedirectError,
@@ -45,6 +50,17 @@ function makeProvider(overrides: Partial<ToolBoxOAuthProviderOpts> = {}): {
     ...overrides,
   });
   return { provider, store };
+}
+
+/**
+ * Marks the next saveTokens as an authorization-code (login) save. The SDK
+ * always consumes the PKCE verifier immediately before exchanging the code, so
+ * a save on a store with no existing record only happens on this path — a
+ * refresh-grant save with no record aborts instead of resurrecting it (P3-09).
+ */
+async function simulateCodeExchange(provider: ToolBoxOAuthProvider): Promise<void> {
+  await provider.saveCodeVerifier('verifier');
+  await provider.codeVerifier();
 }
 
 describe('ToolBoxOAuthProvider.clientMetadata', () => {
@@ -125,6 +141,7 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
     const { provider, store } = makeProvider({ scopes: ['read'] });
     await provider.saveClientInformation(makeClientInfo({ client_id: 'staged-1' }));
     provider.setAuthorizationServer('https://auth.example.com');
+    await simulateCodeExchange(provider);
     const tokens = makeTokens({ access_token: 'new-access' });
     await provider.saveTokens(tokens);
 
@@ -145,12 +162,14 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
 
   it('throws when no client information has been saved and no record exists', async () => {
     const { provider } = makeProvider();
+    await simulateCodeExchange(provider);
     await expect(provider.saveTokens(makeTokens())).rejects.toThrow(/clientInformation/);
   });
 
   it('throws without an authorization server URL', async () => {
     const { provider } = makeProvider();
     await provider.saveClientInformation(makeClientInfo());
+    await simulateCodeExchange(provider);
     await expect(provider.saveTokens(makeTokens())).rejects.toThrow(
       /without an authorization server URL/,
     );
@@ -160,6 +179,7 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
     const { provider, store } = makeProvider();
     await provider.saveClientInformation(makeClientInfo());
     provider.setAuthorizationServer('https://issuer.example.com');
+    await simulateCodeExchange(provider);
     await provider.saveTokens(makeTokens());
     expect((await store.read('jira'))?.authorizationServer).toBe('https://issuer.example.com');
   });
@@ -167,6 +187,7 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
   it('uses opts.authorizationServer as a fallback', async () => {
     const { provider, store } = makeProvider({ authorizationServer: 'https://opts.example.com' });
     await provider.saveClientInformation(makeClientInfo());
+    await simulateCodeExchange(provider);
     await provider.saveTokens(makeTokens());
     expect((await store.read('jira'))?.authorizationServer).toBe('https://opts.example.com');
   });
@@ -194,6 +215,7 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
     const { provider, store } = makeProvider();
     await provider.saveClientInformation(makeClientInfo());
     provider.setAuthorizationServer('https://auth.example.com');
+    await simulateCodeExchange(provider);
     const before = Date.now();
     await provider.saveTokens(makeTokens());
     const after = Date.now();
@@ -369,6 +391,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
     });
 
     await provider.saveClientInformation(makeClientInfo());
+    await simulateCodeExchange(provider);
     await provider.saveTokens(makeTokens());
     expect((await store.read('jira'))?.authorizationServer).toBe('https://issuer.example/auth/');
   });
@@ -685,6 +708,115 @@ describe('ToolBoxOAuthProvider PKCE code verifier', () => {
   it('throws when codeVerifier is requested before it is saved', async () => {
     const { provider } = makeProvider();
     await expect(provider.codeVerifier()).rejects.toThrow(/codeVerifier/);
+  });
+});
+
+describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
+  const tempDirs: string[] = [];
+  afterEach(async () => {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir !== undefined) {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  async function makeLockDir(): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tlbx-cred-lock-'));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  it('aborts a refresh-grant save without writing when the stored record was removed mid-refresh', async () => {
+    // The SDK read the stored refresh token and exchanged it at the token
+    // endpoint; a `tlbx auth logout` then deleted the credential before the
+    // refreshed pair was persisted. The save must not re-create the record the
+    // user just removed.
+    const { provider, store } = makeProvider();
+    await store.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
+    await store.delete('jira');
+
+    await expect(provider.saveTokens(makeTokens({ access_token: 'refreshed' }))).rejects.toThrow(
+      /removed while a token refresh/,
+    );
+    expect(await store.read('jira')).toBeNull();
+  });
+
+  it('serializes the saveTokens read-modify-write against a concurrent locked delete', async () => {
+    // Gateway refresh racing `tlbx auth logout`: logout's locked read+delete
+    // must not land between saveTokens' read and write — otherwise the write
+    // resurrects the credential the user just removed.
+    const dir = await makeLockDir();
+    const backing = new InMemoryTokenStore();
+    await backing.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
+
+    let releaseRead = (): void => undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let signalReadInFlight = (): void => undefined;
+    const readInFlight = new Promise<void>((resolve) => {
+      signalReadInFlight = resolve;
+    });
+    let gateArmed = true;
+    const gatedStore: TokenStore = {
+      read: async (name) => {
+        if (gateArmed) {
+          gateArmed = false;
+          signalReadInFlight();
+          await readGate;
+        }
+        return backing.read(name);
+      },
+      write: (name, record) => backing.write(name, record),
+      delete: (name) => backing.delete(name),
+      list: () => backing.list(),
+      probe: () => backing.probe(),
+    };
+
+    const { provider } = makeProvider({ tokenStore: gatedStore, credentialLockDir: dir });
+    const savePromise = provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+    await readInFlight;
+
+    // Logout-style locked delete for the same name, started while the save's
+    // read-modify-write is mid-flight. It must wait for the save to finish.
+    const logoutPromise = withCredentialLock(dir, 'jira', () => backing.delete('jira'));
+    // Give the delete a chance to (incorrectly) cut ahead before the save's
+    // read resumes; with the lock in place it cannot.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    releaseRead();
+    await Promise.all([savePromise, logoutPromise]);
+
+    // Logout ran last under the lock, so the credential stays deleted.
+    expect(await backing.read('jira')).toBeNull();
+  });
+
+  it('does not block a save on another server name’s credential lock', async () => {
+    const dir = await makeLockDir();
+    const { provider, store } = makeProvider({ credentialLockDir: dir });
+    await store.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
+
+    let releaseHold = (): void => undefined;
+    const holdGate = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    let signalHeld = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      signalHeld = resolve;
+    });
+    const holdPromise = withCredentialLock(dir, 'other', async () => {
+      signalHeld();
+      await holdGate;
+    });
+    await held;
+
+    // While "other" is locked, a save for "jira" must complete promptly.
+    await provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
+    expect((await store.read('jira'))?.tokens.access_token).toBe('refreshed');
+
+    releaseHold();
+    await holdPromise;
   });
 });
 

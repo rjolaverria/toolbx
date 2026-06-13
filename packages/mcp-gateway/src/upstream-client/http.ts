@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
+  CredentialRemovedDuringRefreshError,
   SuppressedRedirectError,
   ToolBoxOAuthProvider,
   type HttpServerConfig,
@@ -63,6 +64,13 @@ export interface CreateHttpUpstreamClientDeps {
    * 401, and persist the refreshed pair back through the store.
    */
   tokenStore?: TokenStore;
+  /**
+   * Config directory whose per-server-name credential lock serializes
+   * token-store mutations (P3-08/P3-09). Forwarded to the OAuth provider so an
+   * SDK-driven token refresh persists under the same lock the CLI credential
+   * commands hold, and cannot race a concurrent `tlbx auth logout`.
+   */
+  credentialLockDir?: string;
 }
 
 export function createHttpUpstreamClient(
@@ -91,6 +99,9 @@ export function createHttpUpstreamClient(
       redirectUrl: new URL('http://127.0.0.1:0/unused'),
       tokenStore: deps.tokenStore,
       logger: log,
+      ...(deps.credentialLockDir !== undefined
+        ? { credentialLockDir: deps.credentialLockDir }
+        : {}),
     });
   }
 
@@ -108,7 +119,14 @@ export function createHttpUpstreamClient(
     if (!isOAuth) {
       return null;
     }
-    if (!(error instanceof SuppressedRedirectError) && !(error instanceof UnauthorizedError)) {
+    if (
+      !(error instanceof SuppressedRedirectError) &&
+      !(error instanceof UnauthorizedError) &&
+      // A refresh whose record was removed mid-flight (e.g. by `tlbx auth
+      // logout`) is an auth failure too: the store read below finds no record
+      // and classifies it as auth_required.
+      !(error instanceof CredentialRemovedDuringRefreshError)
+    ) {
       return null;
     }
     log.debug(

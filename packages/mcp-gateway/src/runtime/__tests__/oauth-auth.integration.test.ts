@@ -1,4 +1,8 @@
-import { InMemoryTokenStore, type StoredOAuthRecord } from '@toolbox/core';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import { InMemoryTokenStore, withCredentialLock, type StoredOAuthRecord } from '@toolbox/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -189,6 +193,57 @@ describe('gateway OAuth runtime', () => {
 
     expect(recovered.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(runtime.statusRegistry.get('demo')?.status.kind).toBe('connected');
+  }, 20_000);
+
+  it('routes the gateway token refresh through the per-server credential lock (P3-09)', async () => {
+    // The runtime must thread its configDir down to the OAuth provider as the
+    // credential-lock root, so a refresh persisting tokens contends on the
+    // same per-name lock the CLI credential commands use. While the test holds
+    // demo's lock the refresh cannot persist; releasing it lets the gateway
+    // finish connecting and write the rotated tokens.
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tlbx-runtime-cred-lock-'));
+    try {
+      const upstream = await startUpstream({ validTokens: ['refreshed-access-token'] });
+      const tokenStore = new InMemoryTokenStore();
+      await tokenStore.write(
+        'demo',
+        record(upstream.issuer, { access_token: 'stale', refresh_token: 'r1' }),
+      );
+
+      let releaseLock = (): void => undefined;
+      const lockGate = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      let signalHeld = (): void => undefined;
+      const held = new Promise<void>((resolve) => {
+        signalHeld = resolve;
+      });
+      const lockHold = withCredentialLock(configDir, 'demo', async () => {
+        signalHeld();
+        await lockGate;
+      });
+      await held;
+
+      const { runtime } = await startHarness({
+        config: configFor(upstream.url),
+        harness,
+        tokenStore,
+        configDir,
+        waitForServers: [],
+      });
+
+      // The refresh grant lands, but its token save must wait on demo's lock.
+      await waitFor(() => upstream.tokenGrants.includes('refresh_token'), 5000);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect((await tokenStore.read('demo'))?.tokens.access_token).toBe('stale');
+
+      releaseLock();
+      await lockHold;
+      await waitFor(() => runtime.statusRegistry.get('demo')?.status.kind === 'connected', 5000);
+      expect((await tokenStore.read('demo'))?.tokens.access_token).toBe('refreshed-access-token');
+    } finally {
+      await fs.rm(configDir, { recursive: true, force: true });
+    }
   }, 20_000);
 
   it('enters auth_required when no token is stored at all', async () => {

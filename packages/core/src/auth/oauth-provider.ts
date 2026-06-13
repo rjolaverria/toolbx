@@ -11,6 +11,7 @@ import type {
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 
+import { withCredentialLock } from '../config/lock.js';
 import type { Logger } from '../logging/logger.js';
 import {
   CURRENT_OAUTH_SCHEMA_VERSION,
@@ -35,6 +36,34 @@ export interface ToolBoxOAuthProviderOpts {
    * for callers that already know it.
    */
   authorizationServer?: string;
+  /**
+   * Config directory whose per-server-name credential lock (P3-08) serializes
+   * token-store mutations. When set, `saveTokens` runs its read-modify-write
+   * under `withCredentialLock(credentialLockDir, serverName)`, so a long-lived
+   * gateway refresh contends on the same lock as the CLI credential commands
+   * (`auth login | logout | refresh`, `server add-http`, `doctor --fix`) and
+   * cannot interleave with them. Omitted by the CLI flows, which already hold
+   * the lock for the whole command.
+   */
+  credentialLockDir?: string;
+}
+
+/**
+ * Thrown by `saveTokens` when a refresh-grant save (no authorization-code
+ * exchange) finds no stored record for the server: the credential was removed
+ * (e.g. by `tlbx auth logout`) after the refresh began, and persisting the
+ * refreshed tokens would silently re-create a record the user deleted. The
+ * gateway classifies this as `auth_required`.
+ */
+export class CredentialRemovedDuringRefreshError extends Error {
+  override readonly name = 'CredentialRemovedDuringRefreshError';
+
+  constructor(public readonly serverName: string) {
+    super(
+      `Stored credentials for ${serverName} were removed while a token refresh ` +
+        'was in flight; the refreshed tokens were not persisted.',
+    );
+  }
 }
 
 /**
@@ -274,51 +303,11 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     this.suppressTokensRead = false;
     this.suppressClientRead = false;
     try {
-      const existing = await this.load();
-      const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
-      if (!clientInformation) {
-        throw new Error(
-          `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
-            'the SDK should call saveClientInformation first.',
-        );
-      }
-      const authorizationServer =
-        this.resolvedAuthorizationServer ??
-        this.opts.authorizationServer ??
-        existing?.authorizationServer;
-      if (!authorizationServer) {
-        // We refuse to persist with an empty authorizationServer — refresh would
-        // have no endpoint to call against. F1-18 must either set it via
-        // setAuthorizationServer or pass it in opts before the SDK calls
-        // saveTokens.
-        throw new Error(
-          `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
-            'Call provider.setAuthorizationServer(...) before the token exchange completes.',
-        );
-      }
-      // The RFC 8707 resource indicator to persist. On a fresh authorization-code
-      // exchange (interactive login/reauth) the SDK's selection is authoritative:
-      // the `resource` advertised in RFC 9728 protected-resource metadata, or none
-      // when the server advertises none. We take it verbatim — including "none" —
-      // so a reauth against a server that dropped (or never had) a resource cannot
-      // inherit a stale indicator and replay the wrong audience on later refreshes.
-      // A refresh grant (no code exchange) keeps the most recent stored resource:
-      // the long-lived gateway provider holds discovery from the initial connect,
-      // so an external `tlbx auth login` may have rebound the resource since.
-      const resource = this.authorizationCodeExchangeInFlight
-        ? this.discoveryStateCache?.resourceMetadata?.resource
-        : existing?.resource;
-      const next: StoredOAuthRecord = {
-        schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
-        clientInformation,
-        tokens,
-        authorizationServer,
-        scopes: existing?.scopes ?? this.opts.scopes ?? [],
-        ...(resource !== undefined ? { resource } : {}),
-        obtainedAt: new Date().toISOString(),
-      };
-      await this.opts.tokenStore.write(this.opts.serverName, next);
-      this.pendingClientInformation = undefined;
+      // The read-modify-write below runs under the per-server-name credential
+      // lock (when configured), so a concurrent credential command — most
+      // importantly `tlbx auth logout` — cannot interleave between the read of
+      // the existing record and the write of the merged one.
+      await this.runUnderCredentialLock(() => this.persistTokens(tokens));
     } finally {
       // Consume the authorization-code marker even when persistence fails: a
       // later refresh save on this long-lived provider must fall back to the
@@ -327,6 +316,67 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       this.useDiscoveredResourceForCodeExchange = false;
       this.latestDiscoveredResourceSelection = { kind: 'none' };
     }
+  }
+
+  private runUnderCredentialLock<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.opts.credentialLockDir === undefined) {
+      return fn();
+    }
+    return withCredentialLock(this.opts.credentialLockDir, this.opts.serverName, fn);
+  }
+
+  private async persistTokens(tokens: OAuthTokens): Promise<void> {
+    const existing = await this.load();
+    // A refresh grant only ever starts from a stored record (that is where
+    // the refresh token came from). Finding none here means the credential
+    // was deleted after the refresh began — do not resurrect it.
+    if (!this.authorizationCodeExchangeInFlight && existing === null) {
+      throw new CredentialRemovedDuringRefreshError(this.opts.serverName);
+    }
+    const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
+    if (!clientInformation) {
+      throw new Error(
+        `Cannot save tokens for ${this.opts.serverName} before clientInformation; ` +
+          'the SDK should call saveClientInformation first.',
+      );
+    }
+    const authorizationServer =
+      this.resolvedAuthorizationServer ??
+      this.opts.authorizationServer ??
+      existing?.authorizationServer;
+    if (!authorizationServer) {
+      // We refuse to persist with an empty authorizationServer — refresh would
+      // have no endpoint to call against. F1-18 must either set it via
+      // setAuthorizationServer or pass it in opts before the SDK calls
+      // saveTokens.
+      throw new Error(
+        `Cannot save tokens for ${this.opts.serverName} without an authorization server URL. ` +
+          'Call provider.setAuthorizationServer(...) before the token exchange completes.',
+      );
+    }
+    // The RFC 8707 resource indicator to persist. On a fresh authorization-code
+    // exchange (interactive login/reauth) the SDK's selection is authoritative:
+    // the `resource` advertised in RFC 9728 protected-resource metadata, or none
+    // when the server advertises none. We take it verbatim — including "none" —
+    // so a reauth against a server that dropped (or never had) a resource cannot
+    // inherit a stale indicator and replay the wrong audience on later refreshes.
+    // A refresh grant (no code exchange) keeps the most recent stored resource:
+    // the long-lived gateway provider holds discovery from the initial connect,
+    // so an external `tlbx auth login` may have rebound the resource since.
+    const resource = this.authorizationCodeExchangeInFlight
+      ? this.discoveryStateCache?.resourceMetadata?.resource
+      : existing?.resource;
+    const next: StoredOAuthRecord = {
+      schemaVersion: CURRENT_OAUTH_SCHEMA_VERSION,
+      clientInformation,
+      tokens,
+      authorizationServer,
+      scopes: existing?.scopes ?? this.opts.scopes ?? [],
+      ...(resource !== undefined ? { resource } : {}),
+      obtainedAt: new Date().toISOString(),
+    };
+    await this.opts.tokenStore.write(this.opts.serverName, next);
+    this.pendingClientInformation = undefined;
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {

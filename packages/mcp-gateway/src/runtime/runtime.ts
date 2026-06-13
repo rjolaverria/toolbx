@@ -40,7 +40,12 @@ export interface CreateUpstreamSessionForRuntime {
   (
     serverName: string,
     config: ServerConfig,
-    deps: { logger: Logger; processEnv?: NodeJS.ProcessEnv; tokenStore?: TokenStore },
+    deps: {
+      logger: Logger;
+      processEnv?: NodeJS.ProcessEnv;
+      tokenStore?: TokenStore;
+      credentialLockDir?: string;
+    },
   ): UpstreamSession;
 }
 
@@ -59,8 +64,10 @@ export interface CreateGatewayRuntimeDeps {
   /**
    * Absolute ToolBox config directory (parent of `tools/`). When provided, the
    * runtime exposes imported, enabled custom tools (P3-05) alongside proxied
-   * upstream tools. Omitted ⇒ no custom tools are loaded. `tlbx serve` passes
-   * `dirname(configPath)`.
+   * upstream tools, and OAuth token refreshes persist under the per-server-name
+   * credential lock rooted here — the same lock the CLI credential commands
+   * hold (P3-09). Omitted ⇒ no custom tools are loaded and refreshes are
+   * unlocked. `tlbx serve` passes `dirname(configPath)`.
    */
   configDir?: string;
   /** Test seam: override how the custom-tool host is constructed. */
@@ -114,6 +121,7 @@ const defaultCreateSession: CreateUpstreamSessionForRuntime = (name, config, dep
     serverName: name,
     ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
     ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
+    ...(deps.credentialLockDir !== undefined ? { credentialLockDir: deps.credentialLockDir } : {}),
   });
 
 /** True when the configured (enabled) server set includes an OAuth HTTP upstream. */
@@ -229,6 +237,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       logger: log,
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
       ...(tokenStore !== undefined ? { tokenStore } : {}),
+      ...(deps.configDir !== undefined ? { credentialLockDir: deps.configDir } : {}),
     });
     sessions.set(name, session);
 

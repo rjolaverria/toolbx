@@ -6,10 +6,12 @@ import {
   InMemoryTokenStore,
   loadConfig,
   saveConfig,
+  ToolBoxOAuthProvider,
   type AuthHint,
   type RunOAuthLoginInput,
   type RunOAuthLoginResult,
   type StoredOAuthRecord,
+  type TokenStore,
 } from '@toolbox/core';
 
 import { runAuthLogout } from '../auth/logout.js';
@@ -136,5 +138,64 @@ describe('add-http OAuth racing auth logout', () => {
 
     release();
     await addPromise;
+  });
+});
+
+describe('gateway token refresh racing auth logout (P3-09)', () => {
+  it('cannot resurrect a token: logout waits for the in-flight refresh save, then deletes', async () => {
+    // The gateway's OAuth provider persists an SDK-driven refresh through the
+    // same per-name credential lock the CLI holds. A logout started while that
+    // save is mid read-modify-write must wait for it and then delete — never
+    // slip its delete between the save's read and write (which would let the
+    // write re-create the credential the user just removed).
+    const cfg = await makeTempConfig();
+    harnesses.push(cfg);
+    const backing = new InMemoryTokenStore();
+    await backing.write('acme', record);
+
+    let releaseRead = (): void => undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let signalReadInFlight = (): void => undefined;
+    const readInFlight = new Promise<void>((resolve) => {
+      signalReadInFlight = resolve;
+    });
+    let gateArmed = true;
+    const gatedStore: TokenStore = {
+      read: async (name) => {
+        if (gateArmed) {
+          gateArmed = false;
+          signalReadInFlight();
+          await readGate;
+        }
+        return backing.read(name);
+      },
+      write: (name, rec) => backing.write(name, rec),
+      delete: (name) => backing.delete(name),
+      list: () => backing.list(),
+      probe: () => backing.probe(),
+    };
+    const provider = new ToolBoxOAuthProvider({
+      serverName: 'acme',
+      redirectUrl: new URL('http://127.0.0.1:0/unused'),
+      tokenStore: gatedStore,
+      logger: createNoopLogger(),
+      credentialLockDir: path.dirname(cfg.target),
+    });
+
+    // The refresh save acquires the lock, then stalls inside its locked read.
+    const savePromise = provider.saveTokens(newRecord.tokens);
+    await readInFlight;
+
+    // Real logout for the same name, with a store sharing the same backing.
+    const logoutPromise = runAuthLogout('acme', {}, authDeps(cfg.target, backing));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    releaseRead();
+
+    const [, logoutCode] = await Promise.all([savePromise, logoutPromise]);
+    expect(logoutCode).toBe(0);
+    // Logout ran last under the lock: the refreshed token does not survive it.
+    expect(await backing.read('acme')).toBeNull();
   });
 });
