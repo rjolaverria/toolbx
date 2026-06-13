@@ -197,16 +197,19 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // would have no lineage and could clobber a credential a concurrent `tlbx auth
   // login` just wrote.
   private fallbackRefreshFingerprint: string | undefined;
-  // Fingerprints of records THIS provider instance has written. Used to tell a
-  // concurrent refresh by another operation on this same gateway provider apart
-  // from an external `tlbx auth login`/`auth refresh`. When a save finds the
-  // record replaced: if the replacement is one of our own writes, it is a
-  // sibling refresh of the same credential and the later save persists its
-  // rotation (last-write-wins) so a valid rotation is never silently dropped; if
-  // it is not ours, it is an external login/rebind and the save skips to avoid
-  // clobbering it. Bounded — only the most recent writes can still be the current
-  // stored record during a concurrency window.
-  private readonly ownWrittenFingerprints = new Set<string>();
+  // Records THIS provider instance has written, mapped from the written record's
+  // fingerprint to the source fingerprint the write descended from. Used to tell a
+  // *sibling* concurrent refresh (another operation on this provider that refreshed
+  // the SAME source) apart from an external `tlbx auth login`/`auth refresh` and
+  // from our own refresh of a *different* source. When a save finds the record
+  // replaced: last-write-wins applies only when the replacement is our own write
+  // that descended from the same source as this refresh — a true sibling, whose
+  // rotation we must not drop. A replacement we did not write, or one we wrote from
+  // a different source (e.g. a refresh of a credential the user re-logged into), is
+  // not a sibling, so we skip rather than clobber it. Bounded — only the most
+  // recent writes can still be the current stored record during a concurrency
+  // window.
+  private readonly ownWriteSources = new Map<string, string | undefined>();
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -484,13 +487,19 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
         // `tokens()` read, which is not a refresh from a stored token and has
         // nothing to clobber; that case falls through to the normal write.
         //
-        // Who wrote the replacement decides what we do:
-        if (this.ownWrittenFingerprints.has(existingFingerprint)) {
-          // This provider's own concurrent refresh of the same credential. Both
-          // descend from the same source, so the later save persists its rotation
-          // (last-write-wins) rather than dropping it — dropping could leave the
-          // store with a refresh token a rotating server has already superseded.
-          // Fall through to the write.
+        // Who wrote the replacement — and from which source — decides what we do:
+        if (
+          this.ownWriteSources.has(existingFingerprint) &&
+          this.ownWriteSources.get(existingFingerprint) === sourceFingerprint
+        ) {
+          // This provider's own concurrent refresh of the SAME source — a true
+          // sibling. Both descend from the same credential, so the later save
+          // persists its rotation (last-write-wins) rather than dropping it —
+          // dropping could leave the store with a refresh token a rotating server
+          // has already superseded. Fall through to the write. (An own write from
+          // a DIFFERENT source — e.g. a refresh of a credential the user re-logged
+          // into — is not a sibling and falls to the skip branch below, so a stale
+          // pre-relogin refresh cannot clobber it.)
         } else {
           // An external writer (`tlbx auth login`/`auth refresh` in another
           // process) rebound the credential. Do not clobber it, and do not fail:
@@ -563,25 +572,29 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       obtainedAt: new Date().toISOString(),
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);
-    this.rememberOwnWrite(recordFingerprint(next));
+    this.rememberOwnWrite(recordFingerprint(next), sourceFingerprint);
     this.pendingClientInformation = undefined;
   }
 
   /**
-   * Records the fingerprint of a record this provider just wrote, so a sibling
-   * concurrent refresh can recognize the replacement as its own (last-write-wins)
-   * rather than an external login (skip). Bounded: only the most recent writes
-   * can still be the current stored record during a concurrency window, so old
-   * entries are evicted in insertion order.
+   * Records a record this provider just wrote, keyed by its fingerprint and
+   * carrying the source fingerprint it descended from, so a concurrent refresh can
+   * recognize the replacement as its own *sibling* (same source → last-write-wins)
+   * versus an external write or its own write from a different source (skip).
+   * Bounded: only the most recent writes can still be the current stored record
+   * during a concurrency window, so old entries are evicted in insertion order.
    */
-  private rememberOwnWrite(fingerprint: string): void {
-    this.ownWrittenFingerprints.add(fingerprint);
-    while (this.ownWrittenFingerprints.size > OWN_WRITE_FINGERPRINT_LIMIT) {
-      const oldest = this.ownWrittenFingerprints.values().next().value;
+  private rememberOwnWrite(fingerprint: string, sourceFingerprint: string | undefined): void {
+    // Re-insert to refresh insertion order so a repeated fingerprint isn't evicted
+    // prematurely.
+    this.ownWriteSources.delete(fingerprint);
+    this.ownWriteSources.set(fingerprint, sourceFingerprint);
+    while (this.ownWriteSources.size > OWN_WRITE_FINGERPRINT_LIMIT) {
+      const oldest = this.ownWriteSources.keys().next().value;
       if (oldest === undefined) {
         break;
       }
-      this.ownWrittenFingerprints.delete(oldest);
+      this.ownWriteSources.delete(oldest);
     }
   }
 

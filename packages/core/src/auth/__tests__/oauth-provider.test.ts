@@ -943,6 +943,57 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     expect((await store.read('jira'))?.tokens.access_token).toBe('a');
   });
 
+  it('does not clobber a re-login the gateway already refreshed when a stale pre-login refresh lands', async () => {
+    // A's refresh started from the OLD credential (rt0). The user then re-logs in
+    // (R1), and the gateway refreshes THAT login once (writing a record from
+    // source R1). When A's stale save finally lands, the current record is
+    // gateway-written — but it descends from a DIFFERENT source than A. Last-
+    // write-wins must apply only to a sibling of the same source, so A must skip
+    // rather than clobber the refreshed re-login.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'old', refresh_token: 'rt0' }) }),
+    );
+
+    let releaseASave = (): void => undefined;
+    const aSaveGate = new Promise<void>((resolve) => {
+      releaseASave = resolve;
+    });
+
+    // A reads the old credential (rt0), then pauses before persisting.
+    const aOperation = provider.withRefreshScope(async (): Promise<void> => {
+      expect((await provider.tokens())?.refresh_token).toBe('rt0');
+      await aSaveGate;
+      await provider.saveTokens(makeTokens({ access_token: 'a-stale', refresh_token: 'rt-a' }));
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // External re-login replaces the credential.
+    await store.write(
+      'jira',
+      makeRecord({
+        obtainedAt: '2026-07-07T00:00:00.000Z',
+        tokens: makeTokens({ access_token: 'login', refresh_token: 'rt1' }),
+      }),
+    );
+
+    // The gateway refreshes the new login once (record written from source R1).
+    await provider.withRefreshScope(async (): Promise<void> => {
+      expect((await provider.tokens())?.refresh_token).toBe('rt1');
+      await provider.saveTokens(makeTokens({ access_token: 'b-fresh', refresh_token: 'rt-b' }));
+    });
+    expect((await store.read('jira'))?.tokens.access_token).toBe('b-fresh');
+
+    releaseASave();
+    await aOperation;
+
+    // A's stale refresh (source rt0) must not clobber the gateway's refresh of
+    // the re-login (source rt1), even though the current record is gateway-written.
+    expect((await store.read('jira'))?.tokens.access_token).toBe('b-fresh');
+  });
+
   it('persists an unscoped refresh when the record is unchanged (rotation-safe)', async () => {
     // A background SSE-stream reconnect refreshes without a withRefreshScope.
     // When nothing changed concurrently, it must still PERSIST the rotated
