@@ -744,13 +744,15 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     expect(await store.read('jira')).toBeNull();
   });
 
-  it('aborts a refresh-grant save when a concurrent login replaced the stored record', async () => {
+  it('skips the save without clobbering or failing when a concurrent login replaced the record', async () => {
     // The SDK reads the refresh token and POSTs to the token endpoint outside
     // the credential lock. If `tlbx auth login` writes a fresh credential (new
     // refresh token) while that POST is in flight, the in-flight refresh — based
-    // on the old refresh token — must not clobber the newer login. The upstream
-    // client wraps each operation in `withRefreshScope`, so the lineage read and
-    // the save share one cell.
+    // on the old refresh token — must not clobber the newer login. The replaced
+    // record is still valid, so the save skips silently (no throw): the SDK's
+    // retry re-reads and uses the login's token. The upstream client wraps each
+    // operation in `withRefreshScope`, so the lineage read and the save share one
+    // cell.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
@@ -772,22 +774,22 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
           makeTokens({ access_token: 'refreshed', refresh_token: 'rt-refreshed' }),
         );
       }),
-    ).rejects.toThrow(/while a token refresh was in flight/);
+    ).resolves.toBeUndefined();
 
-    // The fresh login survives intact.
+    // The fresh login survives intact; the stale refresh did not clobber it.
     const record = await store.read('jira');
     expect(record?.tokens.access_token).toBe('login');
     expect(record?.tokens.refresh_token).toBe('rt1');
   });
 
-  it('isolates refresh lineage per concurrent operation so a parallel read cannot defeat the abort', async () => {
+  it('isolates refresh lineage per concurrent operation so a parallel read cannot clobber the winner', async () => {
     // The SDK reads tokens() (to attach a header or feed a refresh) and later
     // calls saveTokens() within one operation. The transport calls tokens() on
     // every request with no dedup, so a long-lived provider sees concurrent
     // reads from independent operations. Operation A's in-flight refresh lineage
     // (scoped via withRefreshScope) must not be corrupted by operation B's
     // parallel read of a newer (logged-in) record — otherwise A's stale save
-    // would clobber B.
+    // would match the corrupted lineage and clobber B's login.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
@@ -813,7 +815,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
 
     // Operation B (its own scope): a concurrent login rebinds the credential,
     // then B reads tokens() — which would overwrite a shared lineage field with
-    // rt1 and let A's stale save slip through.
+    // rt1 and let A's stale save match the changed record and clobber it.
     await provider.withRefreshScope(async (): Promise<void> => {
       await store.write(
         'jira',
@@ -824,19 +826,20 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     });
 
     releaseASave();
-    await expect(aOperation).rejects.toThrow(/while a token refresh was in flight/);
+    await aOperation;
 
-    // A's stale refresh did not clobber B's login.
+    // A's stale refresh skipped its write and did not clobber B's login.
     const record = await store.read('jira');
     expect(record?.tokens.access_token).toBe('login');
     expect(record?.tokens.refresh_token).toBe('rt1');
   });
 
-  it('aborts when a concurrent login rewrote the record even if the refresh token is unchanged', async () => {
+  it('does not clobber when a concurrent login rewrote the record even if the refresh token is unchanged', async () => {
     // A login that mints a fresh access token but happens to preserve the same
     // refresh token still rewrites the record (new access token + obtainedAt).
     // The lineage check compares a record fingerprint, not just the refresh
-    // token, so the stale in-flight refresh must not clobber that login.
+    // token, so the stale in-flight refresh detects the rewrite and skips its
+    // write rather than clobbering that login.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
@@ -861,9 +864,40 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
           makeTokens({ access_token: 'refreshed', refresh_token: 'shared-rt' }),
         );
       }),
-    ).rejects.toThrow(/while a token refresh was in flight/);
+    ).resolves.toBeUndefined();
 
     expect((await store.read('jira'))?.tokens.access_token).toBe('login');
+  });
+
+  it('does not fail or clobber when another concurrent refresh already wrote fresh tokens', async () => {
+    // Two operations refresh the same stale credential. The winner writes fresh
+    // tokens first; the loser, seeing the record changed, must not fail
+    // (auth_expired) or clobber — it skips its write so the SDK retry uses the
+    // winner's now-current tokens.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'stale', refresh_token: 'rt0' }) }),
+    );
+
+    await expect(
+      provider.withRefreshScope(async () => {
+        // Loser captures the stale source.
+        expect((await provider.tokens())?.refresh_token).toBe('rt0');
+        // The winning refresh completes first, writing fresh tokens.
+        await store.write(
+          'jira',
+          makeRecord({
+            obtainedAt: '2026-03-03T00:00:00.000Z',
+            tokens: makeTokens({ access_token: 'winner', refresh_token: 'rt-win' }),
+          }),
+        );
+        return provider.saveTokens(makeTokens({ access_token: 'loser', refresh_token: 'rt-lose' }));
+      }),
+    ).resolves.toBeUndefined();
+
+    // The winner's fresh tokens are intact; the loser did not overwrite them.
+    expect((await store.read('jira'))?.tokens.access_token).toBe('winner');
   });
 
   it('translates credential-lock contention into a retryable CredentialChangedDuringRefreshError', async () => {
