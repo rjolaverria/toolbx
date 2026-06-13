@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { withCredentialLock } from '../../config/lock.js';
 import { createNoopLogger } from '../../logging/logger.js';
 import {
+  CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
   ToolBoxOAuthProvider,
   type ToolBoxOAuthProviderOpts,
@@ -829,6 +830,80 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     const record = await store.read('jira');
     expect(record?.tokens.access_token).toBe('login');
     expect(record?.tokens.refresh_token).toBe('rt1');
+  });
+
+  it('aborts when a concurrent login rewrote the record even if the refresh token is unchanged', async () => {
+    // A login that mints a fresh access token but happens to preserve the same
+    // refresh token still rewrites the record (new access token + obtainedAt).
+    // The lineage check compares a record fingerprint, not just the refresh
+    // token, so the stale in-flight refresh must not clobber that login.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({
+        obtainedAt: '2026-01-01T00:00:00.000Z',
+        tokens: makeTokens({ access_token: 'old', refresh_token: 'shared-rt' }),
+      }),
+    );
+
+    await expect(
+      provider.withRefreshScope(async () => {
+        expect((await provider.tokens())?.refresh_token).toBe('shared-rt');
+        // Concurrent login: same refresh token, new access token + obtainedAt.
+        await store.write(
+          'jira',
+          makeRecord({
+            obtainedAt: '2026-02-02T00:00:00.000Z',
+            tokens: makeTokens({ access_token: 'login', refresh_token: 'shared-rt' }),
+          }),
+        );
+        return provider.saveTokens(
+          makeTokens({ access_token: 'refreshed', refresh_token: 'shared-rt' }),
+        );
+      }),
+    ).rejects.toThrow(/while a token refresh was in flight/);
+
+    expect((await store.read('jira'))?.tokens.access_token).toBe('login');
+  });
+
+  it('translates credential-lock contention into a retryable CredentialChangedDuringRefreshError', async () => {
+    // A long-running credential command (e.g. `tlbx auth login` waiting on the
+    // browser) holds the per-name lock past the gateway refresh's acquire
+    // timeout. The refresh must not surface a raw ConfigLockError (a generic
+    // upstream failure); it translates to CredentialChangedDuringRefreshError,
+    // which the gateway classifies as a retryable auth condition.
+    const dir = await makeLockDir();
+    const { provider, store } = makeProvider({
+      credentialLockDir: dir,
+      credentialLockOptions: { timeoutMs: 100, pollMs: 10 },
+    });
+    await store.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
+
+    let releaseHolder = (): void => undefined;
+    const holderGate = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let signalHeld = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      signalHeld = resolve;
+    });
+    const holder = withCredentialLock(dir, 'jira', async () => {
+      signalHeld();
+      await holderGate;
+    });
+    await held;
+
+    await provider.withRefreshScope(async () => {
+      await provider.tokens();
+      await expect(
+        provider.saveTokens(makeTokens({ access_token: 'refreshed', refresh_token: 'rt' })),
+      ).rejects.toBeInstanceOf(CredentialChangedDuringRefreshError);
+    });
+
+    releaseHolder();
+    await holder;
+    // The contended save did not persist.
+    expect((await store.read('jira'))?.tokens.access_token).toBe('access-1');
   });
 
   it('serializes the saveTokens read-modify-write against a concurrent locked delete', async () => {
