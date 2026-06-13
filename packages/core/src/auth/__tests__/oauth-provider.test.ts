@@ -747,27 +747,85 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     // The SDK reads the refresh token and POSTs to the token endpoint outside
     // the credential lock. If `tlbx auth login` writes a fresh credential (new
     // refresh token) while that POST is in flight, the in-flight refresh — based
-    // on the old refresh token — must not clobber the newer login.
+    // on the old refresh token — must not clobber the newer login. The upstream
+    // client wraps each operation in `withRefreshScope`, so the lineage read and
+    // the save share one cell.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
       makeRecord({ tokens: makeTokens({ access_token: 'old', refresh_token: 'rt0' }) }),
     );
 
-    // The SDK reads the refresh source before exchanging it.
-    expect((await provider.tokens())?.refresh_token).toBe('rt0');
-
-    // Concurrent login rebinds the credential to a fresh refresh token.
-    await store.write(
-      'jira',
-      makeRecord({ tokens: makeTokens({ access_token: 'login', refresh_token: 'rt1' }) }),
-    );
-
     await expect(
-      provider.saveTokens(makeTokens({ access_token: 'refreshed', refresh_token: 'rt-refreshed' })),
+      provider.withRefreshScope(async () => {
+        // The SDK reads the refresh source before exchanging it.
+        expect((await provider.tokens())?.refresh_token).toBe('rt0');
+
+        // Concurrent login rebinds the credential to a fresh refresh token.
+        await store.write(
+          'jira',
+          makeRecord({ tokens: makeTokens({ access_token: 'login', refresh_token: 'rt1' }) }),
+        );
+
+        return provider.saveTokens(
+          makeTokens({ access_token: 'refreshed', refresh_token: 'rt-refreshed' }),
+        );
+      }),
     ).rejects.toThrow(/while a token refresh was in flight/);
 
     // The fresh login survives intact.
+    const record = await store.read('jira');
+    expect(record?.tokens.access_token).toBe('login');
+    expect(record?.tokens.refresh_token).toBe('rt1');
+  });
+
+  it('isolates refresh lineage per concurrent operation so a parallel read cannot defeat the abort', async () => {
+    // The SDK reads tokens() (to attach a header or feed a refresh) and later
+    // calls saveTokens() within one operation. The transport calls tokens() on
+    // every request with no dedup, so a long-lived provider sees concurrent
+    // reads from independent operations. Operation A's in-flight refresh lineage
+    // (scoped via withRefreshScope) must not be corrupted by operation B's
+    // parallel read of a newer (logged-in) record — otherwise A's stale save
+    // would clobber B.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'a0', refresh_token: 'rt0' }) }),
+    );
+
+    let releaseASave = (): void => undefined;
+    const aSaveGate = new Promise<void>((resolve) => {
+      releaseASave = resolve;
+    });
+
+    // Operation A: reads its refresh source (rt0) in its own scope, then pauses
+    // before persisting until B has run.
+    const aOperation = provider.withRefreshScope(async (): Promise<unknown> => {
+      const source = (await provider.tokens())?.refresh_token;
+      expect(source).toBe('rt0');
+      await aSaveGate;
+      return provider.saveTokens(makeTokens({ access_token: 'refreshed', refresh_token: 'rt-r' }));
+    });
+
+    // Let A's tokens() read settle before B runs.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Operation B (its own scope): a concurrent login rebinds the credential,
+    // then B reads tokens() — which would overwrite a shared lineage field with
+    // rt1 and let A's stale save slip through.
+    await provider.withRefreshScope(async (): Promise<void> => {
+      await store.write(
+        'jira',
+        makeRecord({ tokens: makeTokens({ access_token: 'login', refresh_token: 'rt1' }) }),
+      );
+      const bSource = (await provider.tokens())?.refresh_token;
+      expect(bSource).toBe('rt1');
+    });
+
+    releaseASave();
+    await expect(aOperation).rejects.toThrow(/while a token refresh was in flight/);
+
+    // A's stale refresh did not clobber B's login.
     const record = await store.read('jira');
     expect(record?.tokens.access_token).toBe('login');
     expect(record?.tokens.refresh_token).toBe('rt1');

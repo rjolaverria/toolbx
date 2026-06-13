@@ -423,13 +423,22 @@ export function createHttpUpstreamClient(
     handlers[event].delete(handler);
   }
 
+  // Run an operation inside the OAuth provider's refresh-lineage scope so the
+  // SDK's `tokens()` read and the `saveTokens()` it triggers (both descendants
+  // of `fn`) share one per-operation cell, letting the provider detect a
+  // credential rebound out from under an in-flight refresh without a concurrent
+  // request's read corrupting it. A no-op for non-OAuth clients.
+  function withRefreshScope<T>(fn: () => Promise<T>): Promise<T> {
+    return authProvider !== undefined ? authProvider.withRefreshScope(fn) : fn();
+  }
+
   return {
     serverName,
-    connect,
+    connect: () => withRefreshScope(connect),
     disconnect,
-    listTools,
-    callTool,
-    ping,
+    listTools: () => withRefreshScope(listTools),
+    callTool: (name, args, opts) => withRefreshScope(() => callTool(name, args, opts)),
+    ping: () => withRefreshScope(ping),
     on,
     off,
   };

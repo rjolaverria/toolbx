@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -128,14 +129,25 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   private authorizationCodeExchangeInFlight = false;
   private useDiscoveredResourceForCodeExchange = false;
   private latestDiscoveredResourceSelection: DiscoveredResourceSelection = { kind: 'none' };
-  // The refresh token the most recent `tokens()` read returned to the SDK. A
-  // refresh grant is exchanged against exactly this value, and the SDK does not
-  // re-read `tokens()` between that read and the `saveTokens` it triggers — so
-  // at save time this is the lineage the in-flight refresh started from. Under
-  // the credential lock, `persistTokens` compares it against the current stored
-  // record to detect a concurrent `tlbx auth login` that rebound the credential
-  // mid-refresh, and aborts rather than clobbering the newer login.
-  private refreshSourceRefreshToken: string | undefined;
+  // Per-operation record of the refresh token `tokens()` last returned to the
+  // SDK. The SDK reads `tokens()` and then calls the `saveTokens()` it triggers
+  // within one operation (one `auth()` call), so this is the lineage the
+  // in-flight refresh started from. It must be per-operation, not a shared
+  // field: the transport calls `tokens()` on every request (for the
+  // Authorization header) with no dedup, so on this long-lived provider
+  // concurrent operations would clobber one shared field — letting a stale
+  // refresh save slip past the abort check. The cell is established by
+  // `withRefreshScope`, which the upstream client wraps around each operation
+  // (an ancestor of both the SDK's `tokens()` and `saveTokens()` calls); each
+  // concurrent operation gets its own cell via `AsyncLocalStorage.run`, so a
+  // parallel read writes a different cell and cannot corrupt an in-flight
+  // refresh. `persistTokens` compares the captured source against the current
+  // stored record under the credential lock to detect a concurrent `tlbx auth
+  // login` that rebound the credential mid-refresh, aborting rather than
+  // clobbering the newer login. Calls made outside any scope (e.g. a background
+  // SDK stream reconnect) see an undefined cell and fall back to the
+  // record-present/absent check alone.
+  private readonly refreshScope = new AsyncLocalStorage<{ source: string | undefined }>();
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -297,15 +309,32 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     return Promise.resolve();
   }
 
+  /**
+   * Runs `fn` inside a fresh refresh-lineage scope. The upstream client wraps
+   * each operation (connect / listTools / callTool / ping) in this so the SDK's
+   * `tokens()` read and the `saveTokens()` it triggers — both descendants of
+   * `fn` — share one per-operation cell. Concurrent operations get independent
+   * cells, so a parallel `tokens()` read cannot corrupt an in-flight refresh's
+   * lineage (see {@link refreshScope}).
+   */
+  withRefreshScope<T>(fn: () => Promise<T>): Promise<T> {
+    return this.refreshScope.run({ source: undefined }, fn);
+  }
+
   async tokens(): Promise<OAuthTokens | undefined> {
     if (this.suppressTokensRead) {
       return undefined;
     }
     const record = await this.load();
-    // Remember the refresh token handed to the SDK: a refresh grant is exchanged
-    // against this exact value, and `persistTokens` uses it under the lock to
-    // detect a credential rebound out from under the in-flight refresh.
-    this.refreshSourceRefreshToken = record?.tokens.refresh_token;
+    // Remember the refresh token handed to the SDK in this operation's scope
+    // cell so a concurrent operation's read cannot corrupt it: a refresh grant
+    // is exchanged against this exact value, and `persistTokens` uses it under
+    // the lock to detect a credential rebound out from under the in-flight
+    // refresh.
+    const cell = this.refreshScope.getStore();
+    if (cell !== undefined) {
+      cell.source = record?.tokens.refresh_token;
+    }
     return record?.tokens;
   }
 
@@ -317,12 +346,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // staying stuck returning undefined from tokens() for its lifetime.
     this.suppressTokensRead = false;
     this.suppressClientRead = false;
+    // Capture the refresh lineage from this operation's scope cell before
+    // crossing into the lock (whose own AsyncLocalStorage `run` opens a child
+    // context); the cell still propagates, but reading it here keeps the source
+    // unambiguous.
+    const refreshSource = this.refreshScope.getStore()?.source;
     try {
       // The read-modify-write below runs under the per-server-name credential
       // lock (when configured), so a concurrent credential command — most
       // importantly `tlbx auth logout` — cannot interleave between the read of
       // the existing record and the write of the merged one.
-      await this.runUnderCredentialLock(() => this.persistTokens(tokens));
+      await this.runUnderCredentialLock(() => this.persistTokens(tokens, refreshSource));
     } finally {
       // Consume the authorization-code marker even when persistence fails: a
       // later refresh save on this long-lived provider must fall back to the
@@ -340,7 +374,10 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     return withCredentialLock(this.opts.credentialLockDir, this.opts.serverName, fn);
   }
 
-  private async persistTokens(tokens: OAuthTokens): Promise<void> {
+  private async persistTokens(
+    tokens: OAuthTokens,
+    refreshSource: string | undefined,
+  ): Promise<void> {
     const existing = await this.load();
     // A refresh grant only ever starts from a stored record (that is where the
     // refresh token came from). Under the lock, the stored credential must still
@@ -352,8 +389,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // authoritative and intentionally overwrites, so it skips this guard.
     if (!this.authorizationCodeExchangeInFlight) {
       const sourceChanged =
-        this.refreshSourceRefreshToken !== undefined &&
-        existing?.tokens.refresh_token !== this.refreshSourceRefreshToken;
+        refreshSource !== undefined && existing?.tokens.refresh_token !== refreshSource;
       if (existing === null || sourceChanged) {
         throw new CredentialChangedDuringRefreshError(this.opts.serverName);
       }
