@@ -497,6 +497,21 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
           // the stored record holds valid credentials and the SDK re-reads the
           // now-current token on its automatic retry, so the request still
           // succeeds without moving the session into auth recovery.
+          //
+          // We deliberately skip rather than persist, even though an external
+          // *refresh* of the same source could (on a rotating server) leave a
+          // sibling rotation we then drop. The two external cases are
+          // indistinguishable here — a login mints a new identity that must not be
+          // clobbered, a refresh mints a sibling we'd prefer to keep — and
+          // clobbering a login is the worse, more standard failure, so skip wins.
+          // Standard rotation makes the dropped-sibling case benign anyway: two
+          // exchanges of one source yield either independent valid children (the
+          // stored one works) or trigger reuse detection that revokes the whole
+          // grant (both dead, recovered by re-login). Distinguishing the cases
+          // would need per-record lineage metadata — an on-disk token-store format
+          // change that is out of scope — or serializing the cross-process
+          // token-endpoint exchange, which the credential lock (save-only) does
+          // not and should not cover.
           this.opts.logger.debug(
             { server: this.opts.serverName },
             'skipping stale refresh save; credential was rewritten by an external command',
