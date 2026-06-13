@@ -178,6 +178,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // SDK stream reconnect) see an undefined cell and fall back to the
   // record-present/absent check alone.
   private readonly refreshScope = new AsyncLocalStorage<{ fingerprint: string | undefined }>();
+  // Fallback lineage for refresh saves that run WITHOUT a `withRefreshScope`
+  // cell — chiefly the SDK transport's standalone server→client SSE stream,
+  // whose 401-triggered reconnects refresh from a detached `setTimeout` callback
+  // outside any operation we wrap. That standalone stream is single and its
+  // reconnects are serial, so its refreshes never overlap each other; a single
+  // instance field is therefore a safe lineage for them. It is written only by
+  // unscoped `tokens()` reads (scoped reads use their own cell), so a concurrent
+  // scoped refresh cannot corrupt it. Without this, an unscoped refresh save
+  // would have no lineage and could clobber a credential a concurrent `tlbx auth
+  // login` just wrote.
+  private fallbackRefreshFingerprint: string | undefined;
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -356,14 +367,17 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       return undefined;
     }
     const record = await this.load();
-    // Remember the refresh token handed to the SDK in this operation's scope
-    // cell so a concurrent operation's read cannot corrupt it: a refresh grant
-    // is exchanged against this exact value, and `persistTokens` uses it under
-    // the lock to detect a credential rebound out from under the in-flight
-    // refresh.
+    // Remember the fingerprint of the record handed to the SDK so `persistTokens`
+    // can detect, under the lock, a credential rewritten out from under an
+    // in-flight refresh. Scoped operations record it in their per-operation cell
+    // (isolated from concurrent operations); an unscoped read (the standalone SSE
+    // stream's serial reconnects) records it in the fallback field instead.
+    const fingerprint = record === null ? undefined : recordFingerprint(record);
     const cell = this.refreshScope.getStore();
     if (cell !== undefined) {
-      cell.fingerprint = record === null ? undefined : recordFingerprint(record);
+      cell.fingerprint = fingerprint;
+    } else {
+      this.fallbackRefreshFingerprint = fingerprint;
     }
     return record?.tokens;
   }
@@ -376,11 +390,13 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
     // staying stuck returning undefined from tokens() for its lifetime.
     this.suppressTokensRead = false;
     this.suppressClientRead = false;
-    // Capture the refresh lineage from this operation's scope cell before
-    // crossing into the lock (whose own AsyncLocalStorage `run` opens a child
-    // context); the cell still propagates, but reading it here keeps the source
-    // unambiguous.
-    const sourceFingerprint = this.refreshScope.getStore()?.fingerprint;
+    // Capture the refresh lineage before crossing into the lock (whose own
+    // AsyncLocalStorage `run` opens a child context). A scoped operation reads
+    // its per-operation cell; an unscoped one (standalone SSE reconnect) reads
+    // the serial fallback field.
+    const cell = this.refreshScope.getStore();
+    const sourceFingerprint =
+      cell !== undefined ? cell.fingerprint : this.fallbackRefreshFingerprint;
     try {
       // The read-modify-write below runs under the per-server-name credential
       // lock (when configured), so a concurrent credential command — most
@@ -440,14 +456,20 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
         throw new CredentialChangedDuringRefreshError(this.opts.serverName);
       }
       if (sourceFingerprint !== undefined && recordFingerprint(existing) !== sourceFingerprint) {
-        // Replaced mid-refresh by a concurrent winner — another refresh of the
-        // same credential, or a `tlbx auth login` — that already wrote a fresh,
-        // valid record under the lock. Do not clobber it, and do not fail: the
-        // SDK re-reads the now-current token on its automatic retry, so the
-        // request still succeeds. Skipping the stale write (rather than throwing)
-        // avoids moving the session into auth recovery over a benign race. The
-        // fingerprint (not just the refresh token) catches a login that rewrote
-        // the record while preserving the refresh token.
+        // The present record was replaced mid-refresh by a concurrent winner —
+        // another refresh of the same credential, or a `tlbx auth login` — whose
+        // fresh fingerprint no longer matches this refresh's captured source. Do
+        // not clobber it, and do not fail: the stored record holds valid
+        // credentials, and the SDK re-reads the now-current token on its
+        // automatic retry, so the request still succeeds without moving the
+        // session into auth recovery over a benign race. The fingerprint (not just
+        // the refresh token) catches a login that rewrote the record while
+        // preserving the refresh token. Every real refresh captures a lineage —
+        // scoped operations in their cell, the standalone SSE stream in the
+        // fallback — so a `sourceFingerprint` of `undefined` only arises for a
+        // flow with no preceding `tokens()` read, which is not a refresh from a
+        // stored token and has no record to clobber; that case falls through to
+        // the normal write.
         this.opts.logger.debug(
           { server: this.opts.serverName },
           'skipping stale refresh save; credential was rewritten concurrently',

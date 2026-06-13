@@ -900,6 +900,83 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     expect((await store.read('jira'))?.tokens.access_token).toBe('winner');
   });
 
+  it('persists an unscoped refresh when the record is unchanged (rotation-safe)', async () => {
+    // A background SSE-stream reconnect refreshes without a withRefreshScope.
+    // When nothing changed concurrently, it must still PERSIST the rotated
+    // tokens — skipping would leave a stale refresh token and risk the server's
+    // reuse detection revoking the credential chain. The serial fallback lineage
+    // confirms the record is unchanged, so the write proceeds.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'old', refresh_token: 'rt0' }) }),
+    );
+
+    // Unscoped read captures the source via the fallback lineage.
+    expect((await provider.tokens())?.refresh_token).toBe('rt0');
+    await provider.saveTokens(makeTokens({ access_token: 'rotated', refresh_token: 'rt1' }));
+
+    const record = await store.read('jira');
+    expect(record?.tokens.access_token).toBe('rotated');
+    expect(record?.tokens.refresh_token).toBe('rt1');
+  });
+
+  it('guards an unscoped refresh save against a concurrent replacement via the fallback lineage', async () => {
+    // Same unscoped (background reconnect) path, but a concurrent `tlbx auth
+    // login` replaces the record between the read and the save. The fallback
+    // lineage lets the guard detect the change and skip the stale write rather
+    // than clobbering the login.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'old', refresh_token: 'rt0' }) }),
+    );
+
+    expect((await provider.tokens())?.refresh_token).toBe('rt0');
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'login', refresh_token: 'rt1' }) }),
+    );
+
+    await expect(
+      provider.saveTokens(makeTokens({ access_token: 'refreshed', refresh_token: 'rt-r' })),
+    ).resolves.toBeUndefined();
+
+    expect((await store.read('jira'))?.tokens.access_token).toBe('login');
+  });
+
+  it('does not let a concurrent scoped read corrupt an unscoped refresh’s fallback lineage', async () => {
+    // The fallback lineage is only written by unscoped reads; a concurrent
+    // scoped operation uses its own per-operation cell and must not overwrite
+    // the fallback an in-flight unscoped refresh relies on.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'old', refresh_token: 'rt0' }) }),
+    );
+
+    // Unscoped read seeds the fallback with rt0's fingerprint.
+    expect((await provider.tokens())?.refresh_token).toBe('rt0');
+
+    // The record is rewritten, then a concurrent scoped operation reads the new
+    // record into its own cell. If that scoped read leaked into the fallback, the
+    // unscoped save below would match the current record and clobber it.
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'newer', refresh_token: 'rt9' }) }),
+    );
+    await provider.withRefreshScope(async () => {
+      expect((await provider.tokens())?.refresh_token).toBe('rt9');
+    });
+
+    // The unscoped save's source is still rt0 (fallback intact), which no longer
+    // matches the current record (rt9), so it skips rather than clobbering.
+    await expect(
+      provider.saveTokens(makeTokens({ access_token: 'rotated', refresh_token: 'rt1' })),
+    ).resolves.toBeUndefined();
+    expect((await store.read('jira'))?.tokens.access_token).toBe('newer');
+  });
+
   it('translates credential-lock contention into a retryable CredentialChangedDuringRefreshError', async () => {
     // A long-running credential command (e.g. `tlbx auth login` waiting on the
     // browser) holds the per-name lock past the gateway refresh's acquire
