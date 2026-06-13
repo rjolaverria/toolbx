@@ -107,6 +107,14 @@ export class SuppressedRedirectError extends Error {
  * token) catches any rewrite — including a login that happens to preserve the
  * refresh token.
  */
+/**
+ * Cap on the set of own-written fingerprints kept per provider. Only fingerprints
+ * that could still be the current stored record during a concurrent-refresh
+ * window matter, so a small bound is ample and keeps the set from growing over a
+ * long-lived gateway session.
+ */
+const OWN_WRITE_FINGERPRINT_LIMIT = 64;
+
 function recordFingerprint(record: StoredOAuthRecord): string {
   return [record.obtainedAt, record.tokens.access_token, record.tokens.refresh_token ?? ''].join(
     '\u0000',
@@ -189,6 +197,16 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // would have no lineage and could clobber a credential a concurrent `tlbx auth
   // login` just wrote.
   private fallbackRefreshFingerprint: string | undefined;
+  // Fingerprints of records THIS provider instance has written. Used to tell a
+  // concurrent refresh by another operation on this same gateway provider apart
+  // from an external `tlbx auth login`/`auth refresh`. When a save finds the
+  // record replaced: if the replacement is one of our own writes, it is a
+  // sibling refresh of the same credential and the later save persists its
+  // rotation (last-write-wins) so a valid rotation is never silently dropped; if
+  // it is not ours, it is an external login/rebind and the save skips to avoid
+  // clobbering it. Bounded — only the most recent writes can still be the current
+  // stored record during a concurrency window.
+  private readonly ownWrittenFingerprints = new Set<string>();
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -455,26 +473,36 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
         // auth_required (the store re-read finds nothing).
         throw new CredentialChangedDuringRefreshError(this.opts.serverName);
       }
-      if (sourceFingerprint !== undefined && recordFingerprint(existing) !== sourceFingerprint) {
-        // The present record was replaced mid-refresh by a concurrent winner —
-        // another refresh of the same credential, or a `tlbx auth login` — whose
-        // fresh fingerprint no longer matches this refresh's captured source. Do
-        // not clobber it, and do not fail: the stored record holds valid
-        // credentials, and the SDK re-reads the now-current token on its
-        // automatic retry, so the request still succeeds without moving the
-        // session into auth recovery over a benign race. The fingerprint (not just
-        // the refresh token) catches a login that rewrote the record while
-        // preserving the refresh token. Every real refresh captures a lineage —
-        // scoped operations in their cell, the standalone SSE stream in the
-        // fallback — so a `sourceFingerprint` of `undefined` only arises for a
-        // flow with no preceding `tokens()` read, which is not a refresh from a
-        // stored token and has no record to clobber; that case falls through to
-        // the normal write.
-        this.opts.logger.debug(
-          { server: this.opts.serverName },
-          'skipping stale refresh save; credential was rewritten concurrently',
-        );
-        return;
+      const existingFingerprint = recordFingerprint(existing);
+      if (sourceFingerprint !== undefined && existingFingerprint !== sourceFingerprint) {
+        // The present record was replaced mid-refresh — its fingerprint no longer
+        // matches this refresh's captured source. The fingerprint (not just the
+        // refresh token) catches a login that rewrote the record while preserving
+        // the refresh token. Every real refresh captures a lineage — scoped
+        // operations in their cell, the standalone SSE stream in the fallback — so
+        // an `undefined` source only arises for a flow with no preceding
+        // `tokens()` read, which is not a refresh from a stored token and has
+        // nothing to clobber; that case falls through to the normal write.
+        //
+        // Who wrote the replacement decides what we do:
+        if (this.ownWrittenFingerprints.has(existingFingerprint)) {
+          // This provider's own concurrent refresh of the same credential. Both
+          // descend from the same source, so the later save persists its rotation
+          // (last-write-wins) rather than dropping it — dropping could leave the
+          // store with a refresh token a rotating server has already superseded.
+          // Fall through to the write.
+        } else {
+          // An external writer (`tlbx auth login`/`auth refresh` in another
+          // process) rebound the credential. Do not clobber it, and do not fail:
+          // the stored record holds valid credentials and the SDK re-reads the
+          // now-current token on its automatic retry, so the request still
+          // succeeds without moving the session into auth recovery.
+          this.opts.logger.debug(
+            { server: this.opts.serverName },
+            'skipping stale refresh save; credential was rewritten by an external command',
+          );
+          return;
+        }
       }
     }
     const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
@@ -520,7 +548,26 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       obtainedAt: new Date().toISOString(),
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);
+    this.rememberOwnWrite(recordFingerprint(next));
     this.pendingClientInformation = undefined;
+  }
+
+  /**
+   * Records the fingerprint of a record this provider just wrote, so a sibling
+   * concurrent refresh can recognize the replacement as its own (last-write-wins)
+   * rather than an external login (skip). Bounded: only the most recent writes
+   * can still be the current stored record during a concurrency window, so old
+   * entries are evicted in insertion order.
+   */
+  private rememberOwnWrite(fingerprint: string): void {
+    this.ownWrittenFingerprints.add(fingerprint);
+    while (this.ownWrittenFingerprints.size > OWN_WRITE_FINGERPRINT_LIMIT) {
+      const oldest = this.ownWrittenFingerprints.values().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.ownWrittenFingerprints.delete(oldest);
+    }
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {

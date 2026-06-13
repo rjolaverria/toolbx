@@ -869,11 +869,12 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     expect((await store.read('jira'))?.tokens.access_token).toBe('login');
   });
 
-  it('does not fail or clobber when another concurrent refresh already wrote fresh tokens', async () => {
-    // Two operations refresh the same stale credential. The winner writes fresh
-    // tokens first; the loser, seeing the record changed, must not fail
-    // (auth_expired) or clobber — it skips its write so the SDK retry uses the
-    // winner's now-current tokens.
+  it('does not fail or clobber when an external write replaced the record mid-refresh', async () => {
+    // A refresh is in flight when an external writer (a `tlbx auth login` /
+    // `auth refresh` in another process) replaces the record. The in-flight
+    // refresh, seeing the record changed by a writer that is not this provider,
+    // must not fail (auth_expired) or clobber — it skips its write so the SDK
+    // retry uses the external writer's now-current tokens.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
@@ -884,20 +885,62 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
       provider.withRefreshScope(async () => {
         // Loser captures the stale source.
         expect((await provider.tokens())?.refresh_token).toBe('rt0');
-        // The winning refresh completes first, writing fresh tokens.
+        // An external process replaces the record (not via this provider).
         await store.write(
           'jira',
           makeRecord({
             obtainedAt: '2026-03-03T00:00:00.000Z',
-            tokens: makeTokens({ access_token: 'winner', refresh_token: 'rt-win' }),
+            tokens: makeTokens({ access_token: 'external', refresh_token: 'rt-ext' }),
           }),
         );
         return provider.saveTokens(makeTokens({ access_token: 'loser', refresh_token: 'rt-lose' }));
       }),
     ).resolves.toBeUndefined();
 
-    // The winner's fresh tokens are intact; the loser did not overwrite them.
-    expect((await store.read('jira'))?.tokens.access_token).toBe('winner');
+    // The external write is intact; the in-flight refresh did not overwrite it.
+    expect((await store.read('jira'))?.tokens.access_token).toBe('external');
+  });
+
+  it('persists a same-provider concurrent refresh rotation rather than dropping it', async () => {
+    // Two gateway operations on the SAME provider refresh the same credential.
+    // The first to acquire the lock wins, but the second's refresh produced a
+    // valid rotation too — dropping it could leave the store with a refresh token
+    // a rotating server already superseded. Because the replacement was written
+    // by this provider's own refresh (not an external login), the later save
+    // persists its rotation (last-write-wins) instead of skipping.
+    const { provider, store } = makeProvider();
+    await store.write(
+      'jira',
+      makeRecord({ tokens: makeTokens({ access_token: 'a0', refresh_token: 'rt0' }) }),
+    );
+
+    let releaseASave = (): void => undefined;
+    const aSaveGate = new Promise<void>((resolve) => {
+      releaseASave = resolve;
+    });
+
+    // Operation A reads rt0, then pauses before persisting.
+    const aOperation = provider.withRefreshScope(async (): Promise<void> => {
+      expect((await provider.tokens())?.refresh_token).toBe('rt0');
+      await aSaveGate;
+      await provider.saveTokens(makeTokens({ access_token: 'a', refresh_token: 'rt-a' }));
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Operation B (same provider) also refreshes from rt0 and writes first.
+    await provider.withRefreshScope(async (): Promise<void> => {
+      expect((await provider.tokens())?.refresh_token).toBe('rt0');
+      await provider.saveTokens(makeTokens({ access_token: 'b', refresh_token: 'rt-b' }));
+    });
+    expect((await store.read('jira'))?.tokens.access_token).toBe('b');
+
+    releaseASave();
+    await aOperation;
+
+    // A saw the record replaced by B — this provider's own refresh — so it
+    // persisted its rotation (last-write-wins) rather than dropping it.
+    expect((await store.read('jira'))?.tokens.access_token).toBe('a');
   });
 
   it('persists an unscoped refresh when the record is unchanged (rotation-safe)', async () => {
