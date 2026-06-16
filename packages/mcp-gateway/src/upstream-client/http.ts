@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
+  CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
   ToolBoxOAuthProvider,
   type HttpServerConfig,
@@ -63,6 +64,13 @@ export interface CreateHttpUpstreamClientDeps {
    * 401, and persist the refreshed pair back through the store.
    */
   tokenStore?: TokenStore;
+  /**
+   * Config directory whose per-server-name credential lock serializes
+   * token-store mutations (P3-08/P3-09). Forwarded to the OAuth provider so an
+   * SDK-driven token refresh persists under the same lock the CLI credential
+   * commands hold, and cannot race a concurrent `tlbx auth logout`.
+   */
+  credentialLockDir?: string;
 }
 
 export function createHttpUpstreamClient(
@@ -91,6 +99,9 @@ export function createHttpUpstreamClient(
       redirectUrl: new URL('http://127.0.0.1:0/unused'),
       tokenStore: deps.tokenStore,
       logger: log,
+      ...(deps.credentialLockDir !== undefined
+        ? { credentialLockDir: deps.credentialLockDir }
+        : {}),
     });
   }
 
@@ -108,7 +119,15 @@ export function createHttpUpstreamClient(
     if (!isOAuth) {
       return null;
     }
-    if (!(error instanceof SuppressedRedirectError) && !(error instanceof UnauthorizedError)) {
+    if (
+      !(error instanceof SuppressedRedirectError) &&
+      !(error instanceof UnauthorizedError) &&
+      // A refresh whose record was removed or replaced mid-flight (e.g. by `tlbx
+      // auth logout` or a concurrent `tlbx auth login`) is an auth failure too:
+      // the store re-read below classifies it — absent ⇒ auth_required, present
+      // (a newer login) ⇒ auth_expired, which then recovers on the next read.
+      !(error instanceof CredentialChangedDuringRefreshError)
+    ) {
       return null;
     }
     log.debug(
@@ -404,13 +423,22 @@ export function createHttpUpstreamClient(
     handlers[event].delete(handler);
   }
 
+  // Run an operation inside the OAuth provider's refresh-lineage scope so the
+  // SDK's `tokens()` read and the `saveTokens()` it triggers (both descendants
+  // of `fn`) share one per-operation cell, letting the provider detect a
+  // credential rebound out from under an in-flight refresh without a concurrent
+  // request's read corrupting it. A no-op for non-OAuth clients.
+  function withRefreshScope<T>(fn: () => Promise<T>): Promise<T> {
+    return authProvider !== undefined ? authProvider.withRefreshScope(fn) : fn();
+  }
+
   return {
     serverName,
-    connect,
+    connect: () => withRefreshScope(connect),
     disconnect,
-    listTools,
-    callTool,
-    ping,
+    listTools: () => withRefreshScope(listTools),
+    callTool: (name, args, opts) => withRefreshScope(() => callTool(name, args, opts)),
+    ping: () => withRefreshScope(ping),
     on,
     off,
   };

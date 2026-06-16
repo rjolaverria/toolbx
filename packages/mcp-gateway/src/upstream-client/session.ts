@@ -41,6 +41,7 @@ export type UpstreamClientFactory = (
     processEnv?: NodeJS.ProcessEnv | undefined;
     connectTimeoutMs?: number | undefined;
     tokenStore?: TokenStore | undefined;
+    credentialLockDir?: string | undefined;
   },
 ) => UpstreamClient;
 
@@ -57,6 +58,13 @@ export interface CreateUpstreamSessionDeps {
    * servers.
    */
   tokenStore?: TokenStore;
+  /**
+   * Config directory whose per-server-name credential lock serializes
+   * token-store mutations, forwarded to the HTTP upstream client so SDK-driven
+   * token refreshes persist under the same lock the CLI credential commands
+   * hold (P3-09).
+   */
+  credentialLockDir?: string;
   /** Test seam: override how the underlying transport client is built. */
   createClient?: UpstreamClientFactory;
   /** Test seam: override timers and clock. Defaults to `globalThis`. */
@@ -115,6 +123,7 @@ const defaultCreateClient: UpstreamClientFactory = (config, deps) => {
     ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
     ...(deps.connectTimeoutMs !== undefined ? { connectTimeoutMs: deps.connectTimeoutMs } : {}),
     ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
+    ...(deps.credentialLockDir !== undefined ? { credentialLockDir: deps.credentialLockDir } : {}),
   });
 };
 
@@ -415,6 +424,9 @@ export function createUpstreamSession(
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
       ...(deps.connectTimeoutMs !== undefined ? { connectTimeoutMs: deps.connectTimeoutMs } : {}),
       ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
+      ...(deps.credentialLockDir !== undefined
+        ? { credentialLockDir: deps.credentialLockDir }
+        : {}),
     });
     phase = { kind: 'starting', attempt, client };
     setStatus({ kind: 'starting', attempt });
