@@ -34,6 +34,9 @@ function oauthConfig(): ToolBoxConfig {
 async function harness() {
   const cfg = await makeTempConfig(oauthConfig());
   harnesses.push(cfg);
+  // Root the credential lock under the temp dir so logout's lock acquisition
+  // never touches the real per-user lock location.
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
   return makeAuthHarness(cfg.target);
 }
 
@@ -102,6 +105,7 @@ describe('runAuthLogout', () => {
   it('still deletes a corrupt entry whose read throws', async () => {
     const cfg = await makeTempConfig(oauthConfig());
     harnesses.push(cfg);
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
     const h = makeAuthHarness(cfg.target);
     const del = vi.fn(() => Promise.resolve());
     const corrupt: TokenStore = {
@@ -125,6 +129,7 @@ describe('runAuthLogout', () => {
   it('exits 1 when deleting the token fails', async () => {
     const cfg = await makeTempConfig(oauthConfig());
     harnesses.push(cfg);
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
     const h = makeAuthHarness(cfg.target);
     const failing: TokenStore = {
       read: () => Promise.resolve(record),

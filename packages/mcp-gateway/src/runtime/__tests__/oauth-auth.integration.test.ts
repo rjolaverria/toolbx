@@ -9,7 +9,7 @@ import {
   withCredentialLock,
   type StoredOAuthRecord,
 } from '@toolbox/core';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — `.mjs` fixture has no .d.ts; shape is described inline below.
@@ -42,7 +42,19 @@ const startServer = startOAuthMcpServer as (options?: {
 const harness = createIntegrationHarness();
 const activeServers = new Set<OAuthMcpServer>();
 
+// The runtime now resolves the OAuth refresh credential lock from the token-store
+// backend (the real per-user location). Root it under a temp dir for every test
+// so a refresh save never creates or contends on the real lock. (The P3-09 test
+// re-stubs this to its own dir; last stub wins.)
+let credentialLockBase: string;
+beforeEach(async () => {
+  credentialLockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'tlbx-oauth-cred-lock-'));
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, credentialLockBase);
+});
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
+  await fs.rm(credentialLockBase, { recursive: true, force: true }).catch(() => undefined);
   await harness.cleanup();
   for (const server of activeServers) {
     await server.close().catch(() => undefined);

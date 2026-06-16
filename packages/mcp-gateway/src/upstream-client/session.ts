@@ -59,10 +59,12 @@ export interface CreateUpstreamSessionDeps {
    */
   tokenStore?: TokenStore;
   /**
-   * Config directory whose per-server-name credential lock serializes
-   * token-store mutations, forwarded to the HTTP upstream client so SDK-driven
-   * token refreshes persist under the same lock the CLI credential commands
-   * hold (P3-09).
+   * Token-store backend's credential-lock root (from
+   * `resolveCredentialLockRoot(config.auth.storage)`), **not** a config dir,
+   * whose per-server-name lock serializes token-store mutations. Forwarded to the
+   * HTTP upstream client so SDK-driven token refreshes persist under the same
+   * lock the CLI credential commands hold, on one domain regardless of the `-c`
+   * config used (P3-09/P3-10).
    */
   credentialLockRoot?: string;
   /** Test seam: override how the underlying transport client is built. */

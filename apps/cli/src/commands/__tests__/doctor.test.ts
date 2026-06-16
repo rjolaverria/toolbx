@@ -1,8 +1,11 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CREDENTIAL_LOCK_DIR_ENV,
   DEFAULT_CONFIG,
   type CachedTool,
   type ServerConfig,
@@ -29,7 +32,18 @@ import { makeTempConfig, type ConfigHarness } from './harness.js';
 
 const harnesses: ConfigHarness[] = [];
 
+// `doctor --fix` orphan-token pruning acquires the per-server credential lock,
+// which now resolves to the real per-user location; root it under a temp dir so
+// the suite never creates or contends on it.
+let lockBase: string;
+beforeEach(async () => {
+  lockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-doctor-cred-lock-'));
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, lockBase);
+});
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
+  await fs.rm(lockBase, { recursive: true, force: true }).catch(() => undefined);
   while (harnesses.length > 0) {
     const h = harnesses.pop();
     if (h) {
