@@ -45,7 +45,7 @@ export interface CreateUpstreamSessionForRuntime {
       logger: Logger;
       processEnv?: NodeJS.ProcessEnv;
       tokenStore?: TokenStore;
-      credentialLockDir?: string;
+      credentialLockRoot?: string;
     },
   ): UpstreamSession;
 }
@@ -126,7 +126,9 @@ const defaultCreateSession: CreateUpstreamSessionForRuntime = (name, config, dep
     serverName: name,
     ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
     ...(deps.tokenStore !== undefined ? { tokenStore: deps.tokenStore } : {}),
-    ...(deps.credentialLockDir !== undefined ? { credentialLockDir: deps.credentialLockDir } : {}),
+    ...(deps.credentialLockRoot !== undefined
+      ? { credentialLockRoot: deps.credentialLockRoot }
+      : {}),
   });
 
 /** True when the configured (enabled) server set includes an OAuth HTTP upstream. */
@@ -156,7 +158,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
   // Root it at the backend's credential domain (machine-global for the keychain),
   // matching the CLI — not the config dir, which varies with `-c` while the
   // keychain record does not (P3-10).
-  const credentialLockDir: string | undefined =
+  const credentialLockRoot: string | undefined =
     tokenStore !== undefined ? resolveCredentialLockRoot(deps.config.auth.storage) : undefined;
 
   const upstreams: UpstreamSessionLookup = {
@@ -250,7 +252,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       logger: log,
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
       ...(tokenStore !== undefined ? { tokenStore } : {}),
-      ...(credentialLockDir !== undefined ? { credentialLockDir } : {}),
+      ...(credentialLockRoot !== undefined ? { credentialLockRoot } : {}),
     });
     sessions.set(name, session);
 

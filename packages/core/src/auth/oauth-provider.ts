@@ -38,15 +38,19 @@ export interface ToolBoxOAuthProviderOpts {
    */
   authorizationServer?: string;
   /**
-   * Config directory whose per-server-name credential lock (P3-08) serializes
-   * token-store mutations. When set, `saveTokens` runs its read-modify-write
-   * under `withCredentialLock(credentialLockDir, serverName)`, so a long-lived
-   * gateway refresh contends on the same lock as the CLI credential commands
-   * (`auth login | logout | refresh`, `server add-http`, `doctor --fix`) and
-   * cannot interleave with them. Omitted by the CLI flows, which already hold
-   * the lock for the whole command.
+   * Credential-lock root whose per-server-name lock (P3-08) serializes
+   * token-store mutations. This is the **token-store backend's lock domain**, not
+   * a config directory: callers must pass `resolveCredentialLockRoot(config.auth
+   * .storage)` (machine-global per-user for the keychain), or the gateway refresh
+   * would lock a different root than the CLI and the cross-config race would
+   * reopen (P3-10). When set, `saveTokens` runs its read-modify-write under
+   * `withCredentialLock(credentialLockRoot, serverName)`, so a long-lived gateway
+   * refresh contends on the same lock as the CLI credential commands (`auth login
+   * | logout | refresh`, `server add-http`, `doctor --fix`) and cannot interleave
+   * with them. Omitted by the CLI flows, which already hold the lock for the whole
+   * command.
    */
-  credentialLockDir?: string;
+  credentialLockRoot?: string;
   /**
    * Acquire options for the credential lock around `saveTokens`. Defaults to
    * {@link withCredentialLock}'s own defaults (~10s acquire). A long-running
@@ -414,12 +418,12 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   }
 
   private async runUnderCredentialLock<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.opts.credentialLockDir === undefined) {
+    if (this.opts.credentialLockRoot === undefined) {
       return fn();
     }
     try {
       return await withCredentialLock(
-        this.opts.credentialLockDir,
+        this.opts.credentialLockRoot,
         this.opts.serverName,
         fn,
         this.opts.credentialLockOptions ?? {},

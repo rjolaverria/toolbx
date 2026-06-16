@@ -70,7 +70,7 @@ export interface CreateHttpUpstreamClientDeps {
    * SDK-driven token refresh persists under the same lock the CLI credential
    * commands hold, and cannot race a concurrent `tlbx auth logout`.
    */
-  credentialLockDir?: string;
+  credentialLockRoot?: string;
 }
 
 export function createHttpUpstreamClient(
@@ -99,8 +99,8 @@ export function createHttpUpstreamClient(
       redirectUrl: new URL('http://127.0.0.1:0/unused'),
       tokenStore: deps.tokenStore,
       logger: log,
-      ...(deps.credentialLockDir !== undefined
-        ? { credentialLockDir: deps.credentialLockDir }
+      ...(deps.credentialLockRoot !== undefined
+        ? { credentialLockRoot: deps.credentialLockRoot }
         : {}),
     });
   }

@@ -202,7 +202,7 @@ describe('gateway token refresh racing auth logout (P3-09)', () => {
       logger: createNoopLogger(),
       // Resolve the lock root the same way the CLI commands do, so the provider's
       // refresh save and the real `runAuthLogout` below contend on one lock.
-      credentialLockDir: resolveCredentialLockRoot(KEYCHAIN_STORAGE),
+      credentialLockRoot: resolveCredentialLockRoot(KEYCHAIN_STORAGE),
     });
 
     // The refresh save acquires the lock, then stalls inside its locked read.
@@ -250,16 +250,23 @@ describe('cross-config same-credential serialization (P3-10)', () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
+      // `runOAuthLogin` runs *inside* the credential lock, so its invocation is a
+      // deterministic "add now holds the lock" signal — no sleep-and-hope.
+      let signalHeld = (): void => undefined;
+      const held = new Promise<void>((resolve) => {
+        signalHeld = resolve;
+      });
       const add = addDeps(cfgA.target, store);
       add.runOAuthLogin = vi.fn(async (input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> => {
+        signalHeld();
         await gate;
         await input.tokenStore.write(input.serverName, newRecord);
         return { kind: 'success' };
       });
 
       const addPromise = runAddHttp('acme', { url: 'https://acme.test/mcp', auth: 'oauth' }, add);
-      // Give add a tick to acquire the credential lock for "acme".
-      await new Promise((r) => setTimeout(r, 10));
+      // add provably holds the credential lock for "acme" once login is reached.
+      await held;
 
       // Logout for the SAME name but a DIFFERENT config file must block on add's
       // credential lock rather than slip through on a separate per-config lock.

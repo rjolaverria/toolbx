@@ -1075,7 +1075,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     // which the gateway classifies as a retryable auth condition.
     const dir = await makeLockDir();
     const { provider, store } = makeProvider({
-      credentialLockDir: dir,
+      credentialLockRoot: dir,
       credentialLockOptions: { timeoutMs: 100, pollMs: 10 },
     });
     await store.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
@@ -1139,7 +1139,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
       probe: () => backing.probe(),
     };
 
-    const { provider } = makeProvider({ tokenStore: gatedStore, credentialLockDir: dir });
+    const { provider } = makeProvider({ tokenStore: gatedStore, credentialLockRoot: dir });
     const savePromise = provider.saveTokens(makeTokens({ access_token: 'refreshed' }));
     await readInFlight;
 
@@ -1158,7 +1158,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
 
   it('does not block a save on another server name’s credential lock', async () => {
     const dir = await makeLockDir();
-    const { provider, store } = makeProvider({ credentialLockDir: dir });
+    const { provider, store } = makeProvider({ credentialLockRoot: dir });
     await store.write('jira', makeRecord({ tokens: makeTokens({ refresh_token: 'rt' }) }));
 
     let releaseHold = (): void => undefined;
