@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createNoopLogger,
+  CREDENTIAL_LOCK_DIR_ENV,
   DEFAULT_CONFIG,
   InMemoryTokenStore,
   loadConfig,
@@ -49,6 +50,9 @@ async function makeTempConfig(): Promise<string> {
   tempDirs.push(dir);
   const target = path.join(dir, 'config.json');
   await saveConfig(DEFAULT_CONFIG, target);
+  // Root the credential lock under this temp dir instead of the real
+  // machine-global location, so OAuth registrations serialize in isolation.
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, dir);
   return target;
 }
 
@@ -90,6 +94,7 @@ function makeHarness(
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir !== undefined) {

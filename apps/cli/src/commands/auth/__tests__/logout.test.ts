@@ -1,7 +1,9 @@
 import * as path from 'node:path';
 
 import {
+  CREDENTIAL_LOCK_DIR_ENV,
   DEFAULT_CONFIG,
+  resolveCredentialLockRoot,
   withCredentialLock,
   type StoredOAuthRecord,
   type TokenStore,
@@ -17,6 +19,7 @@ afterEach(async () => {
   while (harnesses.length > 0) {
     await harnesses.pop()?.cleanup();
   }
+  vi.unstubAllEnvs();
 });
 
 function oauthConfig(): ToolBoxConfig {
@@ -68,12 +71,20 @@ describe('runAuthLogout', () => {
     h.deps.lockOptions = { timeoutMs: 150, pollMs: 10 };
 
     // Hold the per-name credential lock for longer than logout's acquire timeout.
+    // The lock root is the backend domain (machine-global for the keychain), not
+    // the config dir; isolate it under the temp config dir so the holder and
+    // logout resolve the same root without touching the real location.
     const configDir = path.dirname(h.deps.resolvePath());
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, configDir);
     let release = (): void => undefined;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const holding = withCredentialLock(configDir, 'acme', () => held);
+    const holding = withCredentialLock(
+      resolveCredentialLockRoot({ type: 'keychain' }),
+      'acme',
+      () => held,
+    );
     // Give the holder a tick to actually acquire before logout contends.
     await new Promise((r) => setTimeout(r, 10));
 

@@ -12,6 +12,7 @@ import {
   detectCollisions,
   LOOPBACK_HOSTS,
   readToolCache,
+  resolveCredentialLockRoot,
   resolveToolCachePath,
   saveConfig,
   ToolBoxConfigSchema,
@@ -746,6 +747,7 @@ async function fixMissingEnvVars(ctx: FixContext): Promise<FixOutcome> {
 async function fixOrphanToken(
   name: string,
   tokenStore: TokenStore,
+  credentialLockRoot: string,
   ctx: FixContext,
 ): Promise<FixOutcome> {
   const action = `Delete the orphan OAuth token for "${name}" (no matching server in config)`;
@@ -756,7 +758,7 @@ async function fixOrphanToken(
   // can still fail (permission denied, store became unavailable) — report that
   // as a skipped fix rather than letting it abort the whole doctor run.
   try {
-    await withCredentialLock(path.dirname(ctx.target), name, () => tokenStore.delete(name), {
+    await withCredentialLock(credentialLockRoot, name, () => tokenStore.delete(name), {
       timeoutMs: CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS,
     });
   } catch (error) {
@@ -1009,12 +1011,18 @@ export async function runDoctor(options: DoctorOptions, deps: DoctorDeps): Promi
   const fixOutcomes = new Map<string, FixOutcome>(
     options.fix === true ? await applyFixes(checks, fixCtx) : [],
   );
-  if (options.fix === true && tokenStore !== null) {
+  if (options.fix === true && tokenStore !== null && config !== null) {
     // Orphan and missing tokens are WARN rows, so the FAIL-only generic fixer
     // above skips them: `--fix` prunes orphan tokens and only reports the manual
-    // remediation for missing ones.
+    // remediation for missing ones. The credential lock is rooted at the backend
+    // domain (machine-global for the keychain), matching the CLI credential
+    // commands and the gateway so a concurrent same-name op serializes.
+    const credentialLockRoot = resolveCredentialLockRoot(config.auth.storage);
     for (const name of auth.orphans) {
-      fixOutcomes.set(`auth-orphan:${name}`, await fixOrphanToken(name, tokenStore, fixCtx));
+      fixOutcomes.set(
+        `auth-orphan:${name}`,
+        await fixOrphanToken(name, tokenStore, credentialLockRoot, fixCtx),
+      );
     }
     for (const name of auth.missing) {
       fixOutcomes.set(`auth-missing:${name}`, missingTokenFixNotice(name));

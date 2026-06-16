@@ -2,8 +2,14 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { InMemoryTokenStore, withCredentialLock, type StoredOAuthRecord } from '@toolbox/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import {
+  CREDENTIAL_LOCK_DIR_ENV,
+  InMemoryTokenStore,
+  resolveCredentialLockRoot,
+  withCredentialLock,
+  type StoredOAuthRecord,
+} from '@toolbox/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — `.mjs` fixture has no .d.ts; shape is described inline below.
@@ -196,12 +202,16 @@ describe('gateway OAuth runtime', () => {
   }, 20_000);
 
   it('routes the gateway token refresh through the per-server credential lock (P3-09)', async () => {
-    // The runtime must thread its configDir down to the OAuth provider as the
-    // credential-lock root, so a refresh persisting tokens contends on the
-    // same per-name lock the CLI credential commands use. While the test holds
-    // demo's lock the refresh cannot persist; releasing it lets the gateway
-    // finish connecting and write the rotated tokens.
+    // The runtime resolves the credential-lock root from the token-store backend
+    // (machine-global for the keychain), so a refresh persisting tokens contends
+    // on the same per-name lock the CLI credential commands use — regardless of
+    // the config dir. We isolate that root under a temp dir for the test, then
+    // hold demo's lock at the same resolved root: the refresh cannot persist
+    // until we release it, after which the gateway connects and writes the
+    // rotated tokens.
     const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tlbx-runtime-cred-lock-'));
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, configDir);
+    const credentialLockRoot = resolveCredentialLockRoot({ type: 'keychain' });
     try {
       const upstream = await startUpstream({ validTokens: ['refreshed-access-token'] });
       const tokenStore = new InMemoryTokenStore();
@@ -218,7 +228,7 @@ describe('gateway OAuth runtime', () => {
       const held = new Promise<void>((resolve) => {
         signalHeld = resolve;
       });
-      const lockHold = withCredentialLock(configDir, 'demo', async () => {
+      const lockHold = withCredentialLock(credentialLockRoot, 'demo', async () => {
         signalHeld();
         await lockGate;
       });
@@ -242,6 +252,7 @@ describe('gateway OAuth runtime', () => {
       await waitFor(() => runtime.statusRegistry.get('demo')?.status.kind === 'connected', 5000);
       expect((await tokenStore.read('demo'))?.tokens.access_token).toBe('refreshed-access-token');
     } finally {
+      vi.unstubAllEnvs();
       await fs.rm(configDir, { recursive: true, force: true });
     }
   }, 20_000);

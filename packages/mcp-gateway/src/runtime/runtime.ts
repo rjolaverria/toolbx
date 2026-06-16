@@ -2,6 +2,7 @@ import {
   createSessionVisibility,
   createStatusRegistry,
   createTokenStore,
+  resolveCredentialLockRoot,
   type Logger,
   type ServerConfig,
   type ServerStatus,
@@ -64,10 +65,14 @@ export interface CreateGatewayRuntimeDeps {
   /**
    * Absolute ToolBox config directory (parent of `tools/`). When provided, the
    * runtime exposes imported, enabled custom tools (P3-05) alongside proxied
-   * upstream tools, and OAuth token refreshes persist under the per-server-name
-   * credential lock rooted here — the same lock the CLI credential commands
-   * hold (P3-09). Omitted ⇒ no custom tools are loaded and refreshes are
-   * unlocked. `tlbx serve` passes `dirname(configPath)`.
+   * upstream tools. Omitted ⇒ no custom tools are loaded. `tlbx serve` passes
+   * `dirname(configPath)`.
+   *
+   * This no longer governs the OAuth refresh credential lock: that root is
+   * resolved from `config.auth.storage` (machine-global for the keychain) so the
+   * gateway, the CLI credential commands, and a refresh racing `tlbx auth
+   * logout` all serialize on one domain regardless of the `-c` config a given
+   * invocation used (P3-09, P3-10).
    */
   configDir?: string;
   /** Test seam: override how the custom-tool host is constructed. */
@@ -145,6 +150,14 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     (hasOAuthUpstream(deps.config)
       ? createTokenStore(deps.config.auth.storage, { logger: deps.logger })
       : undefined);
+
+  // When a token store is in play, every OAuth refresh save runs under the
+  // per-server-name credential lock so it can't race a CLI `auth logout`/refresh.
+  // Root it at the backend's credential domain (machine-global for the keychain),
+  // matching the CLI — not the config dir, which varies with `-c` while the
+  // keychain record does not (P3-10).
+  const credentialLockDir: string | undefined =
+    tokenStore !== undefined ? resolveCredentialLockRoot(deps.config.auth.storage) : undefined;
 
   const upstreams: UpstreamSessionLookup = {
     get: (name) => sessions.get(name),
@@ -237,7 +250,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
       logger: log,
       ...(deps.processEnv !== undefined ? { processEnv: deps.processEnv } : {}),
       ...(tokenStore !== undefined ? { tokenStore } : {}),
-      ...(deps.configDir !== undefined ? { credentialLockDir: deps.configDir } : {}),
+      ...(credentialLockDir !== undefined ? { credentialLockDir } : {}),
     });
     sessions.set(name, session);
 

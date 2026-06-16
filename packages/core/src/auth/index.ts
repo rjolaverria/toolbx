@@ -5,7 +5,14 @@ export {
   type TokenStoreHealth,
 } from './token-store.js';
 
-export { createTokenStore, type CreateTokenStoreDeps } from './token-store-factory.js';
+export {
+  createTokenStore,
+  resolveCredentialLockRoot,
+  CREDENTIAL_LOCK_DIR_ENV,
+  type CreateTokenStoreDeps,
+} from './token-store-factory.js';
+
+export { KEYCHAIN_SERVICE_NAME } from './keychain-token-store.js';
 
 export { probeUpstreamAuth, type AuthHint, type ProbeUpstreamAuthDeps } from './oauth-discovery.js';
 

@@ -7,6 +7,7 @@ import {
   createNoopLogger,
   createTokenStore,
   probeUpstreamAuth,
+  resolveCredentialLockRoot,
   runOAuthLogin,
   saveConfig,
   ServerNameSchema,
@@ -371,9 +372,14 @@ async function runOAuthAndWrite(
   deps: ServerAddDeps,
 ): Promise<number> {
   const configDir = path.dirname(target);
+  // The credential lock is rooted at the token-store backend's domain (machine-
+  // global for the keychain), not the config dir, so a same-name credential
+  // command run against a different `-c` config still contends on it. The config
+  // write below keeps the config-dir lock (it protects this config + manifest).
+  const credentialLockRoot = resolveCredentialLockRoot(config.auth.storage);
   try {
     // Hoisted function declaration, so it can be referenced before its body below.
-    return await withCredentialLock(configDir, name, runOAuthRegistration, {
+    return await withCredentialLock(credentialLockRoot, name, runOAuthRegistration, {
       timeoutMs: OAUTH_LOGIN_LOCK_TIMEOUT_MS,
     });
   } catch (err) {

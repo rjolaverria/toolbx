@@ -383,11 +383,17 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Serializes token-store mutations for a single server name. Delegates to
- * {@link withConfigLock} with a per-name lock root under the config dir, so two
+ * {@link withConfigLock} with a per-name lock root under `lockRoot`, so two
  * credential commands (`server add-http` OAuth, `auth login | logout | refresh`,
  * `doctor --fix`) can never interleave their read-modify-write on the same
  * credential key, while operations for different names and non-credential
  * commands stay unblocked.
+ *
+ * `lockRoot` must be the backend's credential-lock domain, not the config dir:
+ * the keychain is machine-global, so two invocations run against different `-c`
+ * configs still mutate the same record and must contend on the same lock. Callers
+ * resolve it with `resolveCredentialLockRoot(config.auth.storage)` (token-store
+ * factory) so the CLI and the gateway agree on one domain per stored credential.
  *
  * The server name is hashed to a fixed-length hex string for the lock-root
  * directory, so any name — including one no longer present in `config.json`,
@@ -395,11 +401,11 @@ function delay(ms: number): Promise<void> {
  * with no concatenation collisions.
  */
 export function withCredentialLock<T>(
-  configDir: string,
+  lockRoot: string,
   serverName: string,
   fn: () => Promise<T>,
   options: WithConfigLockOptions = {},
 ): Promise<T> {
   const key = createHash('sha256').update(serverName, 'utf8').digest('hex');
-  return withConfigLock(path.join(configDir, '.credentials', key), fn, options);
+  return withConfigLock(path.join(lockRoot, '.credentials', key), fn, options);
 }
