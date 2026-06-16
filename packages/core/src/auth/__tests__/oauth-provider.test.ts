@@ -901,13 +901,13 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     expect((await store.read('jira'))?.tokens.access_token).toBe('external');
   });
 
-  it('persists a same-provider concurrent refresh rotation rather than dropping it', async () => {
-    // Two gateway operations on the SAME provider refresh the same credential.
-    // The first to acquire the lock wins, but the second's refresh produced a
-    // valid rotation too — dropping it could leave the store with a refresh token
-    // a rotating server already superseded. Because the replacement was written
-    // by this provider's own refresh (not an external login), the later save
-    // persists its rotation (last-write-wins) instead of skipping.
+  it('skips (does not clobber) when a same-provider concurrent refresh already wrote', async () => {
+    // Two gateway operations on the SAME provider refresh the same credential. The
+    // first to acquire the lock wins; the loser, seeing the record changed, skips
+    // rather than overwriting. Its rotation is dropped, which is benign under
+    // standard OAuth (the winner's rotation is a valid sibling, or reuse detection
+    // revokes the grant and recovery re-logs in). The client cannot order server
+    // rotations, so skip — which never clobbers — is the safe default.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
@@ -938,18 +938,15 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     releaseASave();
     await aOperation;
 
-    // A saw the record replaced by B — this provider's own refresh — so it
-    // persisted its rotation (last-write-wins) rather than dropping it.
-    expect((await store.read('jira'))?.tokens.access_token).toBe('a');
+    // A saw the record replaced by B and skipped; B's write stands.
+    expect((await store.read('jira'))?.tokens.access_token).toBe('b');
   });
 
   it('does not clobber a re-login the gateway already refreshed when a stale pre-login refresh lands', async () => {
     // A's refresh started from the OLD credential (rt0). The user then re-logs in
-    // (R1), and the gateway refreshes THAT login once (writing a record from
-    // source R1). When A's stale save finally lands, the current record is
-    // gateway-written — but it descends from a DIFFERENT source than A. Last-
-    // write-wins must apply only to a sibling of the same source, so A must skip
-    // rather than clobber the refreshed re-login.
+    // (R1), and the gateway refreshes THAT login once. When A's stale save finally
+    // lands, the record has been replaced, so A skips rather than clobbering the
+    // refreshed re-login.
     const { provider, store } = makeProvider();
     await store.write(
       'jira',
@@ -979,7 +976,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
       }),
     );
 
-    // The gateway refreshes the new login once (record written from source R1).
+    // The gateway refreshes the new login once.
     await provider.withRefreshScope(async (): Promise<void> => {
       expect((await provider.tokens())?.refresh_token).toBe('rt1');
       await provider.saveTokens(makeTokens({ access_token: 'b-fresh', refresh_token: 'rt-b' }));
@@ -989,8 +986,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
     releaseASave();
     await aOperation;
 
-    // A's stale refresh (source rt0) must not clobber the gateway's refresh of
-    // the re-login (source rt1), even though the current record is gateway-written.
+    // A's stale refresh skipped rather than clobbering the refreshed re-login.
     expect((await store.read('jira'))?.tokens.access_token).toBe('b-fresh');
   });
 

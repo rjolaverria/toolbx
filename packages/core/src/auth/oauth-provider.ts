@@ -107,14 +107,6 @@ export class SuppressedRedirectError extends Error {
  * token) catches any rewrite — including a login that happens to preserve the
  * refresh token.
  */
-/**
- * Cap on the set of own-written fingerprints kept per provider. Only fingerprints
- * that could still be the current stored record during a concurrent-refresh
- * window matter, so a small bound is ample and keeps the set from growing over a
- * long-lived gateway session.
- */
-const OWN_WRITE_FINGERPRINT_LIMIT = 64;
-
 function recordFingerprint(record: StoredOAuthRecord): string {
   return [record.obtainedAt, record.tokens.access_token, record.tokens.refresh_token ?? ''].join(
     '\u0000',
@@ -197,19 +189,6 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // would have no lineage and could clobber a credential a concurrent `tlbx auth
   // login` just wrote.
   private fallbackRefreshFingerprint: string | undefined;
-  // Records THIS provider instance has written, mapped from the written record's
-  // fingerprint to the source fingerprint the write descended from. Used to tell a
-  // *sibling* concurrent refresh (another operation on this provider that refreshed
-  // the SAME source) apart from an external `tlbx auth login`/`auth refresh` and
-  // from our own refresh of a *different* source. When a save finds the record
-  // replaced: last-write-wins applies only when the replacement is our own write
-  // that descended from the same source as this refresh — a true sibling, whose
-  // rotation we must not drop. A replacement we did not write, or one we wrote from
-  // a different source (e.g. a refresh of a credential the user re-logged into), is
-  // not a sibling, so we skip rather than clobber it. Bounded — only the most
-  // recent writes can still be the current stored record during a concurrency
-  // window.
-  private readonly ownWriteSources = new Map<string, string | undefined>();
 
   constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
 
@@ -476,8 +455,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
         // auth_required (the store re-read finds nothing).
         throw new CredentialChangedDuringRefreshError(this.opts.serverName);
       }
-      const existingFingerprint = recordFingerprint(existing);
-      if (sourceFingerprint !== undefined && existingFingerprint !== sourceFingerprint) {
+      if (sourceFingerprint !== undefined && recordFingerprint(existing) !== sourceFingerprint) {
         // The present record was replaced mid-refresh — its fingerprint no longer
         // matches this refresh's captured source. The fingerprint (not just the
         // refresh token) catches a login that rewrote the record while preserving
@@ -487,46 +465,33 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
         // `tokens()` read, which is not a refresh from a stored token and has
         // nothing to clobber; that case falls through to the normal write.
         //
-        // Who wrote the replacement — and from which source — decides what we do:
-        if (
-          this.ownWriteSources.has(existingFingerprint) &&
-          this.ownWriteSources.get(existingFingerprint) === sourceFingerprint
-        ) {
-          // This provider's own concurrent refresh of the SAME source — a true
-          // sibling. Both descend from the same credential, so the later save
-          // persists its rotation (last-write-wins) rather than dropping it —
-          // dropping could leave the store with a refresh token a rotating server
-          // has already superseded. Fall through to the write. (An own write from
-          // a DIFFERENT source — e.g. a refresh of a credential the user re-logged
-          // into — is not a sibling and falls to the skip branch below, so a stale
-          // pre-relogin refresh cannot clobber it.)
-        } else {
-          // An external writer (`tlbx auth login`/`auth refresh` in another
-          // process) rebound the credential. Do not clobber it, and do not fail:
-          // the stored record holds valid credentials and the SDK re-reads the
-          // now-current token on its automatic retry, so the request still
-          // succeeds without moving the session into auth recovery.
-          //
-          // We deliberately skip rather than persist, even though an external
-          // *refresh* of the same source could (on a rotating server) leave a
-          // sibling rotation we then drop. The two external cases are
-          // indistinguishable here — a login mints a new identity that must not be
-          // clobbered, a refresh mints a sibling we'd prefer to keep — and
-          // clobbering a login is the worse, more standard failure, so skip wins.
-          // Standard rotation makes the dropped-sibling case benign anyway: two
-          // exchanges of one source yield either independent valid children (the
-          // stored one works) or trigger reuse detection that revokes the whole
-          // grant (both dead, recovered by re-login). Distinguishing the cases
-          // would need per-record lineage metadata — an on-disk token-store format
-          // change that is out of scope — or serializing the cross-process
-          // token-endpoint exchange, which the credential lock (save-only) does
-          // not and should not cover.
-          this.opts.logger.debug(
-            { server: this.opts.serverName },
-            'skipping stale refresh save; credential was rewritten by an external command',
-          );
-          return;
-        }
+        // Skip rather than overwrite. The stored record holds valid credentials,
+        // and the SDK re-reads the now-current token on its automatic retry, so
+        // the request still succeeds without failing or moving the session into
+        // auth recovery. We never overwrite a concurrent replacement because we
+        // cannot tell what it is: a `tlbx auth login` minting a new identity (which
+        // must not be clobbered) is indistinguishable from a concurrent refresh of
+        // the same source (whose rotation we would prefer to keep). Clobbering a
+        // login is the worse, more standard failure, so skip is the safe default.
+        //
+        // The cost is that a concurrent refresh of the same source has its rotation
+        // dropped. That is benign under standard OAuth: two exchanges of one source
+        // token yield either independent valid children (the stored one keeps
+        // working) or trip refresh-token reuse detection, which revokes the whole
+        // grant — recovered by a fresh login — so no client-side write choice
+        // changes the outcome. Guaranteeing the latest rotation is persisted is in
+        // fact impossible client-side: the token response carries no rotation
+        // order, so neither skip nor last-write-wins can know which sibling the
+        // server considers newest. The only true fix is serializing the
+        // token-endpoint exchange itself (SDK-internal) or per-record lineage
+        // metadata (an on-disk format change) — both out of scope for P3-09, whose
+        // goal is preventing logout-resurrection and login-clobber, both of which
+        // skip satisfies.
+        this.opts.logger.debug(
+          { server: this.opts.serverName },
+          'skipping stale refresh save; credential was rewritten concurrently',
+        );
+        return;
       }
     }
     const clientInformation = this.pendingClientInformation ?? existing?.clientInformation;
@@ -572,30 +537,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
       obtainedAt: new Date().toISOString(),
     };
     await this.opts.tokenStore.write(this.opts.serverName, next);
-    this.rememberOwnWrite(recordFingerprint(next), sourceFingerprint);
     this.pendingClientInformation = undefined;
-  }
-
-  /**
-   * Records a record this provider just wrote, keyed by its fingerprint and
-   * carrying the source fingerprint it descended from, so a concurrent refresh can
-   * recognize the replacement as its own *sibling* (same source → last-write-wins)
-   * versus an external write or its own write from a different source (skip).
-   * Bounded: only the most recent writes can still be the current stored record
-   * during a concurrency window, so old entries are evicted in insertion order.
-   */
-  private rememberOwnWrite(fingerprint: string, sourceFingerprint: string | undefined): void {
-    // Re-insert to refresh insertion order so a repeated fingerprint isn't evicted
-    // prematurely.
-    this.ownWriteSources.delete(fingerprint);
-    this.ownWriteSources.set(fingerprint, sourceFingerprint);
-    while (this.ownWriteSources.size > OWN_WRITE_FINGERPRINT_LIMIT) {
-      const oldest = this.ownWriteSources.keys().next().value;
-      if (oldest === undefined) {
-        break;
-      }
-      this.ownWriteSources.delete(oldest);
-    }
   }
 
   redirectToAuthorization(authorizationUrl: URL): Promise<void> {
