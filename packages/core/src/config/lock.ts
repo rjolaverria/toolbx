@@ -208,16 +208,26 @@ const STEAL_MUTEX_POLL_MS = 10;
  * removal is provably safe — never deleting a live holder's lock.
  *
  * The safety rests on two invariants. (1) Acquirers publish via `rename` onto
- * `lockDir`, which only succeeds when `lockDir` is absent — so a *present* lock
- * dir can never be silently replaced by a fresh holder; it can only be removed by
- * a stealer. (2) The steal mutex (`<lock>.steal`) serializes stealers, so at most
- * one runs at a time. Holding the mutex, we re-confirm staleness and only then
- * remove the lock: because a present lock can't have become a fresh holder (1)
- * and no other stealer is racing (2), a still-stale lock here is provably the
- * same stale instance, so the removal cannot delete a live holder. After it,
- * normal acquirers race to publish and exactly one wins. The removal goes through
- * {@link discardLockDir} (atomic rename-aside) so it never exposes an empty
- * `lockDir` an acquirer could rename into mid-removal.
+ * `lockDir`, which only succeeds when the slot is free — onto a *non-empty* dir it
+ * fails, but onto an *empty* dir it succeeds (rename replaces an empty directory).
+ * (2) The steal mutex (`<lock>.steal`) serializes stealers, so at most one runs at
+ * a time. Holding the mutex, we re-confirm staleness and remove the lock with a
+ * removal matched to the slot, because the fs operations of competing acquirers
+ * run in parallel on libuv's threadpool — a holder can release (emptying the slot)
+ * and a fresh holder can publish into it between the re-confirm and the removal:
+ *
+ * - A *non-empty* slot (a dead holder's lock, a corrupt-meta lock, or a non-meta
+ *   leftover) is removed by {@link discardLockDir}'s atomic rename-aside. By (1) a
+ *   fresh holder cannot replace a non-empty dir, and by (2) no other stealer races
+ *   us, so the observed instance is stable and the rename removes exactly it (and
+ *   never exposes an empty `lockDir` an acquirer could rename into). This also
+ *   reclaims an abandoned lock left with corrupt or missing metadata.
+ * - An *empty* (or *absent*) slot is replaceable, so it is removed by
+ *   {@link removeEmptyLockDir} — a non-recursive `rmdir` that succeeds only while
+ *   the slot is still empty and fails once a holder has published, so it can never
+ *   rename a freshly published live lock away.
+ *
+ * After a removal, normal acquirers race to publish and exactly one wins.
  *
  * The re-confirm-before-rm holds even if the steal mutex's own crash-recovery
  * (age-based) momentarily admitted two stealers: a fresh holder published by the
@@ -229,15 +239,34 @@ const STEAL_MUTEX_POLL_MS = 10;
  * directory, that requires an effectively-frozen (or crashed) process — in which
  * case it will not resume to perform the `rm` anyway.
  */
-async function stealStale(lockDir: string, staleMs: number): Promise<void> {
+export async function stealStale(
+  lockDir: string,
+  staleMs: number,
+  // Test-only seam: awaited after the staleness re-confirmation and before the
+  // discard, so a deterministic test can publish a racing live lock into the
+  // slot and prove the discard never removes it. Undefined in production.
+  afterReconfirm?: () => Promise<void>,
+): Promise<void> {
   const stealMutex = `${lockDir}.steal`;
   if (!(await acquireStealMutex(stealMutex, staleMs))) {
     // Another waiter is already stealing; let the main loop retry.
     return;
   }
   try {
-    if ((await evaluateStale(lockDir, staleMs)).steal) {
-      await discardLockDir(lockDir);
+    const evaluation = await evaluateStale(lockDir, staleMs);
+    await afterReconfirm?.();
+    // The fs operations of competing acquirers run in parallel on libuv's
+    // threadpool, so a holder can release (emptying the slot) and a fresh holder
+    // can publish into it between this re-confirm and the removal. Pick the
+    // removal that cannot rename a live holder away: a meta-bearing lock is a
+    // non-empty, non-replaceable dir removed by rename-aside; an empty/absent
+    // slot is replaceable, so it is removed only while still empty.
+    if (evaluation.steal) {
+      if (evaluation.removal === 'rename-aside') {
+        await discardLockDir(lockDir);
+      } else {
+        await removeEmptyLockDir(lockDir);
+      }
     }
   } finally {
     // The steal mutex is an empty dir, so a plain recursive rm is a single rmdir
@@ -267,6 +296,24 @@ async function discardLockDir(lockDir: string): Promise<void> {
     return;
   }
   await fs.rm(grave, { recursive: true, force: true }).catch(() => undefined);
+}
+
+/**
+ * Removes a slot that was empty at the re-confirm, but only while it is still
+ * empty, so it can never rename a freshly published live lock away.
+ *
+ * An empty `lockDir` is *replaceable*: an acquirer's `rename(staging, lockDir)`
+ * succeeds onto it, so a fresh live holder can publish into the slot between the
+ * steal re-confirm and this removal. A non-recursive `rmdir` only succeeds while
+ * the dir is still empty and fails with `ENOTEMPTY` once a holder has published,
+ * so it either clears the abandoned empty dir or harmlessly leaves the slot for
+ * the acquire loop to retry. `ENOENT` (already gone) is equally fine. It never
+ * escalates to a rename-aside: a slot that turned non-empty may be a live holder,
+ * and a genuinely stale non-empty dir is reclaimed at evaluate time instead (see
+ * {@link evaluateStale}).
+ */
+async function removeEmptyLockDir(lockDir: string): Promise<void> {
+  await fs.rmdir(lockDir).catch(() => undefined);
 }
 
 /**
@@ -315,55 +362,147 @@ async function acquireStealMutex(stealMutex: string, staleMs: number): Promise<b
  * different token.
  */
 async function releaseLock(lockDir: string, nonce: string): Promise<void> {
-  const meta = await readMeta(lockDir);
-  if (meta !== undefined && typeof meta.nonce === 'string' && meta.nonce !== nonce) {
+  const state = await readMetaState(lockDir);
+  if (
+    state.kind === 'valid' &&
+    typeof state.meta.nonce === 'string' &&
+    state.meta.nonce !== nonce
+  ) {
     return;
   }
   await discardLockDir(lockDir);
 }
 
-type StaleEvaluation = { steal: boolean };
+/**
+ * Outcome of a staleness check. When stealable, `removal` says *how* the lock may
+ * be removed safely — the two differ in whether a fresh acquirer could slip a live
+ * lock into the slot between the re-confirm and the removal:
+ *
+ * - `'rename-aside'`: chosen only for a *non-empty* slot. A concurrent
+ *   `rename(staging, lockDir)` fails on a non-empty dir, so the slot cannot be
+ *   replaced by a fresh holder; the observed instance is stable and
+ *   {@link discardLockDir}'s atomic rename-aside removes exactly it.
+ * - `'rmdir-if-empty'`: chosen for an *empty* (or absent) slot. An empty directory
+ *   *is* replaceable (`rename` succeeds onto it), so a fresh holder can publish
+ *   into it before the removal runs. A non-recursive `rmdir` removes it only while
+ *   it is still empty and fails once a holder has published, so it can never rename
+ *   a live lock away (see {@link removeEmptyLockDir}).
+ */
+type StaleEvaluation =
+  | { steal: false }
+  | { steal: true; removal: 'rename-aside' | 'rmdir-if-empty' };
 
-/** Decides whether an existing lock is stale (and therefore stealable). */
+/**
+ * Decides whether an existing lock is stale (and therefore stealable), and how to
+ * remove it safely.
+ *
+ * A single `readdir` classifies the slot's structure atomically — empty, a
+ * meta-bearing lock (has `meta.json`), or a non-empty leftover without `meta.json`.
+ * Our acquirers only ever place `meta.json` in `lockDir` (a staged dir holding just
+ * that file is renamed in), so a non-empty dir *without* `meta.json` is never a
+ * live holder and, being non-empty, cannot be replaced by one — it is stable and
+ * safe to rename aside. Only a genuinely empty (replaceable) slot gets the
+ * empty-only `rmdir`; the removal strategy is never escalated after the fact.
+ */
 async function evaluateStale(lockDir: string, staleMs: number): Promise<StaleEvaluation> {
-  const meta = await readMeta(lockDir);
-
-  if (meta && typeof meta.ts === 'number') {
-    // Same-host lock: liveness is authoritative. Never steal a live holder on
-    // age alone — the meta has no heartbeat, so a long-running critical section
-    // legitimately looks "old"; waiters must time out instead. Steal only once
-    // the recorded pid is gone.
-    if (meta.host === hostname() && typeof meta.pid === 'number') {
-      return { steal: !isAlive(meta.pid) };
-    }
-    // Remote-host lock: its process table cannot be probed locally, so fall back
-    // to age as the only available staleness signal.
-    return { steal: Date.now() - meta.ts > staleMs };
-  }
-
-  // No usable meta: use the lock dir's own age as the staleness signal. A held
-  // lock always writes meta (acquire publishes it atomically), so a meta-less dir
-  // is a genuinely abandoned/corrupt lock, not a live holder mid-write.
+  let entries: string[];
   try {
-    const info = await fs.stat(lockDir);
-    return { steal: Date.now() - info.mtimeMs > staleMs };
+    entries = await fs.readdir(lockDir);
   } catch {
-    // The lock dir vanished — treat as stale so the caller retries.
-    return { steal: true };
+    // The lock dir vanished. Report it stale so the acquire loop retries promptly;
+    // the empty-only removal no-ops on an absent slot.
+    return { steal: true, removal: 'rmdir-if-empty' };
   }
+
+  if (entries.includes('meta.json')) {
+    return evaluateMetaBearing(lockDir, staleMs);
+  }
+
+  // No `meta.json`: an abandoned/leftover slot, never a live holder. Judge
+  // staleness by the dir's own age. An empty dir is replaceable (rmdir-only); a
+  // non-empty leftover is stable and reclaimed by rename-aside.
+  const removal = entries.length === 0 ? 'rmdir-if-empty' : 'rename-aside';
+  return staleByDirAge(lockDir, staleMs, removal);
 }
 
-async function readMeta(lockDir: string): Promise<LockMeta | undefined> {
-  try {
-    const parsed = JSON.parse(
-      await fs.readFile(path.join(lockDir, 'meta.json'), 'utf8'),
-    ) as unknown;
-    if (parsed !== null && typeof parsed === 'object') {
-      return parsed as LockMeta;
+/** Evaluates a slot whose `readdir` showed a `meta.json` present. */
+async function evaluateMetaBearing(lockDir: string, staleMs: number): Promise<StaleEvaluation> {
+  const state = await readMetaState(lockDir);
+
+  if (state.kind === 'absent') {
+    // `meta.json` vanished between the readdir and this read — the holder released,
+    // so the slot is now empty/replaceable and only the empty-only removal is safe.
+    return { steal: true, removal: 'rmdir-if-empty' };
+  }
+
+  if (state.kind === 'valid' && typeof state.meta.ts === 'number') {
+    const meta = state.meta;
+    // Same-host lock: liveness is authoritative. Never steal a live holder on age
+    // alone — the meta has no heartbeat, so a long-running critical section
+    // legitimately looks "old"; waiters must time out instead. Steal only once the
+    // recorded pid is gone. A meta-bearing dir is non-empty, so it is stable.
+    if (meta.host === hostname() && typeof meta.pid === 'number') {
+      return isAlive(meta.pid) ? { steal: false } : { steal: true, removal: 'rename-aside' };
     }
-    return undefined;
+    // Remote-host lock: its process table cannot be probed locally, so fall back to
+    // age as the only available staleness signal.
+    return Date.now() - meta.ts > staleMs
+      ? { steal: true, removal: 'rename-aside' }
+      : { steal: false };
+  }
+
+  // `meta.json` is present but unusable (unreadable, or a valid object without a
+  // numeric `ts`). It is non-empty and never a live holder (holders publish valid
+  // meta atomically), so the stable rename-aside reclaims it by age.
+  return staleByDirAge(lockDir, staleMs, 'rename-aside');
+}
+
+/** Stale iff the lock dir's own mtime is older than `staleMs`. */
+async function staleByDirAge(
+  lockDir: string,
+  staleMs: number,
+  removal: 'rename-aside' | 'rmdir-if-empty',
+): Promise<StaleEvaluation> {
+  const info = await fs.stat(lockDir).catch(() => undefined);
+  if (info === undefined) {
+    // Vanished — retry promptly via the no-op empty removal.
+    return { steal: true, removal: 'rmdir-if-empty' };
+  }
+  return Date.now() - info.mtimeMs > staleMs ? { steal: true, removal } : { steal: false };
+}
+
+/**
+ * Result of reading a lock's `meta.json`, in a single read so the empty/absent
+ * case is told apart from a present-but-corrupt one without a second probe that
+ * could straddle a concurrent publish:
+ *
+ * - `valid`: parsed into an object.
+ * - `unusable`: the `meta.json` file is present but unreadable or not valid JSON.
+ *   The file existing means `lockDir` is non-empty (and a live holder always
+ *   writes valid meta, so an unusable one is never a live holder).
+ * - `absent`: there is no `meta.json` — the slot is empty or `lockDir` is gone.
+ */
+type MetaRead = { kind: 'valid'; meta: LockMeta } | { kind: 'unusable' } | { kind: 'absent' };
+
+async function readMetaState(lockDir: string): Promise<MetaRead> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(path.join(lockDir, 'meta.json'), 'utf8');
+  } catch (error) {
+    // A missing meta.json (empty/gone slot) is `absent`; any other read error
+    // means the file is there but unreadable, so the dir is non-empty.
+    return (error as NodeJS.ErrnoException).code === 'ENOENT'
+      ? { kind: 'absent' }
+      : { kind: 'unusable' };
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed !== null && typeof parsed === 'object') {
+      return { kind: 'valid', meta: parsed as LockMeta };
+    }
+    return { kind: 'unusable' };
   } catch {
-    return undefined;
+    return { kind: 'unusable' };
   }
 }
 

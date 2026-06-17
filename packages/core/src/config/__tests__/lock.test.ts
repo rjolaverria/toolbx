@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ConfigLockError, withConfigLock } from '../lock.js';
+import { ConfigLockError, stealStale, withConfigLock } from '../lock.js';
 
 let dir: string;
 
@@ -75,8 +75,11 @@ describe('withConfigLock', () => {
       await new Promise((r) => setTimeout(r, 50));
       order.push('a-end');
     });
-    // Give A time to take the lock first.
-    await new Promise((r) => setTimeout(r, 5));
+    // Wait until A is actually inside its critical section (and thus holds the
+    // lock) before starting B — a fixed sleep races A's acquire under load.
+    while (!order.includes('a-start')) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
     const fast = withConfigLock(dir, () => {
       order.push('b');
       return Promise.resolve();
@@ -258,6 +261,103 @@ describe('withConfigLock', () => {
     // all see it as stale and race to steal it. The steal-mutex protocol must
     // still admit exactly one critical section at a time.
     await expectExclusive(8, { pid: 2147483646, host: hostname(), ts: Date.now() });
+  });
+
+  // Fires `seedSlot` to set up the slot the steal re-confirm will see, then —
+  // via the `afterReconfirm` seam, after the re-confirm and before the removal —
+  // publishes a racing live lock into the slot, exactly as a fresh acquirer would
+  // under parallel threadpool contention. The steal must leave that live lock in
+  // place; a readable `meta.json` afterwards proves it was not removed.
+  async function expectStealKeepsRacingLiveLock(seedSlot: () => Promise<void>): Promise<void> {
+    const lockDir = path.join(dir, '.lock');
+    await seedSlot();
+    let livePublished = false;
+    await stealStale(lockDir, 0, async () => {
+      // Replace the slot with a freshly published live lock (a non-empty dir).
+      await rm(lockDir, { recursive: true, force: true });
+      await mkdir(lockDir);
+      await writeFile(
+        path.join(lockDir, 'meta.json'),
+        JSON.stringify({ pid: process.pid, host: hostname(), ts: Date.now(), nonce: 'live' }),
+        'utf8',
+      );
+      livePublished = true;
+    });
+    expect(livePublished).toBe(true);
+    const meta = JSON.parse(await readFile(path.join(lockDir, 'meta.json'), 'utf8')) as {
+      nonce: string;
+    };
+    expect(meta.nonce).toBe('live');
+  }
+
+  it('does not remove a live lock published into a slot absent at re-confirm', async () => {
+    // The re-confirm sees no lock dir ("gone"); a fresh holder then publishes into
+    // the empty slot before the removal runs. The steal must not rename it away.
+    await expectStealKeepsRacingLiveLock(() => Promise.resolve());
+  });
+
+  it('does not remove a live lock published into an empty stale slot at re-confirm', async () => {
+    // The re-confirm sees a stale *empty* (meta-less) lock dir. An empty dir is
+    // replaceable — `rename(staging, lockDir)` succeeds onto it — so a fresh holder
+    // can publish into it before the removal. The empty-only `rmdir` must refuse to
+    // remove the now non-empty live lock.
+    await expectStealKeepsRacingLiveLock(async () => {
+      const lockDir = path.join(dir, '.lock');
+      await mkdir(lockDir);
+      // Age the empty dir well past the staleMs=0 used by the steal so it reads as
+      // stale by directory mtime.
+      const past = new Date(Date.now() - 60_000);
+      await utimes(lockDir, past, past);
+    });
+  });
+
+  it('reclaims a stale lock whose meta.json is corrupt', async () => {
+    // A present-but-corrupt meta.json is a non-empty dir a fresh acquirer cannot
+    // replace, so it is safe — and necessary — to remove it by rename-aside. Left
+    // to the empty-only rmdir it would be unstealable until acquire timeout.
+    const lockDir = path.join(dir, '.lock');
+    await mkdir(lockDir);
+    await writeFile(path.join(lockDir, 'meta.json'), 'not json{', 'utf8');
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockDir, past, past);
+
+    await stealStale(lockDir, 0);
+
+    await expect(stat(lockDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reclaims a stale non-empty lock dir that has no meta.json', async () => {
+    // A leftover .lock dir holding a non-meta file but no meta.json is non-empty,
+    // so a fresh acquirer cannot rename onto it (it is stable, never a live
+    // holder). The empty-only rmdir fails ENOTEMPTY, so the steal must fall back
+    // to rename-aside and still reclaim it rather than leave it unstealable.
+    const lockDir = path.join(dir, '.lock');
+    await mkdir(lockDir);
+    await writeFile(path.join(lockDir, 'leftover.tmp'), 'stray', 'utf8');
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockDir, past, past);
+
+    await stealStale(lockDir, 0);
+
+    await expect(stat(lockDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('leaves a non-empty slot that fills in after an empty re-confirm', async () => {
+    // The re-confirm sees an empty slot, so the steal takes the empty-only rmdir
+    // path. A non-empty dir is then in place by the time the removal runs (a fresh
+    // holder may have published). The rmdir must hit ENOTEMPTY and leave it rather
+    // than escalate to a rename-aside that could remove a live lock; a genuinely
+    // stale non-empty slot is reclaimed at evaluate time instead.
+    const lockDir = path.join(dir, '.lock');
+    await mkdir(lockDir);
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockDir, past, past);
+
+    await stealStale(lockDir, 0, async () => {
+      await writeFile(path.join(lockDir, 'leftover.tmp'), 'x', 'utf8');
+    });
+
+    expect((await stat(lockDir)).isDirectory()).toBe(true);
   });
 
   it('writes a meta record while held', async () => {

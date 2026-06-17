@@ -83,13 +83,21 @@ describe('runAuthLogout', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let signalAcquired = (): void => undefined;
+    const acquired = new Promise<void>((resolve) => {
+      signalAcquired = resolve;
+    });
     const holding = withCredentialLock(
       resolveCredentialLockRoot({ type: 'keychain' }),
       'acme',
-      () => held,
+      () => {
+        // Signal from inside the critical section so logout only contends once the
+        // lock is genuinely held — a fixed sleep races the holder's acquire.
+        signalAcquired();
+        return held;
+      },
     );
-    // Give the holder a tick to actually acquire before logout contends.
-    await new Promise((r) => setTimeout(r, 10));
+    await acquired;
 
     const code = await runAuthLogout('acme', {}, h.deps);
 
