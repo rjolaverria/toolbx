@@ -1,7 +1,5 @@
-import * as path from 'node:path';
-
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { ConfigLockError, withCredentialLock } from '@toolbox/core';
+import { ConfigLockError, resolveCredentialLockRoot, withCredentialLock } from '@toolbox/core';
 
 import { loadOrReportMissing, parsePositiveInt, resolveTargetPath } from '../server-shared.js';
 import {
@@ -49,10 +47,9 @@ export async function runAuthLogin(
   // The `isOAuthServer` guard narrowed `entry` to an HTTP server, so `url` is present.
   const serverUrl = new URL(entry.url);
 
-  const configDir = path.dirname(target);
   try {
     return await withCredentialLock(
-      configDir,
+      resolveCredentialLockRoot(config.auth.storage),
       serverName,
       async () => {
         const tokenStore = deps.createTokenStore(config.auth.storage);

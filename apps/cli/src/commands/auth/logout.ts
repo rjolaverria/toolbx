@@ -1,7 +1,5 @@
-import * as path from 'node:path';
-
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { ConfigLockError, withCredentialLock } from '@toolbox/core';
+import { ConfigLockError, resolveCredentialLockRoot, withCredentialLock } from '@toolbox/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
 import {
@@ -31,7 +29,7 @@ export async function runAuthLogout(
   // another command is between its login write and its config save/rollback.
   try {
     return await withCredentialLock(
-      path.dirname(target),
+      resolveCredentialLockRoot(config.auth.storage),
       serverName,
       async () => {
         // Logout never edits config.json — it only clears stored credentials, so

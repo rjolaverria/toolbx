@@ -1,7 +1,5 @@
-import * as path from 'node:path';
-
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { ConfigLockError, withCredentialLock } from '@toolbox/core';
+import { ConfigLockError, resolveCredentialLockRoot, withCredentialLock } from '@toolbox/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
 import {
@@ -30,7 +28,7 @@ export async function runAuthRefresh(
   // read-then-write cannot interleave with a logout/login/add-http on the same key.
   try {
     return await withCredentialLock(
-      path.dirname(target),
+      resolveCredentialLockRoot(config.auth.storage),
       serverName,
       async () => {
         const tokenStore = deps.createTokenStore(config.auth.storage);

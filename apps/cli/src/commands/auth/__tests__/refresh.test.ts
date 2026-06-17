@@ -1,4 +1,5 @@
 import {
+  CREDENTIAL_LOCK_DIR_ENV,
   DEFAULT_CONFIG,
   type RunOAuthRefreshInput,
   type StoredOAuthRecord,
@@ -15,6 +16,7 @@ afterEach(async () => {
   while (harnesses.length > 0) {
     await harnesses.pop()?.cleanup();
   }
+  vi.unstubAllEnvs();
 });
 
 function oauthConfig(): ToolBoxConfig {
@@ -29,6 +31,9 @@ function oauthConfig(): ToolBoxConfig {
 async function harness() {
   const cfg = await makeTempConfig(oauthConfig());
   harnesses.push(cfg);
+  // Root the credential lock under the temp dir so refresh's lock acquisition
+  // never touches the real per-user lock location.
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
   return makeAuthHarness(cfg.target);
 }
 
@@ -79,6 +84,7 @@ describe('runAuthRefresh', () => {
     // not a blocker (matches logout's config-independent behavior).
     const cfg = await makeTempConfig(DEFAULT_CONFIG);
     harnesses.push(cfg);
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
     const h = makeAuthHarness(cfg.target);
     await h.store.write('acme', record('2020-01-01T00:00:00.000Z'));
     h.deps.runOAuthRefresh = vi.fn(() => Promise.resolve({ kind: 'success' as const }));
@@ -92,6 +98,7 @@ describe('runAuthRefresh', () => {
   it('exits 1 with a diagnostic when reading the token store throws', async () => {
     const cfg = await makeTempConfig(oauthConfig());
     harnesses.push(cfg);
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
     const h = makeAuthHarness(cfg.target);
     const throwing: TokenStore = {
       read: () => Promise.reject(new Error('keychain is locked')),

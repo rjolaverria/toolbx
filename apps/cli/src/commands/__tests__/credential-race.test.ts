@@ -1,10 +1,14 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createNoopLogger,
+  CREDENTIAL_LOCK_DIR_ENV,
   InMemoryTokenStore,
   loadConfig,
+  resolveCredentialLockRoot,
   saveConfig,
   ToolBoxOAuthProvider,
   type AuthHint,
@@ -24,7 +28,19 @@ afterEach(async () => {
   while (harnesses.length > 0) {
     await harnesses.pop()?.cleanup();
   }
+  vi.unstubAllEnvs();
 });
+
+/**
+ * Roots the credential lock under the test's temp dir instead of the real
+ * machine-global location, so the run stays isolated while the CLI commands and
+ * the provider (which resolve the root the same way) still serialize on it.
+ */
+function isolateCredentialLock(cfg: ConfigHarness): void {
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
+}
+
+const KEYCHAIN_STORAGE = { type: 'keychain' } as const;
 
 const record: StoredOAuthRecord = {
   schemaVersion: 2,
@@ -85,6 +101,7 @@ describe('add-http OAuth racing auth logout', () => {
     // take, the end state is the same: no server registered, no token stored.
     const cfg = await makeTempConfig();
     harnesses.push(cfg);
+    isolateCredentialLock(cfg);
     const store = new InMemoryTokenStore();
     await store.write('acme', record);
 
@@ -109,6 +126,7 @@ describe('add-http OAuth racing auth logout', () => {
   it('does not block a logout for a different name while a login is in progress', async () => {
     const cfg = await makeTempConfig();
     harnesses.push(cfg);
+    isolateCredentialLock(cfg);
     const store = new InMemoryTokenStore();
     await store.write('other', record);
 
@@ -150,6 +168,7 @@ describe('gateway token refresh racing auth logout (P3-09)', () => {
     // write re-create the credential the user just removed).
     const cfg = await makeTempConfig();
     harnesses.push(cfg);
+    isolateCredentialLock(cfg);
     const backing = new InMemoryTokenStore();
     await backing.write('acme', record);
 
@@ -181,7 +200,9 @@ describe('gateway token refresh racing auth logout (P3-09)', () => {
       redirectUrl: new URL('http://127.0.0.1:0/unused'),
       tokenStore: gatedStore,
       logger: createNoopLogger(),
-      credentialLockDir: path.dirname(cfg.target),
+      // Resolve the lock root the same way the CLI commands do, so the provider's
+      // refresh save and the real `runAuthLogout` below contend on one lock.
+      credentialLockRoot: resolveCredentialLockRoot(KEYCHAIN_STORAGE),
     });
 
     // The refresh save acquires the lock, then stalls inside its locked read.
@@ -197,5 +218,80 @@ describe('gateway token refresh racing auth logout (P3-09)', () => {
     expect(logoutCode).toBe(0);
     // Logout ran last under the lock: the refreshed token does not survive it.
     expect(await backing.read('acme')).toBeNull();
+  });
+});
+
+describe('cross-config same-credential serialization (P3-10)', () => {
+  it('serializes two commands that target the same credential from different config dirs', async () => {
+    // The keychain record is machine-global, so two invocations run against
+    // *different* config files (`-c prod.json` vs `-c staging.json`) still mutate
+    // the same credential and must serialize. Pre-P3-10 the lock was rooted at
+    // each invocation's config dir, so these two would have locked different
+    // dirs and interleaved. Here add-http (config A) holds the credential lock
+    // across its login while logout (config B) for the same name must wait —
+    // proving the lock domain ignores the config path.
+    const cfgA = await makeTempConfig();
+    const cfgB = await makeTempConfig();
+    harnesses.push(cfgA, cfgB);
+
+    // A shared credential-lock base independent of either config dir — standing
+    // in for the real machine-global location both invocations would resolve to.
+    const lockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cred-lock-base-'));
+    vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, lockBase);
+    expect(resolveCredentialLockRoot(KEYCHAIN_STORAGE)).toContain(lockBase);
+
+    // One backing store stands in for the single machine-global keychain both
+    // configs reach.
+    const store = new InMemoryTokenStore();
+    await store.write('acme', record);
+
+    try {
+      let release = (): void => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // `runOAuthLogin` runs *inside* the credential lock, so its invocation is a
+      // deterministic "add now holds the lock" signal — no sleep-and-hope.
+      let signalHeld = (): void => undefined;
+      const held = new Promise<void>((resolve) => {
+        signalHeld = resolve;
+      });
+      const add = addDeps(cfgA.target, store);
+      add.runOAuthLogin = vi.fn(async (input: RunOAuthLoginInput): Promise<RunOAuthLoginResult> => {
+        signalHeld();
+        await gate;
+        await input.tokenStore.write(input.serverName, newRecord);
+        return { kind: 'success' };
+      });
+
+      const addPromise = runAddHttp('acme', { url: 'https://acme.test/mcp', auth: 'oauth' }, add);
+      // add provably holds the credential lock for "acme" once login is reached.
+      await held;
+
+      // Logout for the SAME name but a DIFFERENT config file must block on add's
+      // credential lock rather than slip through on a separate per-config lock.
+      let logoutSettled = false;
+      const logoutPromise = runAuthLogout('acme', {}, authDeps(cfgB.target, store)).then((code) => {
+        logoutSettled = true;
+        return code;
+      });
+      await new Promise((r) => setTimeout(r, 40));
+      expect(logoutSettled).toBe(false);
+
+      // Releasing add lets it finish under the lock, after which logout proceeds.
+      release();
+      const [addCode, logoutCode] = await Promise.all([addPromise, logoutPromise]);
+
+      expect(addCode).toBe(0);
+      expect(logoutCode).toBe(0);
+      // Logout ran strictly after add released the lock, so the token add wrote
+      // does not survive — no interleaving despite the distinct config dirs.
+      expect(await store.read('acme')).toBeNull();
+      // Each config file is independent: add registered acme in A only.
+      expect((await loadConfig(cfgA.target)).servers.acme).toBeDefined();
+      expect((await loadConfig(cfgB.target)).servers.acme).toBeUndefined();
+    } finally {
+      await fs.rm(lockBase, { recursive: true, force: true }).catch(() => undefined);
+    }
   });
 });

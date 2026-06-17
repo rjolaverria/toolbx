@@ -222,8 +222,11 @@ export {
 export {
   createTokenStore,
   CredentialChangedDuringRefreshError,
+  CREDENTIAL_LOCK_DIR_ENV,
   InMemoryTokenStore,
+  KEYCHAIN_SERVICE_NAME,
   probeUpstreamAuth,
+  resolveCredentialLockRoot,
   runOAuthLogin,
   runOAuthRefresh,
   SuppressedRedirectError,

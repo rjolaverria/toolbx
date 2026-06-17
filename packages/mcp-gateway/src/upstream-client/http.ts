@@ -65,12 +65,15 @@ export interface CreateHttpUpstreamClientDeps {
    */
   tokenStore?: TokenStore;
   /**
-   * Config directory whose per-server-name credential lock serializes
-   * token-store mutations (P3-08/P3-09). Forwarded to the OAuth provider so an
-   * SDK-driven token refresh persists under the same lock the CLI credential
-   * commands hold, and cannot race a concurrent `tlbx auth logout`.
+   * Token-store backend's credential-lock root (from
+   * `resolveCredentialLockRoot(config.auth.storage)` — per-user/machine-global
+   * for the keychain), **not** a config dir, whose per-server-name lock
+   * serializes token-store mutations (P3-08/P3-09/P3-10). Forwarded to the OAuth
+   * provider so an SDK-driven token refresh persists under the same lock the CLI
+   * credential commands hold and cannot race a concurrent `tlbx auth logout`,
+   * regardless of the `-c` config either side used.
    */
-  credentialLockDir?: string;
+  credentialLockRoot?: string;
 }
 
 export function createHttpUpstreamClient(
@@ -99,8 +102,8 @@ export function createHttpUpstreamClient(
       redirectUrl: new URL('http://127.0.0.1:0/unused'),
       tokenStore: deps.tokenStore,
       logger: log,
-      ...(deps.credentialLockDir !== undefined
-        ? { credentialLockDir: deps.credentialLockDir }
+      ...(deps.credentialLockRoot !== undefined
+        ? { credentialLockRoot: deps.credentialLockRoot }
         : {}),
     });
   }

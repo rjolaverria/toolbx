@@ -67,7 +67,7 @@ function makeRecord(
   };
 }
 
-function makeClient(url: string, tokenStore: TokenStore, opts?: { credentialLockDir?: string }) {
+function makeClient(url: string, tokenStore: TokenStore, opts?: { credentialLockRoot?: string }) {
   const config: HttpServerConfig = {
     type: 'http',
     enabled: true,
@@ -79,7 +79,9 @@ function makeClient(url: string, tokenStore: TokenStore, opts?: { credentialLock
     serverName: 'demo',
     tokenStore,
     connectTimeoutMs: 10_000,
-    ...(opts?.credentialLockDir !== undefined ? { credentialLockDir: opts.credentialLockDir } : {}),
+    ...(opts?.credentialLockRoot !== undefined
+      ? { credentialLockRoot: opts.credentialLockRoot }
+      : {}),
   });
 }
 
@@ -218,7 +220,7 @@ describe('createHttpUpstreamClient — OAuth', () => {
   }, 15_000);
 
   it('holds the per-server credential lock across the refresh token save (P3-09)', async () => {
-    // The gateway client must thread credentialLockDir down to its OAuth
+    // The gateway client must thread credentialLockRoot down to its OAuth
     // provider so an SDK-driven refresh contends on the same per-name lock the
     // CLI credential commands use. While the test holds demo's lock, the
     // refresh cannot persist; releasing the lock lets it complete.
@@ -248,7 +250,7 @@ describe('createHttpUpstreamClient — OAuth', () => {
       });
       await held;
 
-      const client = makeClient(upstream.url, tokenStore, { credentialLockDir: lockDir });
+      const client = makeClient(upstream.url, tokenStore, { credentialLockRoot: lockDir });
       const connectPromise = client.connect();
       // Wait until the refresh grant has hit the token endpoint, then give the
       // save a chance to (incorrectly) land while the lock is held.

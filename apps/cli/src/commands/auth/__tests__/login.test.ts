@@ -1,4 +1,5 @@
 import {
+  CREDENTIAL_LOCK_DIR_ENV,
   DEFAULT_CONFIG,
   type RunOAuthLoginInput,
   type StoredOAuthRecord,
@@ -16,6 +17,7 @@ afterEach(async () => {
   while (harnesses.length > 0) {
     await harnesses.pop()?.cleanup();
   }
+  vi.unstubAllEnvs();
 });
 
 function oauthConfig(): ToolBoxConfig {
@@ -32,6 +34,9 @@ function oauthConfig(): ToolBoxConfig {
 async function harness(config: ToolBoxConfig = oauthConfig()) {
   const cfg = await makeTempConfig(config);
   harnesses.push(cfg);
+  // Root the credential lock under the temp dir so login's lock acquisition
+  // never touches the real per-user lock location.
+  vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, cfg.dir);
   return makeAuthHarness(cfg.target);
 }
 
