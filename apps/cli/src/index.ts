@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'node:module';
+
 import { Command } from '@commander-js/extra-typings';
 
 import { createAuthCommand } from './commands/auth/index.js';
@@ -17,11 +19,24 @@ import { stopCommand } from './commands/stop.js';
 import { toolCommand } from './commands/tool.js';
 import { toolsCommand } from './commands/tools.js';
 
+function resolveVersion(): string {
+  // dist/index.js sits one level below the package root, so ../package.json is
+  // the installed package manifest (and apps/cli/package.json in dev). Reading it
+  // at runtime keeps `tlbx --version` in lockstep with the published version.
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json') as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 async function main(): Promise<void> {
   const program = new Command()
     .name('tlbx')
     .description('ToolBox — local MCP gateway and proxy')
-    .version('0.0.0');
+    .version(resolveVersion());
 
   program.addCommand(setupCommand());
   program.addCommand(initCommand());

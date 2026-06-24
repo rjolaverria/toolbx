@@ -1,9 +1,12 @@
 {
   "name": "@toolbox/custom-tools",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/__tests__/**",
+    "!dist/**/*.test.*",
+    "!dist/**/__fixtures__/**"
   ],
   "exports": {
     ".": "./dist/index.js"
@@ -22,7 +25,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.54",
     "@cfworker/json-schema": "^4.1.1",
-    "@toolbox/core": "workspace:*",
+    "@toolbox/core": "workspace:^",
     "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },

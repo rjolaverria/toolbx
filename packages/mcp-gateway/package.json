@@ -1,9 +1,12 @@
 {
   "name": "@toolbox/mcp-gateway",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/__tests__/**",
+    "!dist/**/*.test.*",
+    "!dist/**/__fixtures__/**"
   ],
   "exports": {
     ".": "./dist/index.js"
@@ -18,8 +21,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@toolbox/core": "workspace:*",
-    "@toolbox/custom-tools": "workspace:*",
+    "@toolbox/core": "workspace:^",
+    "@toolbox/custom-tools": "workspace:^",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -25,16 +25,15 @@ ToolBox acts as both an **MCP server** to downstream clients and an **MCP client
 
 ## Getting Started
 
-> ToolBox is under active development. The CLI surface below is the target shape — see [`.agents/SPECS.md`](./.agents/SPECS.md) and [`.agents/TASKS.md`](./.agents/TASKS.md) for what is implemented today.
-
-One command, run anywhere:
+Requires **Node ≥ 22.7.0**. No global install needed — `npx` runs the published CLI:
 
 ```bash
 npx -y @toolbox/cli setup
 ```
 
-> `@toolbox/cli` is the npm package target used by zero-install examples. For local
-> development, use the workspace-built `tlbx` binary.
+> `@toolbox/cli` is the published npm package; its binary is `tlbx`. For local
+> development of ToolBox itself, use the workspace-built `tlbx` binary (see
+> [Development](#development)).
 
 `tlbx setup` is the happy path. It creates `~/.config/toolbox/config.json` if it's missing, walks you through adding one upstream MCP server (optional), detects every installed MCP client on your machine — Claude Code, Codex, OpenCode — and writes a `toolbox` entry into each one's config file with a timestamped backup. You confirm once, the diffs are previewed before any write, and the next launch of those clients spawns the gateway on demand over stdio.
 
@@ -145,9 +144,24 @@ packages/core             — config, registry, proxy, disclosure, namespacing, 
 packages/mcp-gateway      — MCP protocol layer (downstream server + upstream client)
 ```
 
+## Troubleshooting
+
+- **`tlbx: command not found` after `npx`** — `npx -y @toolbox/cli <command>` runs
+  without installing. To get a persistent `tlbx`, `npm i -g @toolbox/cli`.
+- **Node version** — ToolBox requires Node ≥ 22.7.0. Check with `node -v`.
+- **Where's my config / logs?** — `tlbx config path` prints the active config
+  location; `tlbx doctor` reports environment and per-server health.
+- **Secure token storage (OAuth)** — tokens are stored in your OS keychain via the
+  optional `@napi-rs/keyring` native module, keyed per user (shared across configs,
+  which is why `tlbx doctor` may list tokens for servers not in the current config).
+  If the native module is unavailable on your platform, ToolBox falls back to a
+  non-keychain token store automatically — nothing crashes, tokens just live
+  outside the OS keychain.
+- **A server shows `auth_required` / `auth_expired`** — run `tlbx auth login <server>`.
+
 ## Development
 
-Requires Node ≥ 22 and pnpm ≥ 10.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md). Requires Node ≥ 22 and pnpm ≥ 10.
 
 ```bash
 pnpm install
@@ -160,10 +174,12 @@ pnpm test:run      # one-shot test run
 
 ## Documentation
 
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — how to set up, build, and test ToolBox.
+- [`RELEASING.md`](./RELEASING.md) — how releases are cut and published to npm.
 - [`.agents/SPECS.md`](./.agents/SPECS.md) — full product and engineering spec (goals, requirements, milestones, acceptance criteria).
 - [`.agents/TASKS.md`](./.agents/TASKS.md) — master task list, with one detail file per task in [`.agents/tasks/`](./.agents/tasks/).
 - [`CLAUDE.md`](./CLAUDE.md) — guidance for AI coding agents working on this repo.
 
 ## License
 
-TBD.
+[MIT](./LICENSE) © 2026 rjolaverria
