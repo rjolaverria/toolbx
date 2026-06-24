@@ -46,6 +46,48 @@ export {
 /** JSON-RPC `MethodNotFound`; the daemon uses it for unknown and disabled tools. */
 const METHOD_NOT_FOUND = -32601;
 
+/**
+ * Cold-start budget for an upstream that is still connecting. The daemon reports
+ * HTTP-ready before its upstreams finish their (intentionally background)
+ * connect, so the first call after auto-start can race a server in `starting`.
+ * That state is transient, so we re-issue the call until the server settles or
+ * the budget runs out — mirroring how `ensureDaemon` already polls for HTTP
+ * readiness rather than failing on the first refused probe.
+ */
+const STARTUP_RETRY_TIMEOUT_MS = 10_000;
+const STARTUP_RETRY_INTERVAL_MS = 200;
+
+/** True when the daemon rejected a call because the target server is still in
+ * the transient `starting` state (vs. a terminal `error`/`auth_*`/`stopped`). */
+function isServerStartingError(error: unknown): boolean {
+  const data = isRecord(error) && isRecord(error.data) ? error.data : undefined;
+  const status = data !== undefined && isRecord(data.status) ? data.status : undefined;
+  return status?.kind === 'starting';
+}
+
+/**
+ * Issues a `tools/call`, retrying while the target upstream is still `starting`.
+ * Any non-transient error (and the final attempt once the budget is spent) is
+ * thrown for {@link classifyCallError} to map onto an exit code.
+ */
+async function callToolAwaitingStartup(
+  client: DaemonClient,
+  params: { name: string; arguments: Record<string, unknown> | undefined },
+  deps: RunDeps,
+): Promise<DaemonCallToolResult> {
+  const deadline = deps.now() + STARTUP_RETRY_TIMEOUT_MS;
+  for (;;) {
+    try {
+      return await client.callTool(params);
+    } catch (error) {
+      if (!isServerStartingError(error) || deps.now() + STARTUP_RETRY_INTERVAL_MS >= deadline) {
+        throw error;
+      }
+      await deps.sleep(STARTUP_RETRY_INTERVAL_MS);
+    }
+  }
+}
+
 interface ParsedInput {
   ok: true;
   /** `undefined` means no input mode was supplied. */
@@ -479,7 +521,11 @@ export async function runRun(
 
     let result: DaemonCallToolResult;
     try {
-      result = await client.callTool({ name: ctx.exposedName, arguments: args });
+      result = await callToolAwaitingStartup(
+        client,
+        { name: ctx.exposedName, arguments: args },
+        deps,
+      );
     } catch (error) {
       const rc: RemediationContext = { ctx, config, listed: listed.tools };
       return emitFailure(classifyCallError(error, rc), ctx, mode, deps);

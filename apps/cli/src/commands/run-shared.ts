@@ -89,6 +89,10 @@ export interface RunDeps {
   stderr: (msg: string) => void;
   /** Whether real stdout is a TTY; selects the default output mode (§5.4). */
   isStdoutTTY: boolean;
+  /** Resolves after `ms`. Injected so startup-retry waits are deterministic in tests. */
+  sleep: (ms: number) => Promise<void>;
+  /** Current epoch millis. Injected alongside {@link RunDeps.sleep} for a fake clock. */
+  now: () => number;
 }
 
 export function defaultRunDeps(): RunDeps {
@@ -104,6 +108,8 @@ export function defaultRunDeps(): RunDeps {
       process.stderr.write(msg);
     },
     isStdoutTTY: process.stdout.isTTY === true,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
   };
 }
 

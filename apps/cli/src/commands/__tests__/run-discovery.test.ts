@@ -116,6 +116,8 @@ function makeHarness(
       stderr += msg;
     },
     isStdoutTTY: opts.isStdoutTTY ?? true,
+    sleep: () => Promise.resolve(),
+    now: () => 0,
   };
 
   return {
