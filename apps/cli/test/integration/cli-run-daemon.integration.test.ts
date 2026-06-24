@@ -17,7 +17,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { isProcessAlive, type ToolBoxConfig } from '@toolbox/core';
+import { isProcessAlive, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

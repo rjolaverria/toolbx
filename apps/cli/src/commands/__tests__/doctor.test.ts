@@ -13,7 +13,7 @@ import {
   type TokenStore,
   type TokenStoreHealth,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   checkBindAddress,

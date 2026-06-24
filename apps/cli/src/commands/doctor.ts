@@ -22,7 +22,7 @@ import {
   type TokenStorage,
   type TokenStore,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS, isOAuthServer } from './auth/shared.js';
 import {

@@ -5,7 +5,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, withConfigLock, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
+import {
+  saveConfig,
+  withConfigLock,
+  type ServerConfig,
+  type ToolBoxConfig,
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

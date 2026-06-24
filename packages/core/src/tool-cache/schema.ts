@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Persisted snapshot of the tool registry. Written by `@toolbox/mcp-gateway`'s
+ * Persisted snapshot of the tool registry. Written by `@rjolaverria/toolbox-gateway`'s
  * runtime whenever the visible tool set changes; read by CLI commands that
  * need to browse the tool inventory without starting the gateway.
  *

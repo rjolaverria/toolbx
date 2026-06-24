@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { DEFAULT_CONFIG, saveConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, saveConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {

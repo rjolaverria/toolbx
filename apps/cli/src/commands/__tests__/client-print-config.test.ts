@@ -5,7 +5,7 @@ import {
   TOOLBOX_NPX_COMMAND,
   TOOLBOX_STDIO_ARGS,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   runClientPrintConfig,

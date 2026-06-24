@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger, type RegisteredToolView } from '@toolbox/core';
-import type { DescribeOutcome, RunOutcome, ToolManifest } from '@toolbox/custom-tools';
+import { createNoopLogger, type RegisteredToolView } from '@rjolaverria/toolbox-core';
+import type { DescribeOutcome, RunOutcome, ToolManifest } from '@rjolaverria/toolbox-custom-tools';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createCustomToolHost, CUSTOM_TOOL_META_KEY } from '../custom-tools-host.js';

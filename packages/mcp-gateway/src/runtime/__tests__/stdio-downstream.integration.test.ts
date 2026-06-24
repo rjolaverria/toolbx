@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger } from '@toolbox/core';
+import { createNoopLogger } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDownstreamStdioServer } from '../../downstream-server/stdio.js';

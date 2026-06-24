@@ -9,7 +9,7 @@ import {
   ToolCacheMissingError,
   withConfigLock,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

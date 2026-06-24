@@ -17,7 +17,7 @@ import {
   type ServeDaemonPaths,
   type ServeDaemonState,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { SERVE_FORCE_HTTP_ENV, SERVE_LOG_PATH_ENV, SERVE_STATE_PATH_ENV } from './serve.js';
 

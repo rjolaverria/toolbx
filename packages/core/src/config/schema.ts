@@ -76,7 +76,7 @@ export const ServersMapSchema = z.record(ServerNameSchema, ServerConfigSchema);
 
 // Exposed (namespaced) tool name shape, e.g. `github__create_issue`. The
 // canonical exposed name is produced by `formatExposedName` in
-// `@toolbox/core`'s namespace module (which concatenates a validated server
+// `@rjolaverria/toolbox-core`'s namespace module (which concatenates a validated server
 // name and an upstream tool name); this regex is a defensive sanity check
 // for hand-edited config so obvious nonsense like spaces or empty segments
 // can't slip through to tool overrides.

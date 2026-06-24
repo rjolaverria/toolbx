@@ -5,7 +5,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { CONTROL_PLANE_HEADER, CONTROL_PLANE_MARKER, createNoopLogger } from '@toolbox/core';
+import {
+  CONTROL_PLANE_HEADER,
+  CONTROL_PLANE_MARKER,
+  createNoopLogger,
+} from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDownstreamHttpServer } from '../http.js';

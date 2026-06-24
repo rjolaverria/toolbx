@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { importTool, readToolManifest } from '@toolbox/custom-tools';
-import { loadConfig, saveConfig } from '@toolbox/core';
+import { importTool, readToolManifest } from '@rjolaverria/toolbox-custom-tools';
+import { loadConfig, saveConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runToolImport, type ToolImportDeps } from '../tool-import.js';

@@ -1,5 +1,5 @@
 {
-  "name": "@toolbox/cli",
+  "name": "@rjolaverria/toolbox",
   "version": "0.1.0",
   "description": "Local MCP gateway — configure your MCP servers once and connect every MCP client (Claude, Codex, OpenCode) to one place.",
   "keywords": [
@@ -48,9 +48,9 @@
   },
   "dependencies": {
     "@commander-js/extra-typings": "^14.0.0",
-    "@toolbox/core": "workspace:^",
-    "@toolbox/custom-tools": "workspace:^",
-    "@toolbox/mcp-gateway": "workspace:^",
+    "@rjolaverria/toolbox-core": "workspace:^",
+    "@rjolaverria/toolbox-custom-tools": "workspace:^",
+    "@rjolaverria/toolbox-gateway": "workspace:^",
     "commander": "^14.0.3"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { importTool } from '@toolbox/custom-tools';
+import { importTool } from '@rjolaverria/toolbox-custom-tools';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runToolList } from '../tool-list.js';

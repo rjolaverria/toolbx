@@ -4,7 +4,7 @@ import {
   readToolManifest,
   removeTool,
   ToolManifestError,
-} from '@toolbox/custom-tools';
+} from '@rjolaverria/toolbox-custom-tools';
 
 import {
   defaultConfirmDeps,

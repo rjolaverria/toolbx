@@ -1,4 +1,4 @@
-import { createNoopLogger, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
+import { createNoopLogger, type ServerConfig, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CustomToolHost, CustomToolHostDeps } from '../custom-tools-host.js';

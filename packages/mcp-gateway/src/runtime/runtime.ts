@@ -9,8 +9,8 @@ import {
   type StatusRegistry,
   type TokenStore,
   type ToolBoxConfig,
-} from '@toolbox/core';
-import type { ToolManifest } from '@toolbox/custom-tools';
+} from '@rjolaverria/toolbox-core';
+import type { ToolManifest } from '@rjolaverria/toolbox-custom-tools';
 
 import {
   BOOTSTRAP_TOOL_NAMES,
@@ -228,7 +228,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     try {
       statusRegistry.update(name, { status, toolCount });
     } catch (error) {
-      // The state machine in @toolbox/core rejects illegal transitions; the
+      // The state machine in @rjolaverria/toolbox-core rejects illegal transitions; the
       // session shouldn't produce them, but guard so a misbehaving upstream
       // can't take down the gateway.
       log.warn({ err: error, server: name }, 'failed to update status registry');

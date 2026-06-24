@@ -1,4 +1,4 @@
-import { createNoopLogger, type ServerConfig } from '@toolbox/core';
+import { createNoopLogger, type ServerConfig } from '@rjolaverria/toolbox-core';
 import {
   createHttpUpstreamClient,
   createStdioUpstreamClient,
@@ -6,7 +6,7 @@ import {
   UpstreamMissingEnvVarError,
   type ListToolsResult,
   type UpstreamClient,
-} from '@toolbox/mcp-gateway';
+} from '@rjolaverria/toolbox-gateway';
 
 import { withTimeout } from './server-shared.js';
 
@@ -28,7 +28,7 @@ export interface ProbeServerOptions {
   processEnv?: NodeJS.ProcessEnv;
   /**
    * Test seam: replaces the upstream-client factory. When unset, the probe
-   * uses the real stdio/http factories from `@toolbox/mcp-gateway`.
+   * uses the real stdio/http factories from `@rjolaverria/toolbox-gateway`.
    */
   clientFactory?: ProbeClientFactory;
 }

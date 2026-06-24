@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { atomicWriteFile, withConfigLock } from '@toolbox/core';
+import { atomicWriteFile, withConfigLock } from '@rjolaverria/toolbox-core';
 
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
 

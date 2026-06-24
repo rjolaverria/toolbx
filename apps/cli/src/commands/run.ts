@@ -10,7 +10,7 @@ import {
   type LogFormat,
   type LogLevel,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { runDiscovery, shellArg, unknownToolMessage, type ListedTool } from './run-discovery.js';
 import { parsePositiveInt } from './server-shared.js';

@@ -1,5 +1,5 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger } from '@toolbox/core';
+import { createNoopLogger } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES } from '../../bootstrap-tools/index.js';

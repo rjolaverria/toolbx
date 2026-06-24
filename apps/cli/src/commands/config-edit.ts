@@ -13,7 +13,7 @@ import {
   saveConfig,
   withConfigLock,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { splitEditorCommand, type EditorExit } from './server-edit.js';
 import {

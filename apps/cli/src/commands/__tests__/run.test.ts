@@ -5,7 +5,7 @@ import {
   type DaemonClient,
   type DaemonListToolsResult,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runRun, type RunDeps, type RunOptions, type RunPositionals } from '../run.js';

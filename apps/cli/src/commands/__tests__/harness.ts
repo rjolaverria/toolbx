@@ -10,7 +10,7 @@ import {
   writeToolCache,
   type CachedToolInput,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import type { AuthCommandDeps } from '../auth/shared.js';
 import type { ServerCommandDeps } from '../server-shared.js';

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@toolbox/core';
-import type { ToolManifest } from '@toolbox/custom-tools';
+import { DEFAULT_CONFIG, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
+import type { ToolManifest } from '@rjolaverria/toolbox-custom-tools';
 
 import { runToolsList } from '../tools-list.js';
 

@@ -1,4 +1,8 @@
-import { createNoopLogger, type ServerStatus, type StdioServerConfig } from '@toolbox/core';
+import {
+  createNoopLogger,
+  type ServerStatus,
+  type StdioServerConfig,
+} from '@rjolaverria/toolbox-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

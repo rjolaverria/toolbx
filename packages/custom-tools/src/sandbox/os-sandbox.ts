@@ -26,7 +26,7 @@ import {
   SandboxManager,
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
-import { createNoopLogger, type Logger } from '@toolbox/core';
+import { createNoopLogger, type Logger } from '@rjolaverria/toolbox-core';
 
 import type { ToolPermissions } from '../manifest/import.js';
 

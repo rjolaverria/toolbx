@@ -16,7 +16,7 @@ import {
   loadConfig,
   ServerNameSchema,
   withConfigLock,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { z } from 'zod';
 
 import { parseToolMetadata, type ParseWarning } from './parse.js';

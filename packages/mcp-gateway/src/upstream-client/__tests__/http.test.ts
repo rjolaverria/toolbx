@@ -1,6 +1,6 @@
 import http from 'node:http';
 
-import { createNoopLogger, type HttpServerConfig } from '@toolbox/core';
+import { createNoopLogger, type HttpServerConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

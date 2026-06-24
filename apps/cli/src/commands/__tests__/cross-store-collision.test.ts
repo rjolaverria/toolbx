@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { readToolManifest } from '@toolbox/custom-tools';
-import { loadConfig } from '@toolbox/core';
+import { readToolManifest } from '@rjolaverria/toolbox-custom-tools';
+import { loadConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runAddStdio } from '../server-add.js';

@@ -1,4 +1,4 @@
-import type { Logger, ServerConfig, ServerStatus, TokenStore } from '@toolbox/core';
+import type { Logger, ServerConfig, ServerStatus, TokenStore } from '@rjolaverria/toolbox-core';
 
 import {
   UpstreamAuthExpiredError,

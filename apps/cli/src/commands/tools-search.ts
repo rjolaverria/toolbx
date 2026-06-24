@@ -11,7 +11,7 @@ import {
   ToolCacheMissingError,
   type RegisteredToolView,
   type SearchMatchedField,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

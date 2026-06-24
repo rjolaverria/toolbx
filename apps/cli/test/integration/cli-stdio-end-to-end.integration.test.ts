@@ -11,7 +11,7 @@ import * as fs from 'node:fs/promises';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { DEFAULT_CONFIG, loadConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { defaultServerAddDeps, runAddStdio } from '../../src/commands/server-add.js';

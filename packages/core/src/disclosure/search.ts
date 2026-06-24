@@ -7,7 +7,7 @@ import type { RegisteredToolView } from '../proxy/registry-view.js';
  * Ranking follows SPECS §4.5 — strict bands evaluated top-down, first match
  * wins. Within a band, ties resolve alphabetically by `exposedName` using
  * byte-order comparison (mirrors the registry's locale-independent sort in
- * `@toolbox/mcp-gateway`'s `tool-registry.ts`). Embeddings, stemming, and
+ * `@rjolaverria/toolbox-gateway`'s `tool-registry.ts`). Embeddings, stemming, and
  * language-aware processing are out of scope for the MVP.
  */
 

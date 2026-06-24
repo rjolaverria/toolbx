@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 
-import { ToolManifestError } from '@toolbox/custom-tools';
+import { ToolManifestError } from '@rjolaverria/toolbox-custom-tools';
 
 import {
   defaultServerCommandDeps,

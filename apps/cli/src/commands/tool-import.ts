@@ -7,7 +7,7 @@ import {
   ToolImportError,
   ToolMetadataParseError,
   type ImportPlan,
-} from '@toolbox/custom-tools';
+} from '@rjolaverria/toolbox-custom-tools';
 
 import { loadOrReportMissing, resolveTargetPath } from './server-shared.js';
 import {

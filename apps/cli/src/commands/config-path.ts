@@ -1,5 +1,9 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { describeConfigPath, type ConfigPathSource, type ResolvedConfigPath } from '@toolbox/core';
+import {
+  describeConfigPath,
+  type ConfigPathSource,
+  type ResolvedConfigPath,
+} from '@rjolaverria/toolbox-core';
 
 export interface ConfigPathOptions {
   json?: true;

@@ -16,7 +16,7 @@ import {
   type RunOAuthLoginResult,
   type StoredOAuthRecord,
   type TokenStore,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { runAuthLogout } from '../auth/logout.js';
 import type { AuthCommandDeps } from '../auth/shared.js';

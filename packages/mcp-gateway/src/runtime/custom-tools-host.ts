@@ -5,7 +5,7 @@ import type {
   RegisteredToolView,
   RouteResult,
   RoutedCallToolResult,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import {
   describeTool as defaultDescribeTool,
   digestToolSources,
@@ -17,7 +17,7 @@ import {
   type RunOutcome,
   type SandboxOptions,
   type ToolManifest,
-} from '@toolbox/custom-tools';
+} from '@rjolaverria/toolbox-custom-tools';
 
 import type { CustomToolInput } from '../registry/index.js';
 
@@ -39,7 +39,7 @@ const RESERVED_NAMESPACE = 'toolbox';
  * runtime publishes into `tools/list`. `executor` runs a custom tool through the
  * same sandbox and maps its outcome onto the router's {@link RouteResult}.
  *
- * `@toolbox/core` cannot depend on `@toolbox/custom-tools`, so the router takes
+ * `@rjolaverria/toolbox-core` cannot depend on `@rjolaverria/toolbox-custom-tools`, so the router takes
  * the executor as an injected seam; this host is where the gateway wires the two
  * together.
  */

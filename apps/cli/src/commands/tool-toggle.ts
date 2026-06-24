@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { setToolEnabled, ToolManifestError } from '@toolbox/custom-tools';
+import { setToolEnabled, ToolManifestError } from '@rjolaverria/toolbox-custom-tools';
 
 import {
   defaultToolCommandDeps,

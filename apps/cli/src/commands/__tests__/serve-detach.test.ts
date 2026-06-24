@@ -1,7 +1,11 @@
 import { EventEmitter } from 'node:events';
 import type { SpawnOptions } from 'node:child_process';
 
-import { DEFAULT_CONFIG, type ServeDaemonState, type ToolBoxConfig } from '@toolbox/core';
+import {
+  DEFAULT_CONFIG,
+  type ServeDaemonState,
+  type ToolBoxConfig,
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it } from 'vitest';
 
 import {

@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import type { ServerStatus, ServerStatusEntry, StatusRegistry } from '@toolbox/core';
+import type { ServerStatus, ServerStatusEntry, StatusRegistry } from '@rjolaverria/toolbox-core';
 import { z } from 'zod';
 
 import { LIST_AVAILABLE_SERVERS_NAME } from './names.js';

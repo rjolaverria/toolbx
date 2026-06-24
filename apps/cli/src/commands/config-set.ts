@@ -9,7 +9,7 @@ import {
   saveConfig,
   ToolBoxConfigSchema,
   withConfigLock,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

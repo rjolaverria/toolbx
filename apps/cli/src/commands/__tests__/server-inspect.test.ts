@@ -2,7 +2,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
 
 import { runServerInspect, type InspectDeps } from '../server-inspect.js';
 import type { ProbeResult } from '../server-probe.js';

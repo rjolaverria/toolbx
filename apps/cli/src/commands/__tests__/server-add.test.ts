@@ -14,9 +14,9 @@ import {
   type RunOAuthLoginInput,
   type RunOAuthLoginResult,
   type StoredOAuthRecord,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
-import { writeToolManifest, type ToolManifest } from '@toolbox/custom-tools';
+import { writeToolManifest, type ToolManifest } from '@rjolaverria/toolbox-custom-tools';
 
 import {
   runAddHttp,

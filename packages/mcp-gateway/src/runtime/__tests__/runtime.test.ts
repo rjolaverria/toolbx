@@ -3,7 +3,7 @@ import {
   type ServerConfig,
   type ServerStatus,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it, vi } from 'vitest';
 

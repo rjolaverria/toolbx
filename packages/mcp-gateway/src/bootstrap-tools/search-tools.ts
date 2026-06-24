@@ -5,7 +5,7 @@ import {
   type SearchMatchedField,
   type SessionVisibility,
   type ToolSearchResult,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { z } from 'zod';
 
 import type { ToolRegistry } from '../registry/index.js';

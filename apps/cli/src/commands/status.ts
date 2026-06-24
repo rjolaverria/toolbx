@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import type { ServerConfig, ToolBoxConfig } from '@toolbox/core';
+import type { ServerConfig, ToolBoxConfig } from '@rjolaverria/toolbox-core';
 
 import { probeServer, type ProbeResult, type ProbeServerFn } from './server-probe.js';
 import {

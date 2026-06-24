@@ -1,5 +1,5 @@
 {
-  "name": "@toolbox/mcp-gateway",
+  "name": "@rjolaverria/toolbox-gateway",
   "version": "0.1.0",
   "type": "module",
   "files": [
@@ -21,8 +21,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@toolbox/core": "workspace:^",
-    "@toolbox/custom-tools": "workspace:^",
+    "@rjolaverria/toolbox-core": "workspace:^",
+    "@rjolaverria/toolbox-custom-tools": "workspace:^",
     "zod": "^4.3.6"
   },
   "devDependencies": {

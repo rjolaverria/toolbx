@@ -10,7 +10,7 @@ import {
   type LogLevel,
   type NamespaceOptions,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
 

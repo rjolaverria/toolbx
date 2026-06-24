@@ -1,7 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import type { SessionVisibility } from '@toolbox/core';
+import type { SessionVisibility } from '@rjolaverria/toolbox-core';
 
 import type { BootstrapToolRegistry } from '../../bootstrap-tools/index.js';
 import type { ToolRegistry } from '../../registry/index.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ResolvedConfigPath } from '@toolbox/core';
+import type { ResolvedConfigPath } from '@rjolaverria/toolbox-core';
 
 import { describeSource, runConfigPath, type ConfigPathDeps } from '../config-path.js';
 

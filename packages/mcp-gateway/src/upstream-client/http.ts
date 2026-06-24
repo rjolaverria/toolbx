@@ -14,7 +14,7 @@ import {
   type HttpServerConfig,
   type Logger,
   type TokenStore,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { resolveEnvPlaceholders } from './env.js';
 import {

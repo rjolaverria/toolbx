@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import type { StoredOAuthRecord, ToolBoxConfig } from '@toolbox/core';
+import type { StoredOAuthRecord, ToolBoxConfig } from '@rjolaverria/toolbox-core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
 import { defaultAuthCommandDeps, isOAuthServer, type AuthCommandDeps } from './shared.js';

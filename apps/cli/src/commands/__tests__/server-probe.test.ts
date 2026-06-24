@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { UpstreamClient } from '@toolbox/mcp-gateway';
+import type { UpstreamClient } from '@rjolaverria/toolbox-gateway';
 
 import { probeServer, type ProbeClientFactory } from '../server-probe.js';
 

@@ -1,4 +1,4 @@
-import { detectCollisions, type NamespaceOptions } from '@toolbox/core';
+import { detectCollisions, type NamespaceOptions } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

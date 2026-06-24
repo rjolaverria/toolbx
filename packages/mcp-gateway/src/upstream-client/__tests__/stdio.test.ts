@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-import { createNoopLogger, type StdioServerConfig } from '@toolbox/core';
+import { createNoopLogger, type StdioServerConfig } from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

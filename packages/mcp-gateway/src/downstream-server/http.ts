@@ -10,7 +10,7 @@ import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { CONTROL_PLANE_HEADER, isControlPlaneConnection } from '@toolbox/core';
+import { CONTROL_PLANE_HEADER, isControlPlaneConnection } from '@rjolaverria/toolbox-core';
 
 import { buildToolBoxMcpServer } from './server.js';
 import type {

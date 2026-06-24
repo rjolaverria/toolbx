@@ -11,7 +11,7 @@ import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/typ
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BOOTSTRAP_TOOL_NAMES } from '@toolbox/mcp-gateway';
+import { BOOTSTRAP_TOOL_NAMES } from '@rjolaverria/toolbox-gateway';
 
 import {
   STDIO_ECHO_FIXTURE,

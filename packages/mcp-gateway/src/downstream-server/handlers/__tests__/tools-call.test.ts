@@ -3,8 +3,17 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility, readAuthExpiredMeta } from '@toolbox/core';
-import type { Logger, NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
+import {
+  createNoopLogger,
+  createSessionVisibility,
+  readAuthExpiredMeta,
+} from '@rjolaverria/toolbox-core';
+import type {
+  Logger,
+  NamespaceOptions,
+  ServerStatus,
+  SessionVisibility,
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

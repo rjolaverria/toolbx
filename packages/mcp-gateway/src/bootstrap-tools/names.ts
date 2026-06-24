@@ -6,7 +6,7 @@
  *
  * The same five-name list is hard-coded in
  * `packages/core/src/disclosure/__tests__/session-visibility.test.ts`.
- * `@toolbox/core` cannot import from `@toolbox/mcp-gateway` (wrong dependency
+ * `@rjolaverria/toolbox-core` cannot import from `@rjolaverria/toolbox-gateway` (wrong dependency
  * direction), so the duplication stays — both lists must agree by convention.
  */
 

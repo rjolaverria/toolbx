@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig } from '@rjolaverria/toolbox-core';
 
 import {
   InvalidConfigPathError,

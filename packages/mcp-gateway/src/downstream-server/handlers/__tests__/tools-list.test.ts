@@ -3,8 +3,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility } from '@rjolaverria/toolbox-core';
+import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@rjolaverria/toolbox-core';
 import { describe, expect, it } from 'vitest';
 
 import {

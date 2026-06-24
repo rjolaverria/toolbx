@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { importTool, readToolManifest } from '@toolbox/custom-tools';
+import { importTool, readToolManifest } from '@rjolaverria/toolbox-custom-tools';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runToolDisable, runToolEnable } from '../tool-toggle.js';

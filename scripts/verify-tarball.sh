@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clean-install smoke test for the published @toolbox/cli tarball.
+# Clean-install smoke test for the published @rjolaverria/toolbox tarball.
 #
 # Installs the given tarball (or, with --from-npm, the published package) into a
 # throwaway global prefix with an isolated config + cache, then drives the core
@@ -8,7 +8,7 @@
 #
 # Usage:
 #   scripts/verify-tarball.sh path/to/toolbox-cli-0.1.0.tgz
-#   scripts/verify-tarball.sh --from-npm @toolbox/cli@0.1.0
+#   scripts/verify-tarball.sh --from-npm @rjolaverria/toolbox@0.1.0
 #
 # Env:
 #   SKIP_KEYRING=1   install with optional deps disabled (keyring-absent path)
@@ -18,7 +18,7 @@ SPEC="${1:?usage: verify-tarball.sh <tarball.tgz | --from-npm <pkgspec>>}"
 FROM_NPM=0
 if [[ "$SPEC" == "--from-npm" ]]; then
   FROM_NPM=1
-  SPEC="${2:?--from-npm requires a package spec, e.g. @toolbox/cli@0.1.0}"
+  SPEC="${2:?--from-npm requires a package spec, e.g. @rjolaverria/toolbox@0.1.0}"
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

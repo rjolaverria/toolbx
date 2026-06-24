@@ -4,7 +4,7 @@ import {
   createSessionVisibility,
   type SessionVisibility,
   type SessionVisibilityChangeReason,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES, HIDE_TOOLS_NAME } from '../names.js';

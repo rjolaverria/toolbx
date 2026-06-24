@@ -11,7 +11,7 @@ import {
   type DetectedClient,
   type InstallOpts,
   type InstallResult,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

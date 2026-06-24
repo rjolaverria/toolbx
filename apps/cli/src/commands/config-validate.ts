@@ -9,7 +9,7 @@ import {
   type DuplicateKey,
   type ServerConfig,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

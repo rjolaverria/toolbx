@@ -9,7 +9,7 @@ import {
   ToolBoxConfigSchema,
   type ServerConfig,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 export interface ServerCommandDeps {
   resolvePath: () => string;

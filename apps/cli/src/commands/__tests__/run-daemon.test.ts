@@ -3,7 +3,7 @@ import {
   DEFAULT_CONFIG,
   type ServeDaemonState,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

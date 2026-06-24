@@ -20,7 +20,7 @@ Run the local CLI without installing it globally:
 
 ```bash
 node apps/cli/dist/index.js --help
-# or after `pnpm build`, link it:  pnpm --filter @toolbox/cli exec npm link
+# or after `pnpm build`, link it:  pnpm --filter @rjolaverria/toolbox exec npm link
 ```
 
 ## Quality bar
@@ -41,13 +41,13 @@ it with `--no-verify`.
 ## Repository layout
 
 ```
-apps/cli                  — Commander CLI, produces the tlbx binary (@toolbox/cli)
+apps/cli                  — Commander CLI, produces the tlbx binary (@rjolaverria/toolbox)
 packages/core             — config, registry, proxy, disclosure, namespacing, auth
 packages/mcp-gateway      — MCP protocol layer (downstream server + upstream client)
 packages/custom-tools     — custom-tool importer + on-disk child-process sandbox
 ```
 
-`@toolbox/core` is the shared heart and must not depend on CLI-specific concerns.
+`@rjolaverria/toolbox-core` is the shared heart and must not depend on CLI-specific concerns.
 See [`CLAUDE.md`](./CLAUDE.md) for conventions (TypeScript config, code style,
 namespacing, the task workflow) and [`.agents/SPECS.md`](./.agents/SPECS.md) for
 the full product spec.
@@ -57,5 +57,5 @@ the full product spec.
 ToolBox publishes as four packages, not one bundle. The custom-tools sandbox
 spawns a child-process harness and re-imports modules from disk, so the packages
 must keep their real on-disk file layout — do not introduce a bundler that
-inlines `@toolbox/custom-tools` into a single file. See
+inlines `@rjolaverria/toolbox-custom-tools` into a single file. See
 [`RELEASING.md`](./RELEASING.md) for how releases are cut.

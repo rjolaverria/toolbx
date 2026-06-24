@@ -1,6 +1,6 @@
 // Stdout is reserved for MCP protocol traffic on this transport. All logging
 // must flow through `deps.logger`, which the caller is expected to configure
-// with a stderr destination (see `createLogger` in @toolbox/core). Do not
+// with a stderr destination (see `createLogger` in @rjolaverria/toolbox-core). Do not
 // `console.log` or `process.stdout.write` from this module.
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

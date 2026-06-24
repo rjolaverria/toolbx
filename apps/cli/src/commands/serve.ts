@@ -19,7 +19,7 @@ import {
   type ServeDaemonState,
   type ToolBoxConfig,
   type WriteToolCacheInput,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { defaultServeDetachDeps, runServeDetached } from './serve-detach.js';
 import {
   createDownstreamHttpServer,
@@ -30,7 +30,7 @@ import {
   type DownstreamHttpServer,
   type DownstreamStdioServer,
   type GatewayRuntime,
-} from '@toolbox/mcp-gateway';
+} from '@rjolaverria/toolbox-gateway';
 
 const LOG_LEVELS = [
   'trace',

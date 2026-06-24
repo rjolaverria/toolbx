@@ -6,7 +6,7 @@ import type { NamespacingConfig } from '../config/schema.js';
  * collisions when two upstream servers would expose the same name.
  *
  * Phase 1 only supports `separator: '__'` and `format: 'server__tool'`. Other
- * values are rejected at config load (schema validation in `@toolbox/core`)
+ * values are rejected at config load (schema validation in `@rjolaverria/toolbox-core`)
  * and re-checked here so callers that bypass the schema can't slip past.
  *
  * Server names containing the separator are rejected at config load

@@ -18,7 +18,7 @@ import {
   DEFAULT_CONFIG,
   detectCollisions,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

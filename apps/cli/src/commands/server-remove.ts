@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, withConfigLock, type ToolBoxConfig } from '@toolbox/core';
+import { saveConfig, withConfigLock, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

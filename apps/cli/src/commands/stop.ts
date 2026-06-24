@@ -9,7 +9,7 @@ import {
   serveDaemonPathsForConfig,
   type ServeDaemonPaths,
   type ServeDaemonState,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 export interface StopOptions {
   config?: string;

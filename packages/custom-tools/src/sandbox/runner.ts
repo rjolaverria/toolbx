@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createNoopLogger, type Logger } from '@toolbox/core';
+import { createNoopLogger, type Logger } from '@rjolaverria/toolbox-core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import {

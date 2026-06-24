@@ -47,7 +47,7 @@ function buildLegacyToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
 
 export interface CreateCodexAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y @toolbox/cli serve --stdio` in the wired
+   * Extra args to append after `npx -y @rjolaverria/toolbox serve --stdio` in the wired
    * `[mcp_servers.toolbox]` table. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.

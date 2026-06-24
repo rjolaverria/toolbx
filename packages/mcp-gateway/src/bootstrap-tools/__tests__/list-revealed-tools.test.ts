@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-import { createSessionVisibility, type SessionVisibility } from '@toolbox/core';
+import { createSessionVisibility, type SessionVisibility } from '@rjolaverria/toolbox-core';
 import { describe, expect, it } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES, LIST_REVEALED_TOOLS_NAME } from '../names.js';

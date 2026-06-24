@@ -11,7 +11,7 @@ import {
   type RouteResult,
   type SessionLookup,
   type SessionVisibility,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   REVEAL_TOOLS_NAME,
@@ -50,7 +50,7 @@ function buildNotRevealedMessage(name: string, bootstrap: BootstrapToolRegistry)
  * the connection manager. Tests inject a `Map`-backed stub.
  *
  * Re-exported as the gateway's local alias for the shared `SessionLookup`
- * interface from `@toolbox/core`.
+ * interface from `@rjolaverria/toolbox-core`.
  */
 export type UpstreamSessionLookup = SessionLookup;
 
@@ -206,7 +206,7 @@ function toMcpError(
 
 /**
  * Registers the `tools/call` handler. The handler is a thin adapter that
- * delegates routing decisions to `routeToolCall` in `@toolbox/core` and
+ * delegates routing decisions to `routeToolCall` in `@rjolaverria/toolbox-core` and
  * converts the discriminated `RouteResult` into MCP-protocol responses.
  *
  * Argument validation is delegated to the upstream server — ToolBox does not

@@ -7,14 +7,14 @@ import {
   type CreateLoggerOptions,
   type ServeDaemonState,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import type {
   CreateDownstreamHttpServerDeps,
   CreateDownstreamStdioServerDeps,
   DownstreamHttpServer,
   DownstreamStdioServer,
   GatewayRuntime,
-} from '@toolbox/mcp-gateway';
+} from '@rjolaverria/toolbox-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

@@ -15,7 +15,7 @@ import {
   type ServeDaemonState,
   type ToolBoxConfig,
   type WaitForDaemonReadyDeps,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { computeDaemonIdentity } from './daemon-identity.js';
 import {

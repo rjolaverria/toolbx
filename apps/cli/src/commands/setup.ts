@@ -17,7 +17,7 @@ import {
   type ClientName,
   type DetectedClient,
   type InstallResult,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import { createConfigIfMissing } from './init.js';
 import { runAddStdio } from './server-add.js';

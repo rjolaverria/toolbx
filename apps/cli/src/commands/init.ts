@@ -3,7 +3,7 @@ import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 
 import { Command } from '@commander-js/extra-typings';
-import { DEFAULT_CONFIG, resolveConfigPath, saveConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, resolveConfigPath, saveConfig } from '@rjolaverria/toolbox-core';
 
 export interface InitOptions {
   force?: boolean;

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { importTool, setToolEnabled } from '@toolbox/custom-tools';
+import { importTool, setToolEnabled } from '@rjolaverria/toolbox-custom-tools';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CUSTOM_TOOL_META_KEY } from '../custom-tools-host.js';

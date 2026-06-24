@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import type { SessionVisibility } from '@toolbox/core';
+import type { SessionVisibility } from '@rjolaverria/toolbox-core';
 import { z } from 'zod';
 
 import type { ToolRegistry } from '../registry/index.js';

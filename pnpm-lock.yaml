@@ -53,13 +53,13 @@ importers:
       '@commander-js/extra-typings':
         specifier: ^14.0.0
         version: 14.0.0(commander@14.0.3)
-      '@toolbox/core':
+      '@rjolaverria/toolbox-core':
         specifier: workspace:^
         version: link:../../packages/core
-      '@toolbox/custom-tools':
+      '@rjolaverria/toolbox-custom-tools':
         specifier: workspace:^
         version: link:../../packages/custom-tools
-      '@toolbox/mcp-gateway':
+      '@rjolaverria/toolbox-gateway':
         specifier: workspace:^
         version: link:../../packages/mcp-gateway
       commander:
@@ -119,7 +119,7 @@ importers:
       '@cfworker/json-schema':
         specifier: ^4.1.1
         version: 4.1.1
-      '@toolbox/core':
+      '@rjolaverria/toolbox-core':
         specifier: workspace:^
         version: link:../core
       typescript:
@@ -138,10 +138,10 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      '@toolbox/core':
+      '@rjolaverria/toolbox-core':
         specifier: workspace:^
         version: link:../core
-      '@toolbox/custom-tools':
+      '@rjolaverria/toolbox-custom-tools':
         specifier: workspace:^
         version: link:../custom-tools
       zod:

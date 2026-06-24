@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Lazily resolved on first call and cached, so `import '@toolbox/core'` does
+// Lazily resolved on first call and cached, so `import '@rjolaverria/toolbox-core'` does
 // not perform a synchronous `readFileSync` for consumers that never need
 // the version. Works for both the built layout (`dist/version.js`) and the
 // in-source layout used by Vitest (`src/version.ts`); in both cases

@@ -8,8 +8,8 @@ import {
   ToolCacheMissingError,
   type NamespacingConfig,
   type ToolBoxConfig,
-} from '@toolbox/core';
-import { readToolManifest, type ToolManifest } from '@toolbox/custom-tools';
+} from '@rjolaverria/toolbox-core';
+import { readToolManifest, type ToolManifest } from '@rjolaverria/toolbox-custom-tools';
 
 import type { ServerCommandDeps } from './server-shared.js';
 

@@ -1,6 +1,10 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { formatExposedName, type NamespaceOptions, type ServerStatus } from '@toolbox/core';
+import {
+  formatExposedName,
+  type NamespaceOptions,
+  type ServerStatus,
+} from '@rjolaverria/toolbox-core';
 
 /**
  * In-memory registry of upstream tools, keyed by server. Aggregates the

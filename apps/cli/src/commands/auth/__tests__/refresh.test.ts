@@ -5,7 +5,7 @@ import {
   type StoredOAuthRecord,
   type TokenStore,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeAuthHarness, makeTempConfig, type ConfigHarness } from '../../__tests__/harness.js';

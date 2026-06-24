@@ -9,7 +9,7 @@ import {
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import type { Logger, StdioServerConfig } from '@toolbox/core';
+import type { Logger, StdioServerConfig } from '@rjolaverria/toolbox-core';
 
 import { resolveEnvPlaceholders } from './env.js';
 import {

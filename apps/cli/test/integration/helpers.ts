@@ -14,7 +14,7 @@ import {
   serveDaemonPathsForConfig,
   type ServeDaemonState,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServeDeps,
@@ -26,7 +26,7 @@ import {
 
 /**
  * Shared paths for the upstream MCP fixtures used by the integration suite.
- * These ship with `@toolbox/mcp-gateway`'s upstream-client tests (M1-01, M1-02)
+ * These ship with `@rjolaverria/toolbox-gateway`'s upstream-client tests (M1-01, M1-02)
  * — the same fixtures power both the unit and integration coverage so the
  * surface under test is identical.
  */
@@ -50,7 +50,7 @@ export const NAMED_TOOL_FIXTURE = fileURLToPath(
  * Path to the built CLI entrypoint. The integration suite spawns this through
  * `node` so a real MCP client (`StdioClientTransport`) drives the same code
  * path a Claude / Codex / OpenCode user would hit when they run
- * `npx -y @toolbox/cli serve --stdio`. The Turbo `test:integration` task lists `build`
+ * `npx -y @rjolaverria/toolbox serve --stdio`. The Turbo `test:integration` task lists `build`
  * as a dependency so this file is guaranteed to exist before the suite runs.
  */
 export const CLI_BIN = fileURLToPath(new URL('../../dist/index.js', import.meta.url));

@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, getToolBoxVersion } from '@toolbox/core';
+import { createNoopLogger, getToolBoxVersion } from '@rjolaverria/toolbox-core';
 import { describe, expect, it } from 'vitest';
 
 import { buildToolBoxMcpServer } from '../../server.js';
@@ -39,7 +39,7 @@ async function connectPair(register?: (server: unknown, session: unknown) => voi
 }
 
 describe('lifecycle handlers — initialize', () => {
-  it('reports serverInfo with name=toolbox and version from @toolbox/core package.json', async () => {
+  it('reports serverInfo with name=toolbox and version from @rjolaverria/toolbox-core package.json', async () => {
     const { client, closeAll } = await connectPair();
     expect(client.getServerVersion()).toEqual({ name: 'toolbox', version: getToolBoxVersion() });
     await closeAll();

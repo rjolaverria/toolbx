@@ -4,8 +4,8 @@ import {
   type DaemonListToolsResult,
   type RegisteredToolView,
   type SearchMatchedField,
-} from '@toolbox/core';
-import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
+} from '@rjolaverria/toolbox-core';
+import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@rjolaverria/toolbox-gateway';
 
 import {
   EXIT_DAEMON,

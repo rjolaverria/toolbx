@@ -2,8 +2,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility, ToolBoxConfigSchema } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
+import {
+  createNoopLogger,
+  createSessionVisibility,
+  ToolBoxConfigSchema,
+} from '@rjolaverria/toolbox-core';
+import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@rjolaverria/toolbox-core';
 import { describe, expect, it } from 'vitest';
 
 import { registerToolsCallHandler } from '../../downstream-server/handlers/tools-call.js';

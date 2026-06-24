@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig } from '@rjolaverria/toolbox-core';
 
 import { createConfigIfMissing, runInit, type InitDeps } from '../init.js';
 

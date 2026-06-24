@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 
 import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { readToolManifest, ToolManifestError } from '@toolbox/custom-tools';
+import { readToolManifest, ToolManifestError } from '@rjolaverria/toolbox-custom-tools';
 import {
   ConfigLockError,
   createNoopLogger,
@@ -23,7 +23,7 @@ import {
   type TokenStorage,
   type TokenStore,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

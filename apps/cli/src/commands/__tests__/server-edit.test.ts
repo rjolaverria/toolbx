@@ -3,7 +3,12 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, saveConfig, type ToolBoxConfig } from '@toolbox/core';
+import {
+  DEFAULT_CONFIG,
+  loadConfig,
+  saveConfig,
+  type ToolBoxConfig,
+} from '@rjolaverria/toolbox-core';
 
 import { runServerEdit, splitEditorCommand, type EditDeps } from '../server-edit.js';
 

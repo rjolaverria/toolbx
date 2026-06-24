@@ -3,7 +3,7 @@ import type { Readable, Writable } from 'node:stream';
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import type { Logger } from '@toolbox/core';
+import type { Logger } from '@rjolaverria/toolbox-core';
 
 import type { DownstreamSession } from './session.js';
 

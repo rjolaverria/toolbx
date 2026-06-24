@@ -1,5 +1,9 @@
 import { Command, InvalidArgumentError, Option } from '@commander-js/extra-typings';
-import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS, type ToolBoxConfig } from '@toolbox/core';
+import {
+  TOOLBOX_NPX_COMMAND,
+  TOOLBOX_STDIO_ARGS,
+  type ToolBoxConfig,
+} from '@rjolaverria/toolbox-core';
 
 import {
   defaultServerCommandDeps,

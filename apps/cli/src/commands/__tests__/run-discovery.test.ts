@@ -4,8 +4,8 @@ import {
   type DaemonClient,
   type DaemonListToolsResult,
   type RegisteredToolView,
-} from '@toolbox/core';
-import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
+} from '@rjolaverria/toolbox-core';
+import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@rjolaverria/toolbox-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runDiscovery } from '../run-discovery.js';

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
 
 import { runToolsDisable, runToolsEnable } from '../tools-toggle.js';
 

@@ -5,7 +5,7 @@ import {
   type ServerConfig,
   type StatusRegistry,
   type ToolBoxConfig,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it } from 'vitest';
 
 import { LIST_AVAILABLE_SERVERS_NAME } from '../names.js';

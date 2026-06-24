@@ -8,7 +8,7 @@ import {
   opencodeAdapter,
   type ClientAdapter,
   type ClientName,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 const SUPPORTED: readonly ClientName[] = ['claude', 'codex', 'opencode'];
 

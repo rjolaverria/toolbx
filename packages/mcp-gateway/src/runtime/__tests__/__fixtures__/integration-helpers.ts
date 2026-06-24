@@ -3,7 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { createNoopLogger, type Logger, type ToolBoxConfig, type TokenStore } from '@toolbox/core';
+import {
+  createNoopLogger,
+  type Logger,
+  type ToolBoxConfig,
+  type TokenStore,
+} from '@rjolaverria/toolbox-core';
 
 import { createDownstreamHttpServer } from '../../../downstream-server/http.js';
 import type { DownstreamHttpServer } from '../../../downstream-server/types.js';

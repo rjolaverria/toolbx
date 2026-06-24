@@ -6,7 +6,7 @@ import type {
   DetectedClient,
   InstallOpts,
   InstallResult,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 
 import {
   runClientInstall,

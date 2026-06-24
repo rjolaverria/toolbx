@@ -6,7 +6,7 @@ import {
   type ServerStatus,
   type SessionVisibility,
   type SessionVisibilityChangeReason,
-} from '@toolbox/core';
+} from '@rjolaverria/toolbox-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createToolRegistry, type ToolRegistry } from '../../registry/index.js';

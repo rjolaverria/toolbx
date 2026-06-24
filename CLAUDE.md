@@ -14,7 +14,7 @@ ToolBox  ← this repo
 Upstream MCP Servers (Jira / GitHub / Linear / custom)
 ```
 
-The CLI binary is `tlbx`; zero-install `npx` examples use the package target `@toolbox/cli`. The product name is **ToolBox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
+The CLI binary is `tlbx`; zero-install `npx` examples use the package target `@rjolaverria/toolbox`. The product name is **ToolBox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
 
 ## Commands
 
@@ -47,16 +47,16 @@ The pre-commit hook runs `lint-staged`, which auto-fixes ESLint and Prettier on 
 The repo uses pnpm workspaces + Turborepo. Build order is enforced by Turbo's `dependsOn: ["^build"]` — packages must build before the apps that import them.
 
 ```
-apps/cli          (@toolbox/cli)          — Commander CLI, produces the tlbx binary
-packages/core     (@toolbox/core)         — config, registry, proxy logic, disclosure, namespacing, auth
-packages/mcp-gateway (@toolbox/mcp-gateway) — MCP protocol layer (upstream client + downstream server)
+apps/cli          (@rjolaverria/toolbox)          — Commander CLI, produces the tlbx binary
+packages/core     (@rjolaverria/toolbox-core)         — config, registry, proxy logic, disclosure, namespacing, auth
+packages/mcp-gateway (@rjolaverria/toolbox-gateway) — MCP protocol layer (upstream client + downstream server)
 ```
 
-**`@toolbox/core`** is the shared heart of the system. It will also be imported by the future Electron desktop app (Phase 2), so it must not depend on CLI-specific concerns.
+**`@rjolaverria/toolbox-core`** is the shared heart of the system. It will also be imported by the future Electron desktop app (Phase 2), so it must not depend on CLI-specific concerns.
 
-**`@toolbox/mcp-gateway`** wraps `@modelcontextprotocol/sdk` and implements ToolBox as both an MCP server (for downstream clients) and an MCP client (for upstream servers). It depends on `@toolbox/core`.
+**`@rjolaverria/toolbox-gateway`** wraps `@modelcontextprotocol/sdk` and implements ToolBox as both an MCP server (for downstream clients) and an MCP client (for upstream servers). It depends on `@rjolaverria/toolbox-core`.
 
-**`apps/cli`** wires Commander commands to `@toolbox/core`. It does not depend on `@toolbox/mcp-gateway` directly — gateway logic is called through core.
+**`apps/cli`** wires Commander commands to `@rjolaverria/toolbox-core`. It does not depend on `@rjolaverria/toolbox-gateway` directly — gateway logic is called through core.
 
 ## TypeScript Configuration
 

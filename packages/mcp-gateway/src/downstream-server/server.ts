@@ -1,6 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import { getToolBoxVersion, type Logger } from '@toolbox/core';
+import { getToolBoxVersion, type Logger } from '@rjolaverria/toolbox-core';
 
 import { registerLifecycleHandlers } from './handlers/lifecycle.js';
 import { createDownstreamSession, type DownstreamSession } from './session.js';
