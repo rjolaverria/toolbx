@@ -11,6 +11,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Derive the candidate version from the workspace so this verifier validates
+# whatever is about to be released, not a hardcoded one. All four packages
+# share a single version and are published in lockstep (see RELEASING.md).
+VERSION="$(node -p "require('$REPO_ROOT/apps/cli/package.json').version")"
 PORT=4873
 REGISTRY="http://localhost:${PORT}/"
 WORK="$(mktemp -d)"
@@ -68,13 +72,13 @@ echo "▶ building and publishing all @toolbx packages to the local registry"
 # pnpm rewrites workspace:^ -> the real version on publish.
 ( cd "$REPO_ROOT" && pnpm -r publish --registry "$REGISTRY" --no-git-checks >/dev/null )
 rm -f "$REPO_ROOT/pnpm-publish-summary.json"
-echo "  ✓ published the four @toolbx packages @ 0.1.0"
+echo "  ✓ published the four @toolbx packages @ $VERSION"
 
 echo "▶ clean global install of @toolbx/cli from the local registry"
 export NPM_CONFIG_PREFIX="$PREFIX"
 export TOOLBX_CONFIG="$WORK/config.json"
 export PATH="$PREFIX/bin:$PATH"
-npm install -g --registry "$REGISTRY" @toolbx/cli@0.1.0
+npm install -g --registry "$REGISTRY" "@toolbx/cli@$VERSION"
 
 fail() { echo "✗ FAIL: $1" >&2; exit 1; }
 pass() { echo "  ✓ $1"; }
