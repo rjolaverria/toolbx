@@ -11,6 +11,7 @@ import {
   CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
   ToolbxOAuthProvider,
+  getToolbxVersion,
   type HttpServerConfig,
   type Logger,
   type TokenStore,
@@ -33,10 +34,7 @@ import type {
   UpstreamClientEvents,
 } from './types.js';
 
-const TOOLBX_CLIENT_INFO = {
-  name: 'toolbx-upstream-client',
-  version: '0.0.0',
-} as const;
+const TOOLBX_UPSTREAM_CLIENT_NAME = 'toolbx-upstream-client';
 
 const DEFAULT_CALL_TOOL_TIMEOUT_MS = 60_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
@@ -256,7 +254,10 @@ export function createHttpUpstreamClient(
       ...(authProvider !== undefined ? { authProvider } : {}),
     });
 
-    const localClient = new Client(TOOLBX_CLIENT_INFO, { capabilities: {} });
+    const localClient = new Client(
+      { name: TOOLBX_UPSTREAM_CLIENT_NAME, version: getToolbxVersion() },
+      { capabilities: {} },
+    );
 
     localClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       emit('tools_list_changed');
