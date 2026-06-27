@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_CONFIG,
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_STDIO_ARGS,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_STDIO_ARGS,
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import {
   runClientPrintConfig,
@@ -28,9 +28,9 @@ afterEach(async () => {
 });
 
 function withHttp(
-  http: Partial<ToolBoxConfig['server']['http']>,
-  base: ToolBoxConfig = DEFAULT_CONFIG,
-): ToolBoxConfig {
+  http: Partial<ToolbxConfig['server']['http']>,
+  base: ToolbxConfig = DEFAULT_CONFIG,
+): ToolbxConfig {
   return {
     ...base,
     server: {
@@ -55,7 +55,7 @@ function formatTomlArray(values: readonly string[]): string {
   return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
 }
 
-const TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_STDIO_ARGS);
+const TOOLBX_STDIO_ARGS_TOML = formatTomlArray(TOOLBX_STDIO_ARGS);
 
 describe('runClientPrintConfig', () => {
   it('lists all four supported clients', () => {
@@ -87,12 +87,12 @@ describe('runClientPrintConfig', () => {
   });
 
   it('exits 1 when --http is requested but the config is missing', async () => {
-    const h = makeHarness('/nonexistent/toolbox/config.json');
+    const h = makeHarness('/nonexistent/toolbx/config.json');
 
     const code = await runClientPrintConfig('claude', { http: true }, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No ToolBox config found');
+    expect(h.stderr.value).toContain('No Toolbx config found');
   });
 
   it('claude stdio default snippet matches SPECS §4.3 exactly (Claude Code shape)', async () => {
@@ -106,10 +106,10 @@ describe('runClientPrintConfig', () => {
     const parsed = JSON.parse(h.stdout.value) as unknown;
     expect(parsed).toEqual({
       mcpServers: {
-        toolbox: {
+        toolbx: {
           type: 'stdio',
-          command: TOOLBOX_NPX_COMMAND,
-          args: [...TOOLBOX_STDIO_ARGS],
+          command: TOOLBX_NPX_COMMAND,
+          args: [...TOOLBX_STDIO_ARGS],
           env: {},
         },
       },
@@ -217,9 +217,9 @@ describe('runClientPrintConfig', () => {
     expect(code).toBe(0);
     expect(h.stdout.value).toContain('~/.codex/config.toml');
     expect(h.stdout.value).toContain('```toml');
-    expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
-    expect(h.stdout.value).toContain(`command = "${TOOLBOX_NPX_COMMAND}"`);
-    expect(h.stdout.value).toContain(`args = ${TOOLBOX_STDIO_ARGS_TOML}`);
+    expect(h.stdout.value).toContain('[mcp_servers.toolbx]');
+    expect(h.stdout.value).toContain(`command = "${TOOLBX_NPX_COMMAND}"`);
+    expect(h.stdout.value).toContain(`args = ${TOOLBX_STDIO_ARGS_TOML}`);
   });
 
   it('codex http friendly output emits the configured URL inside the TOML table', async () => {
@@ -231,7 +231,7 @@ describe('runClientPrintConfig', () => {
 
     expect(code).toBe(0);
     expect(h.stdout.value).toContain('```toml');
-    expect(h.stdout.value).toContain('[mcp_servers.toolbox]');
+    expect(h.stdout.value).toContain('[mcp_servers.toolbx]');
     expect(h.stdout.value).toContain('url = "http://localhost:9000/gateway"');
   });
 
@@ -255,8 +255,8 @@ describe('runClientPrintConfig', () => {
     const code = await runClientPrintConfig('claude', { http: true, json: true }, h.deps);
 
     expect(code).toBe(0);
-    const parsed = JSON.parse(h.stdout.value) as { mcpServers: { toolbox: { url: string } } };
-    expect(parsed.mcpServers.toolbox.url).toBe('http://localhost:9000/gateway');
+    const parsed = JSON.parse(h.stdout.value) as { mcpServers: { toolbx: { url: string } } };
+    expect(parsed.mcpServers.toolbx.url).toBe('http://localhost:9000/gateway');
   });
 
   it('http snippets bracket IPv6 loopback hosts in the URL', async () => {
@@ -267,12 +267,12 @@ describe('runClientPrintConfig', () => {
     const code = await runClientPrintConfig('generic', { http: true, json: true }, h.deps);
 
     expect(code).toBe(0);
-    const parsed = JSON.parse(h.stdout.value) as { mcpServers: { toolbox: { url: string } } };
-    expect(parsed.mcpServers.toolbox.url).toBe('http://[::1]:7331/mcp');
+    const parsed = JSON.parse(h.stdout.value) as { mcpServers: { toolbx: { url: string } } };
+    expect(parsed.mcpServers.toolbx.url).toBe('http://[::1]:7331/mcp');
   });
 
   it('does not require a config file for stdio snippets', async () => {
-    const h = makeHarness('/nonexistent/toolbox/config.json');
+    const h = makeHarness('/nonexistent/toolbx/config.json');
 
     const code = await runClientPrintConfig('claude', { stdio: true, json: true }, h.deps);
 
@@ -281,10 +281,10 @@ describe('runClientPrintConfig', () => {
     const parsed = JSON.parse(h.stdout.value) as unknown;
     expect(parsed).toEqual({
       mcpServers: {
-        toolbox: {
+        toolbx: {
           type: 'stdio',
-          command: TOOLBOX_NPX_COMMAND,
-          args: [...TOOLBOX_STDIO_ARGS],
+          command: TOOLBX_NPX_COMMAND,
+          args: [...TOOLBX_STDIO_ARGS],
           env: {},
         },
       },

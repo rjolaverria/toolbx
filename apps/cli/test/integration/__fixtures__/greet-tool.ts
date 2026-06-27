@@ -1,8 +1,8 @@
 /**
- * @toolbox-tool name greet
- * @toolbox-tool title Greet
- * @toolbox-tool description Greets the named person.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name greet
+ * @toolbx-tool title Greet
+ * @toolbx-tool description Greets the named person.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = {
   type: 'object',

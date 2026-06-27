@@ -1,6 +1,6 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import type { ServerConfig } from '@rjolaverria/toolbox-core';
-import type { ListToolsResult } from '@rjolaverria/toolbox-gateway';
+import type { ServerConfig } from '@toolbx/core';
+import type { ListToolsResult } from '@toolbx/mcp-gateway';
 
 import { probeServer, type ProbeResult, type ProbeServerFn } from './server-probe.js';
 import {

@@ -4,7 +4,7 @@ import {
   createSessionVisibility,
   type SessionVisibility,
   type SessionVisibilityChangeReason,
-} from '@rjolaverria/toolbox-core';
+} from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES, HIDE_TOOLS_NAME } from '../names.js';
@@ -48,7 +48,7 @@ function errorText(result: CallToolResult): string {
   return blocks[0]!.text;
 }
 
-describe('toolbox__hide_tools (M4-04)', () => {
+describe('toolbx__hide_tools (M4-04)', () => {
   it('exposes the canonical descriptor', () => {
     const hide = createHideToolsBootstrap({ visibility: freshVisibility() });
     expect(hide.descriptor.name).toBe(HIDE_TOOLS_NAME);
@@ -115,14 +115,14 @@ describe('toolbox__hide_tools (M4-04)', () => {
     const hide = createHideToolsBootstrap({ visibility });
 
     const result = await hide.invoke({
-      tools: ['toolbox__search_tools', 'jira__search_issues'],
+      tools: ['toolbx__search_tools', 'jira__search_issues'],
     });
 
     const text = errorText(result);
     expect(text).toContain('cannot hide bootstrap tools:');
-    expect(text).toContain('toolbox__search_tools');
+    expect(text).toContain('toolbx__search_tools');
     expect(visibility.list()).toEqual(['jira__search_issues']);
-    expect(visibility.isVisible('toolbox__search_tools')).toBe(true);
+    expect(visibility.isVisible('toolbx__search_tools')).toBe(true);
   });
 
   it('rejects every planned bootstrap name', async () => {
@@ -173,7 +173,7 @@ describe('toolbox__hide_tools (M4-04)', () => {
     const listener = vi.fn();
     visibility.on('change', listener);
 
-    await hide.invoke({ tools: ['toolbox__search_tools'] });
+    await hide.invoke({ tools: ['toolbx__search_tools'] });
 
     expect(listener).not.toHaveBeenCalled();
   });

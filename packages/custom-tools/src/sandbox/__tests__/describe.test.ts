@@ -101,14 +101,14 @@ describe('describeTool', () => {
     const fs = await import('node:fs/promises');
     const { importTool } = await import('../../manifest/import.js');
 
-    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-describe-cfg-'));
-    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-describe-src-'));
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-describe-cfg-'));
+    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-describe-src-'));
     try {
       const source = `/**
- * @toolbox-tool name echo
- * @toolbox-tool title Echo
- * @toolbox-tool description Echoes a message.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name echo
+ * @toolbx-tool title Echo
+ * @toolbx-tool description Echoes a message.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = {
   type: 'object',

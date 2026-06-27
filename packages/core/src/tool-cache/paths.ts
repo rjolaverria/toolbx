@@ -10,8 +10,8 @@ const TOOL_CACHE_FILENAME = 'tools-cache.json';
  * written by the gateway runtime. CLI commands that need to inspect the tool
  * inventory without spinning up the gateway (e.g. `tlbx tools list`) read it.
  *
- * The path tracks `resolveConfigPath`, so `XDG_CONFIG_HOME` and `TOOLBOX_CONFIG`
- * overrides are honoured automatically. When `TOOLBOX_CONFIG` points at a
+ * The path tracks `resolveConfigPath`, so `XDG_CONFIG_HOME` and `TOOLBX_CONFIG`
+ * overrides are honoured automatically. When `TOOLBX_CONFIG` points at a
  * specific file, the cache lives next to that file.
  */
 export function resolveToolCachePath(overrides: ConfigPathEnv = {}): string {

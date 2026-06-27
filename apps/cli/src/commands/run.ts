@@ -9,8 +9,8 @@ import {
   type DaemonClient,
   type LogFormat,
   type LogLevel,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import { runDiscovery, shellArg, unknownToolMessage, type ListedTool } from './run-discovery.js';
 import { parsePositiveInt } from './server-shared.js';
@@ -241,7 +241,7 @@ interface RunFailure {
  */
 interface RemediationContext {
   ctx: TargetContext;
-  config: ToolBoxConfig;
+  config: ToolbxConfig;
   /** The control-plane `tools/list` snapshot, used to suggest nearby tools. */
   listed: readonly ListedTool[];
 }
@@ -262,7 +262,7 @@ function authRemediation(error: unknown, server: string | undefined, tokenEnv: s
       kind: 'auth' as const,
       exit: EXIT_AUTH,
       message:
-        `${base}\nThe ToolBox daemon reads "${tokenEnv}" from its environment only when it starts. ` +
+        `${base}\nThe Toolbx daemon reads "${tokenEnv}" from its environment only when it starts. ` +
         `Export ${tokenEnv}, then run \`tlbx stop\` and retry — a daemon that is already running ` +
         `will not pick up a variable you export afterward.`,
     };
@@ -544,7 +544,7 @@ export async function runRun(
 
 export function runCommand(): CommandUnknownOpts {
   return new Command('run')
-    .description('Call a tool through the ToolBox daemon, auto-starting it when needed.')
+    .description('Call a tool through the Toolbx daemon, auto-starting it when needed.')
     .argument('[target]', 'a fully exposed tool name, or the server name when [tool] is given')
     .argument('[tool]', 'the upstream tool name (resolves to <target>__<tool>)')
     .option('--json <json>', 'tool arguments as an inline JSON object')

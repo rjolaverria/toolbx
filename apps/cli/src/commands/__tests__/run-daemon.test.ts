@@ -2,8 +2,8 @@ import {
   computeConfigIdentity,
   DEFAULT_CONFIG,
   type ServeDaemonState,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -30,7 +30,7 @@ function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState 
 }
 
 interface Stub {
-  config?: ToolBoxConfig;
+  config?: ToolbxConfig;
   loadConfigError?: Error;
   readStateResponses?: Array<ServeDaemonState | null>;
   isAliveOverride?: (pid: number) => boolean;
@@ -99,7 +99,7 @@ function makeHarness(stub: Stub = {}): Harness {
   };
 }
 
-function httpDisabledConfig(): ToolBoxConfig {
+function httpDisabledConfig(): ToolbxConfig {
   return {
     ...DEFAULT_CONFIG,
     server: {
@@ -224,7 +224,7 @@ describe('ensureDaemon', () => {
       coldStart: {
         code: 1,
         diagnostic:
-          'tlbx serve: cannot bind http://127.0.0.1:7331/mcp: the port is held by another process (a ToolBox daemon for a different config, or a foreign process).\n',
+          'tlbx serve: cannot bind http://127.0.0.1:7331/mcp: the port is held by another process (a Toolbx daemon for a different config, or a foreign process).\n',
       },
     });
 
@@ -331,7 +331,7 @@ describe('defaultEnsureDaemonDeps', () => {
       // A missing config makes serve-detach fail fast (before any spawn) and
       // write its diagnostic — which must land in the buffer, not on stdout.
       const result = await deps.coldStart({
-        config: '/nonexistent/toolbox-p2-01/config.json',
+        config: '/nonexistent/toolbx-p2-01/config.json',
         forceHttp: true,
       });
       expect(result.code).toBe(1);

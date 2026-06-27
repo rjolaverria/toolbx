@@ -3,12 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import {
-  createNoopLogger,
-  type Logger,
-  type ToolBoxConfig,
-  type TokenStore,
-} from '@rjolaverria/toolbox-core';
+import { createNoopLogger, type Logger, type ToolbxConfig, type TokenStore } from '@toolbx/core';
 
 import { createDownstreamHttpServer } from '../../../downstream-server/http.js';
 import type { DownstreamHttpServer } from '../../../downstream-server/types.js';
@@ -68,17 +63,17 @@ export function createIntegrationHarness(): IntegrationHarness {
 }
 
 export interface MakeConfigOptions {
-  servers?: ToolBoxConfig['servers'];
-  progressiveDisclosure?: Partial<ToolBoxConfig['progressiveDisclosure']>;
-  tools?: ToolBoxConfig['tools'];
+  servers?: ToolbxConfig['servers'];
+  progressiveDisclosure?: Partial<ToolbxConfig['progressiveDisclosure']>;
+  tools?: ToolbxConfig['tools'];
 }
 
 /**
- * Builds a Phase-1 valid `ToolBoxConfig` with the echo-server stdio upstream
+ * Builds a Phase-1 valid `ToolbxConfig` with the echo-server stdio upstream
  * already wired up. Tests pass overrides for the bits they actually care
  * about (the `servers` map, disclosure tweaks, per-tool overrides).
  */
-export function makeIntegrationConfig(options: MakeConfigOptions = {}): ToolBoxConfig {
+export function makeIntegrationConfig(options: MakeConfigOptions = {}): ToolbxConfig {
   return {
     version: 1,
     server: {
@@ -119,7 +114,7 @@ export async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promi
 }
 
 export interface StartHarnessOptions {
-  config: ToolBoxConfig;
+  config: ToolbxConfig;
   harness: IntegrationHarness;
   logger?: Logger;
   processEnv?: NodeJS.ProcessEnv;
@@ -132,7 +127,7 @@ export interface StartHarnessOptions {
   waitForServers?: readonly string[];
   waitTimeoutMs?: number;
   /**
-   * ToolBox config directory. When set, the runtime exposes imported, enabled
+   * Toolbx config directory. When set, the runtime exposes imported, enabled
    * custom tools from `<configDir>/tools/manifest.json` (P3-05).
    */
   configDir?: string;

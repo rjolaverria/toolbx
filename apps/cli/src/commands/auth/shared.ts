@@ -15,7 +15,7 @@ import {
   type TokenStorage,
   type TokenStore,
   type WithConfigLockOptions,
-} from '@rjolaverria/toolbox-core';
+} from '@toolbx/core';
 
 import { defaultServerCommandDeps, type ServerCommandDeps } from '../server-shared.js';
 

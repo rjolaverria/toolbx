@@ -2,7 +2,7 @@ import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
 
 import type { Logger } from '../logging/logger.js';
 import { startCallbackServer, type CallbackServer } from './oauth-callback-server.js';
-import { SuppressedRedirectError, ToolBoxOAuthProvider } from './oauth-provider.js';
+import { SuppressedRedirectError, ToolbxOAuthProvider } from './oauth-provider.js';
 import type { TokenStore } from './token-store.js';
 
 export interface RunOAuthLoginInput {
@@ -98,7 +98,7 @@ export async function runOAuthLogin(input: RunOAuthLoginInput): Promise<RunOAuth
     // the code-exchange auth() reuses that cache instead of rediscovering. This
     // keeps DCR/authorize, the exchange, and the stored issuer in agreement even
     // if the upstream metadata would change between calls.
-    const provider = new ToolBoxOAuthProvider({
+    const provider = new ToolbxOAuthProvider({
       serverName: input.serverName,
       redirectUrl: callback.redirectUri,
       ...(input.scopes ? { scopes: input.scopes } : {}),

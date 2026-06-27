@@ -1,5 +1,5 @@
 {
-  "name": "@rjolaverria/toolbox-custom-tools",
+  "name": "@toolbx/custom-tools",
   "version": "0.1.0",
   "type": "module",
   "files": [
@@ -25,7 +25,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.54",
     "@cfworker/json-schema": "^4.1.1",
-    "@rjolaverria/toolbox-core": "workspace:^",
+    "@toolbx/core": "workspace:^",
     "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },

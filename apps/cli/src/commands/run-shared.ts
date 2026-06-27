@@ -9,8 +9,8 @@ import {
   type LogFormat,
   type LogLevel,
   type NamespaceOptions,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
 
@@ -172,7 +172,7 @@ export function resolveOutputMode(
 }
 
 export type OpenDaemonResult =
-  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig }
+  | { ok: true; client: DaemonClient; url: string; config: ToolbxConfig }
   | { ok: false; message: string };
 
 /**

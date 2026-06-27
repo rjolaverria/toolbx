@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createNoopLogger, type Logger } from '@rjolaverria/toolbox-core';
+import { createNoopLogger, type Logger } from '@toolbx/core';
 
 import type { ToolManifest } from '../manifest/import.js';
 import {
@@ -58,7 +58,7 @@ export interface RunToolOptions {
   /** Logger for the audit entry. Defaults to a no-op logger. */
   readonly logger?: Logger;
   /**
-   * Absolute ToolBox config directory used to resolve a relative `manifest.entry`
+   * Absolute Toolbx config directory used to resolve a relative `manifest.entry`
    * (`tools/<namespace>/<name>.<ext>`). Required unless `manifest.entry` is already
    * absolute (e.g. test fixtures).
    */

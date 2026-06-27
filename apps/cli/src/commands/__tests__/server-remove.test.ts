@@ -2,12 +2,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  DEFAULT_CONFIG,
-  loadConfig,
-  saveConfig,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+import { DEFAULT_CONFIG, loadConfig, saveConfig, type ToolbxConfig } from '@toolbx/core';
 
 import { runServerRemove, type RemoveDeps } from '../server-remove.js';
 
@@ -58,7 +53,7 @@ function makeHarness(target: string, opts: HarnessOptions = {}): Harness {
   return { deps, stdout, stderr, prompts };
 }
 
-function configWith(servers: ToolBoxConfig['servers']): ToolBoxConfig {
+function configWith(servers: ToolbxConfig['servers']): ToolbxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 

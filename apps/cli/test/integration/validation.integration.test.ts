@@ -17,8 +17,8 @@ import {
   CONFIG_SCHEMA_URL,
   DEFAULT_CONFIG,
   detectCollisions,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -134,19 +134,19 @@ describe('config validation integration', () => {
     // walks past the schema, then runs `checkAuthEnv`, `checkCommand`, and
     // `checkToolOverrides` against each entry — a single config exercises
     // all three categories at once.
-    const config: ToolBoxConfig = {
+    const config: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         remote: {
           type: 'http',
           enabled: true,
           url: 'http://example.com/mcp',
-          auth: { type: 'bearer', tokenEnv: 'TOOLBOX_DEF_NOT_SET_DURING_TESTS' },
+          auth: { type: 'bearer', tokenEnv: 'TOOLBX_DEF_NOT_SET_DURING_TESTS' },
         },
         local: {
           type: 'stdio',
           enabled: true,
-          command: '/definitely/not/a/real/command/toolbox-it',
+          command: '/definitely/not/a/real/command/toolbx-it',
           args: [],
         },
       },
@@ -204,7 +204,7 @@ describe('config validation integration', () => {
     // Sanity guard so the suite isn't one-sided. A healthy config exercises
     // the same code path and must come back green so a regression that
     // breaks the happy path is still caught.
-    const config: ToolBoxConfig = {
+    const config: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         echo: {

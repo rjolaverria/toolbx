@@ -4,8 +4,8 @@ import {
   type DaemonListToolsResult,
   type RegisteredToolView,
   type SearchMatchedField,
-} from '@rjolaverria/toolbox-core';
-import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@rjolaverria/toolbox-gateway';
+} from '@toolbx/core';
+import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbx/mcp-gateway';
 
 import {
   EXIT_DAEMON,
@@ -42,7 +42,7 @@ export type ListedTool = DaemonListToolsResult['tools'][number];
  * Identifies a gateway bootstrap tool by the `_meta` marker the daemon stamps
  * onto its `tools/list` descriptor (§5.3), rather than by exposed name. A real
  * upstream tool that happens to share a bootstrap name (a server literally
- * named `toolbox` with bootstrap tools disabled) carries no marker and is
+ * named `toolbx` with bootstrap tools disabled) carries no marker and is
  * therefore treated as a normal upstream tool.
  */
 function isBootstrapTool(tool: ListedTool): boolean {
@@ -72,10 +72,10 @@ const EXAMPLE_PLACEHOLDER = '<unsupported>';
 const EXAMPLE_MAX_DEPTH = 8;
 
 /**
- * Projects the daemon's `tools/list` into discovery rows. ToolBox's own
+ * Projects the daemon's `tools/list` into discovery rows. Toolbx's own
  * bootstrap tools are dropped: discovery is about upstream and custom tools,
  * and excluding them keeps `--search` ranking aligned with
- * `toolbox__search_tools`, which only searches the upstream registry.
+ * `toolbx__search_tools`, which only searches the upstream registry.
  */
 function buildDiscoveredTools(listed: readonly ListedTool[]): DiscoveredTool[] {
   return listed

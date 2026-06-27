@@ -9,7 +9,7 @@ import { withCredentialLock } from '../lock.js';
 const tempDirs: string[] = [];
 
 async function makeDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cred-lock-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cred-lock-'));
   tempDirs.push(dir);
   return dir;
 }

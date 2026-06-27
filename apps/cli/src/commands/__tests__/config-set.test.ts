@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig } from '@rjolaverria/toolbox-core';
+import { DEFAULT_CONFIG, loadConfig } from '@toolbx/core';
 
 import {
   InvalidConfigPathError,
@@ -184,7 +184,7 @@ describe('runConfigSet', () => {
     const code = await runConfigSet('progressiveDisclosure.enabled', 'true', h.deps, {});
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No ToolBox config found');
+    expect(h.stderr.value).toContain('No Toolbx config found');
   });
 
   it('reports duplicate JSON keys cleanly without an uncaught exception', async () => {

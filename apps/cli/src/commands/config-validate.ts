@@ -5,11 +5,11 @@ import * as path from 'node:path';
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import {
   findDuplicateKeys,
-  ToolBoxConfigSchema,
+  ToolbxConfigSchema,
   type DuplicateKey,
   type ServerConfig,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -225,7 +225,7 @@ async function checkCommand(
   }
 }
 
-function checkToolOverrides(config: ToolBoxConfig, issues: ValidationIssue[]): void {
+function checkToolOverrides(config: ToolbxConfig, issues: ValidationIssue[]): void {
   for (const exposed of Object.keys(config.tools)) {
     const sepIdx = exposed.indexOf('__');
     if (sepIdx <= 0) {
@@ -286,7 +286,7 @@ export async function collectIssues(
     return sortIssues(issues);
   }
 
-  const result = ToolBoxConfigSchema.safeParse(parsed.raw);
+  const result = ToolbxConfigSchema.safeParse(parsed.raw);
   if (!result.success) {
     for (const issue of result.error.issues as readonly SchemaIssue[]) {
       issues.push(formatSchemaIssue(issue));
@@ -332,7 +332,7 @@ export async function runConfigValidate(
   const target = resolveTargetPath(deps, options.config);
   const source = await readSource(target);
   if (source === null) {
-    deps.stderr(`No ToolBox config found at ${target}. Run \`tlbx init\` first.\n`);
+    deps.stderr(`No Toolbx config found at ${target}. Run \`tlbx init\` first.\n`);
     return 1;
   }
 
@@ -408,7 +408,7 @@ async function isExecutable(filePath: string, platform: NodeJS.Platform): Promis
 
 export function configValidateCommand(): CommandUnknownOpts {
   return new Command('validate')
-    .description('Validate the ToolBox config and print every issue found.')
+    .description('Validate the Toolbx config and print every issue found.')
     .option('--json', 'emit machine-readable JSON instead of human output')
     .option('-c, --config <path>', 'override the resolved config path')
     .action(async (opts) => {

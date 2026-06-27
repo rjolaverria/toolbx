@@ -7,7 +7,7 @@ import { configValidateCommand } from './config-validate.js';
 
 export function configCommand(): CommandUnknownOpts {
   const cmd = new Command('config').description(
-    'Inspect, edit, validate, and modify the ToolBox config file.',
+    'Inspect, edit, validate, and modify the Toolbx config file.',
   );
   cmd.addCommand(configPathCommand());
   cmd.addCommand(configEditCommand());

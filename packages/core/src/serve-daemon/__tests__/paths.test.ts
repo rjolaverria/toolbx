@@ -8,9 +8,9 @@ const STATE_NAME = /^serve-[0-9a-f]{12}\.state\.json$/;
 const LOG_NAME = /^serve-[0-9a-f]{12}\.log$/;
 
 describe('resolveServeDaemonPaths', () => {
-  it('honors TOOLBOX_CONFIG and places both files next to it', () => {
+  it('honors TOOLBX_CONFIG and places both files next to it', () => {
     const result = resolveServeDaemonPaths({
-      env: { TOOLBOX_CONFIG: '/custom/path/config.json' },
+      env: { TOOLBX_CONFIG: '/custom/path/config.json' },
       platform: 'linux',
       homedir: () => '/home/u',
     });
@@ -26,27 +26,27 @@ describe('resolveServeDaemonPaths', () => {
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(path.dirname(result.statePath)).toBe(path.join('/xdg', 'toolbox'));
+    expect(path.dirname(result.statePath)).toBe(path.join('/xdg', 'toolbx'));
     expect(path.basename(result.statePath)).toMatch(STATE_NAME);
   });
 
-  it('falls back to ~/.config/toolbox/ on posix', () => {
+  it('falls back to ~/.config/toolbx/ on posix', () => {
     const result = resolveServeDaemonPaths({
       env: {},
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(path.dirname(result.statePath)).toBe(path.join('/home/u', '.config', 'toolbox'));
+    expect(path.dirname(result.statePath)).toBe(path.join('/home/u', '.config', 'toolbx'));
     expect(path.basename(result.statePath)).toMatch(STATE_NAME);
   });
 
-  it('uses %APPDATA%\\ToolBox\\ on win32 when APPDATA is set', () => {
+  it('uses %APPDATA%\\Toolbx\\ on win32 when APPDATA is set', () => {
     const result = resolveServeDaemonPaths({
       env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' },
       platform: 'win32',
       homedir: () => 'C:\\Users\\u',
     });
-    expect(result.statePath).toContain('ToolBox');
+    expect(result.statePath).toContain('Toolbx');
     expect(path.basename(result.statePath)).toMatch(STATE_NAME);
   });
 });
@@ -78,7 +78,7 @@ describe('serveDaemonPathsForConfig', () => {
 
   it('matches resolveServeDaemonPaths for the same resolved config', () => {
     const viaEnv = resolveServeDaemonPaths({
-      env: { TOOLBOX_CONFIG: '/custom/path/config.json' },
+      env: { TOOLBX_CONFIG: '/custom/path/config.json' },
       platform: 'linux',
       homedir: () => '/home/u',
     });

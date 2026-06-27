@@ -3,7 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 /**
  * Read-only projection of an upstream tool record. The router consumes this
  * shape rather than depending on the live registry implementation in
- * `@rjolaverria/toolbox-gateway`. The gateway's `RegisteredTool` is structurally
+ * `@toolbx/mcp-gateway`. The gateway's `RegisteredTool` is structurally
  * compatible.
  */
 export interface RegisteredToolView {

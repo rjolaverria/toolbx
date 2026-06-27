@@ -3,13 +3,13 @@ import * as path from 'node:path';
 import { atomicWriteFile } from './atomic-write.js';
 import { withConfigLock } from './lock.js';
 import { resolveConfigPath } from './paths.js';
-import type { ToolBoxConfig } from './schema.js';
+import type { ToolbxConfig } from './schema.js';
 
-function serialize(config: ToolBoxConfig): string {
+function serialize(config: ToolbxConfig): string {
   return JSON.stringify(config, null, 2) + '\n';
 }
 
-export async function saveConfig(config: ToolBoxConfig, filePath?: string): Promise<void> {
+export async function saveConfig(config: ToolbxConfig, filePath?: string): Promise<void> {
   const target = filePath ?? resolveConfigPath();
   // Serialize the write through the shared config-dir lock so no caller is an
   // unlocked escape hatch (e.g. `tlbx init --force`, `tlbx doctor --fix`). For a

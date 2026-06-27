@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import type { ServerConfig, ToolBoxConfig } from '@rjolaverria/toolbox-core';
+import type { ServerConfig, ToolbxConfig } from '@toolbx/core';
 
 import { probeServer, type ProbeResult, type ProbeServerFn } from './server-probe.js';
 import {
@@ -166,7 +166,7 @@ function formatTable(rows: Row[]): string {
 }
 
 function selectServers(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   filter: string | undefined,
 ): Array<[string, ServerConfig]> {
   const all = Object.entries(config.servers).sort(([a], [b]) => a.localeCompare(b));

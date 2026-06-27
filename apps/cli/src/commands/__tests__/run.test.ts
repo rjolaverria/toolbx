@@ -4,8 +4,8 @@ import {
   type DaemonCallToolResult,
   type DaemonClient,
   type DaemonListToolsResult,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runRun, type RunDeps, type RunOptions, type RunPositionals } from '../run.js';
@@ -45,7 +45,7 @@ function makeHarness(
     stdin?: string;
     files?: Record<string, string>;
     isStdoutTTY?: boolean;
-    config?: ToolBoxConfig;
+    config?: ToolbxConfig;
     /** Reject `callTool` with a transient `starting` error this many times before succeeding. */
     callToolStartingTimes?: number;
     /** Reject every `callTool` with a transient `starting` error (never settles). */

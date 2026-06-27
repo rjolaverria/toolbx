@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 async function makeFakeHome(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-detect-clients-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-detect-clients-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }

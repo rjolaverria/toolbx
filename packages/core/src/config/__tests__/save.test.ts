@@ -11,7 +11,7 @@ import { saveConfig } from '../save.js';
 const tempDirs: string[] = [];
 
 async function makeTempDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-config-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-config-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -52,7 +52,7 @@ describe('saveConfig', () => {
     const file = path.join(dir, 'config.json');
     await saveConfig(DEFAULT_CONFIG, file);
     const raw = await fs.readFile(file, 'utf8');
-    expect(raw).toContain('"$schema": "https://toolbox.dev/schema/config.schema.json"');
+    expect(raw).toContain('"$schema": "https://toolbx.dev/schema/config.schema.json"');
   });
 
   it('creates missing parent directories', async () => {

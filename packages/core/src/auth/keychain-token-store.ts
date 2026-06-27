@@ -9,13 +9,13 @@ import {
 
 /**
  * Keychain service name. The OS keychain is machine-global (per OS user) and
- * indexes every ToolBox credential under this one fixed service, so a stored
+ * indexes every Toolbx credential under this one fixed service, so a stored
  * record's identity is `(SERVICE_NAME, oauth:<serverName>)` — independent of
  * which `config.json` was used to reach it. The credential lock that serializes
  * mutations of that record must share the same machine-global domain; see
  * {@link resolveCredentialLockRoot}.
  */
-export const KEYCHAIN_SERVICE_NAME = 'dev.toolbox.cli';
+export const KEYCHAIN_SERVICE_NAME = 'dev.toolbx.cli';
 const SERVICE_NAME = KEYCHAIN_SERVICE_NAME;
 const ACCOUNT_PREFIX = 'oauth:';
 const PROBE_ACCOUNT_PREFIX = 'probe:';

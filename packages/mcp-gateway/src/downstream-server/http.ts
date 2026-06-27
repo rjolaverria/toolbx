@@ -10,9 +10,9 @@ import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { CONTROL_PLANE_HEADER, isControlPlaneConnection } from '@rjolaverria/toolbox-core';
+import { CONTROL_PLANE_HEADER, isControlPlaneConnection } from '@toolbx/core';
 
-import { buildToolBoxMcpServer } from './server.js';
+import { buildToolbxMcpServer } from './server.js';
 import type {
   CreateDownstreamHttpServerDeps,
   DownstreamHttpServer,
@@ -185,8 +185,8 @@ export function createDownstreamHttpServer(
   ): HttpSessionEntry {
     // Pre-generate the session id so it can be threaded into both the SDK
     // transport (which expects a `sessionIdGenerator`) and the per-session
-    // `DownstreamSession` state created by `buildToolBoxMcpServer`. This
-    // keeps the ToolBox-level DownstreamSession.id and the MCP transport
+    // `DownstreamSession` state created by `buildToolbxMcpServer`. This
+    // keeps the Toolbx-level DownstreamSession.id and the MCP transport
     // session id identical.
     const sessionId = sessionIdGenerator();
     const transport = new StreamableHTTPServerTransport({
@@ -197,7 +197,7 @@ export function createDownstreamHttpServer(
         log.debug({ sessionId: id }, 'http session initialized');
       },
     });
-    const { server } = buildToolBoxMcpServer({
+    const { server } = buildToolbxMcpServer({
       logger: log,
       sessionId,
       controlPlane,

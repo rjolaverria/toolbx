@@ -1,5 +1,5 @@
 /**
- * Per-MCP-session in-memory state for the downstream ToolBox server.
+ * Per-MCP-session in-memory state for the downstream Toolbx server.
  *
  * One DownstreamSession is created per `Server` instance: stdio transports
  * have a single one for the life of the process; HTTP transports create one
@@ -12,7 +12,7 @@
  * runtime both register cleanups here instead of reassigning `server.onclose`
  * directly — that property is a single slot and the last writer wins, so
  * naive assignment from one site silently drops cleanups registered by
- * another. `buildToolBoxMcpServer` installs the only `server.onclose` and
+ * another. `buildToolbxMcpServer` installs the only `server.onclose` and
  * fans the event out to every registered callback.
  */
 export interface DownstreamSession {
@@ -34,7 +34,7 @@ export interface DownstreamSession {
    */
   onClose(callback: () => void): () => void;
   /**
-   * Internal — invoked by `buildToolBoxMcpServer`'s `server.onclose` hook
+   * Internal — invoked by `buildToolbxMcpServer`'s `server.onclose` hook
    * to drain every registered close callback. Listed on the public type so
    * the transports can compose with it; not intended for handlers.
    */

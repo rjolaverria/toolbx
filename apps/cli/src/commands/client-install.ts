@@ -8,7 +8,7 @@ import {
   opencodeAdapter,
   type ClientAdapter,
   type ClientName,
-} from '@rjolaverria/toolbox-core';
+} from '@toolbx/core';
 
 const SUPPORTED: readonly ClientName[] = ['claude', 'codex', 'opencode'];
 
@@ -164,11 +164,11 @@ function parseClient(value: string): string {
 export function registerClientInstall(parent: Command): void {
   parent
     .command('install')
-    .description('Install the ToolBox MCP entry into the chosen client config file.')
+    .description('Install the Toolbx MCP entry into the chosen client config file.')
     .argument('<client>', `target client (${SUPPORTED.join(' | ')})`, parseClient)
     .option('-y, --yes', 'skip the confirmation prompt', false)
     .option('--dry-run', 'print the diff and exit without writing', false)
-    .option('--force', 'overwrite a conflicting toolbox entry (still creates a backup)', false)
+    .option('--force', 'overwrite a conflicting toolbx entry (still creates a backup)', false)
     .action(async (client, opts) => {
       const options: ClientInstallOptions = {
         yes: opts.yes === true,

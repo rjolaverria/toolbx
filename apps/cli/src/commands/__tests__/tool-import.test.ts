@@ -1,18 +1,18 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { importTool, readToolManifest } from '@rjolaverria/toolbox-custom-tools';
-import { loadConfig, saveConfig } from '@rjolaverria/toolbox-core';
+import { importTool, readToolManifest } from '@toolbx/custom-tools';
+import { loadConfig, saveConfig } from '@toolbx/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runToolImport, type ToolImportDeps } from '../tool-import.js';
 import { makeHarness, makeTempConfig, type ConfigHarness } from './harness.js';
 
 const TOOL_SOURCE = `/**
- * @toolbox-tool name send_slack_summary
- * @toolbox-tool title Send Slack Summary
- * @toolbox-tool description Summarize text and send it to Slack.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name send_slack_summary
+ * @toolbx-tool title Send Slack Summary
+ * @toolbx-tool description Summarize text and send it to Slack.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = { type: 'object', properties: {}, additionalProperties: false };
 export default async function f() {
@@ -112,7 +112,7 @@ describe('runToolImport', () => {
     const code = await runToolImport(sourcePath, { yes: true }, deps);
 
     expect(code).toBe(1);
-    expect(stderr.value).toContain('@toolbox-tool');
+    expect(stderr.value).toContain('@toolbx-tool');
     await expect(readToolManifest(harness.dir)).resolves.toEqual([]);
   });
 

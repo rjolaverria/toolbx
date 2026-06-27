@@ -3,8 +3,8 @@ import {
   InMemoryTokenStore,
   type StoredOAuthRecord,
   type TokenStore,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { makeAuthHarness, makeTempConfig, type ConfigHarness } from '../../__tests__/harness.js';
@@ -17,11 +17,11 @@ afterEach(async () => {
   }
 });
 
-function configWith(servers: ToolBoxConfig['servers']): ToolBoxConfig {
+function configWith(servers: ToolbxConfig['servers']): ToolbxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 
-async function harness(config: ToolBoxConfig) {
+async function harness(config: ToolbxConfig) {
   const cfg = await makeTempConfig(config);
   harnesses.push(cfg);
   return makeAuthHarness(cfg.target);

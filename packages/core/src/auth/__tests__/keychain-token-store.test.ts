@@ -206,11 +206,11 @@ describe('KeychainTokenStore', () => {
     const record = makeRecord({
       clientInformation: {
         client_id: 'client-abc',
-        redirect_uris: ['https://toolbox.example/oauth/callback'],
+        redirect_uris: ['https://toolbx.example/oauth/callback'],
         token_endpoint_auth_method: 'client_secret_post',
       },
     });
-    keyringMock.passwords.set('dev.toolbox.cli:oauth:github', JSON.stringify(record));
+    keyringMock.passwords.set('dev.toolbx.cli:oauth:github', JSON.stringify(record));
 
     expect(await store.read('github')).toEqual(record);
   });
@@ -219,7 +219,7 @@ describe('KeychainTokenStore', () => {
     const store = createStore();
     // A record exactly as F1-13..F1-19 wrote it: schemaVersion 1, no resource.
     keyringMock.passwords.set(
-      'dev.toolbox.cli:oauth:github',
+      'dev.toolbx.cli:oauth:github',
       JSON.stringify({
         schemaVersion: 1,
         clientInformation: { client_id: 'client-abc' },
@@ -237,13 +237,13 @@ describe('KeychainTokenStore', () => {
     expect(record?.tokens.access_token).toBe('access-1');
   });
 
-  it('uses the ToolBox service name and oauth-prefixed account name', async () => {
+  it('uses the Toolbx service name and oauth-prefixed account name', async () => {
     const store = createStore();
 
     await store.write('github', makeRecord());
 
     expect(keyringMock.setCalls[0]).toMatchObject({
-      service: 'dev.toolbox.cli',
+      service: 'dev.toolbx.cli',
       account: 'oauth:github',
     });
   });
@@ -256,7 +256,7 @@ describe('KeychainTokenStore', () => {
 
   it('throws a contextual error when a stored record is not valid JSON', async () => {
     const store = createStore();
-    keyringMock.passwords.set('dev.toolbox.cli:oauth:github', '{not-json');
+    keyringMock.passwords.set('dev.toolbx.cli:oauth:github', '{not-json');
 
     await expect(store.read('github')).rejects.toThrow(
       'Keychain entry for github is corrupt: invalid JSON',
@@ -266,7 +266,7 @@ describe('KeychainTokenStore', () => {
   it('throws a contextual error when a stored record does not match the schema', async () => {
     const store = createStore();
     keyringMock.passwords.set(
-      'dev.toolbox.cli:oauth:github',
+      'dev.toolbx.cli:oauth:github',
       JSON.stringify({ schemaVersion: 1, clientInformation: { client_id: 'client-abc' } }),
     );
 
@@ -285,7 +285,7 @@ describe('KeychainTokenStore', () => {
     const store = createStore();
     await store.write('github', makeRecord());
     await store.write('jira', makeRecord());
-    keyringMock.passwords.set('dev.toolbox.cli:not-oauth', 'ignored');
+    keyringMock.passwords.set('dev.toolbx.cli:not-oauth', 'ignored');
     keyringMock.passwords.set('other.service:oauth:linear', 'ignored');
 
     expect(new Set(await store.list())).toEqual(new Set(['github', 'jira']));

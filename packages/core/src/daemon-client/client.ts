@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-import { getToolBoxVersion } from '../version.js';
+import { getToolbxVersion } from '../version.js';
 import { CONTROL_PLANE_HEADER, CONTROL_PLANE_MARKER } from '../serve-daemon/control-plane.js';
 
 /** Result of `tools/list` against the daemon (the SDK's `ListToolsResult`). */
@@ -39,7 +39,7 @@ export interface ConnectDaemonClientDeps {
   buildClient: () => DaemonMcpClient;
 }
 
-const DAEMON_CLIENT_INFO = { name: 'tlbx-run', version: getToolBoxVersion() } as const;
+const DAEMON_CLIENT_INFO = { name: 'tlbx-run', version: getToolbxVersion() } as const;
 
 export function defaultConnectDaemonClientDeps(): ConnectDaemonClientDeps {
   return {
@@ -50,7 +50,7 @@ export function defaultConnectDaemonClientDeps(): ConnectDaemonClientDeps {
 }
 
 /**
- * Connects to a ToolBox daemon's loopback Streamable HTTP MCP endpoint as a
+ * Connects to a Toolbx daemon's loopback Streamable HTTP MCP endpoint as a
  * local control-plane caller (SPECS §5.3). The connection carries the
  * control-plane marker so progressive disclosure does not gate `tlbx run`:
  * every enabled tool is callable by name regardless of the revealed set.

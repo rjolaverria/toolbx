@@ -8,9 +8,9 @@ import {
   type ServerStatus,
   type StatusRegistry,
   type TokenStore,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
-import type { ToolManifest } from '@rjolaverria/toolbox-custom-tools';
+  type ToolbxConfig,
+} from '@toolbx/core';
+import type { ToolManifest } from '@toolbx/custom-tools';
 
 import {
   BOOTSTRAP_TOOL_NAMES,
@@ -51,7 +51,7 @@ export interface CreateUpstreamSessionForRuntime {
 }
 
 export interface CreateGatewayRuntimeDeps {
-  config: ToolBoxConfig;
+  config: ToolbxConfig;
   logger: Logger;
   processEnv?: NodeJS.ProcessEnv;
   /**
@@ -63,7 +63,7 @@ export interface CreateGatewayRuntimeDeps {
   /** Test seam: override how upstream sessions are constructed. */
   createSession?: CreateUpstreamSessionForRuntime;
   /**
-   * Absolute ToolBox config directory (parent of `tools/`). When provided, the
+   * Absolute Toolbx config directory (parent of `tools/`). When provided, the
    * runtime exposes imported, enabled custom tools (P3-05) alongside proxied
    * upstream tools. Omitted ⇒ no custom tools are loaded. `tlbx serve` passes
    * `dirname(configPath)`.
@@ -132,7 +132,7 @@ const defaultCreateSession: CreateUpstreamSessionForRuntime = (name, config, dep
   });
 
 /** True when the configured (enabled) server set includes an OAuth HTTP upstream. */
-function hasOAuthUpstream(config: ToolBoxConfig): boolean {
+function hasOAuthUpstream(config: ToolbxConfig): boolean {
   return Object.values(config.servers).some(
     (server) => server.enabled && server.type === 'http' && server.auth?.type === 'oauth',
   );
@@ -228,7 +228,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     try {
       statusRegistry.update(name, { status, toolCount });
     } catch (error) {
-      // The state machine in @rjolaverria/toolbox-core rejects illegal transitions; the
+      // The state machine in @toolbx/core rejects illegal transitions; the
       // session shouldn't produce them, but guard so a misbehaving upstream
       // can't take down the gateway.
       log.warn({ err: error, server: name }, 'failed to update status registry');
@@ -376,7 +376,7 @@ export function createGatewayRuntime(deps: CreateGatewayRuntimeDeps): GatewayRun
     // Compose teardown via the session's `onClose` registry rather than
     // reassigning `server.onclose` directly. Transports (stdio, HTTP) and
     // future handlers all register cleanups the same way, and
-    // `buildToolBoxMcpServer` runs the chain when the SDK fires `onclose`.
+    // `buildToolbxMcpServer` runs the chain when the SDK fires `onclose`.
     downstreamSession.onClose(() => {
       offVisibility();
       offRegistry();

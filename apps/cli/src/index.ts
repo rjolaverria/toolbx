@@ -35,7 +35,7 @@ function resolveVersion(): string {
 async function main(): Promise<void> {
   const program = new Command()
     .name('tlbx')
-    .description('ToolBox — local MCP gateway and proxy')
+    .description('Toolbx — local MCP gateway and proxy')
     .version(resolveVersion());
 
   program.addCommand(setupCommand());

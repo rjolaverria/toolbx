@@ -9,7 +9,7 @@ import {
   ToolMetadataParseError,
 } from '../index.js';
 
-describe('@rjolaverria/toolbox-custom-tools barrel', () => {
+describe('@toolbx/custom-tools barrel', () => {
   it('re-exports the metadata parser surface', () => {
     expect(typeof parseToolMetadata).toBe('function');
     expect(typeof ToolMetadataParseError).toBe('function');

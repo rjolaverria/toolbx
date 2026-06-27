@@ -25,26 +25,26 @@ describe('createBootstrapToolRegistry', () => {
   it('starts empty', () => {
     const registry = createBootstrapToolRegistry();
     expect(registry.list()).toEqual([]);
-    expect(registry.find('toolbox__nope')).toBeUndefined();
+    expect(registry.find('toolbx__nope')).toBeUndefined();
   });
 
   it('lists added tool descriptors and finds them by exposed name', () => {
     const registry = createBootstrapToolRegistry();
-    const a = makeTool('toolbox__a');
-    const b = makeTool('toolbox__b');
+    const a = makeTool('toolbx__a');
+    const b = makeTool('toolbx__b');
     registry.add(a);
     registry.add(b);
 
-    expect(registry.list().map((t) => t.name)).toEqual(['toolbox__a', 'toolbox__b']);
-    expect(registry.find('toolbox__a')).toBe(a);
-    expect(registry.find('toolbox__b')).toBe(b);
+    expect(registry.list().map((t) => t.name)).toEqual(['toolbx__a', 'toolbx__b']);
+    expect(registry.find('toolbx__a')).toBe(a);
+    expect(registry.find('toolbx__b')).toBe(b);
   });
 
   it('replaces an existing entry when add() is called twice with the same name', () => {
     const registry = createBootstrapToolRegistry();
-    const v1 = makeTool('toolbox__same');
+    const v1 = makeTool('toolbx__same');
     const v2: BootstrapTool = {
-      descriptor: descriptor('toolbox__same', 'second'),
+      descriptor: descriptor('toolbx__same', 'second'),
       invoke(args): CallToolResult {
         void args;
         return { content: [{ type: 'text', text: 'v2' }] };
@@ -55,6 +55,6 @@ describe('createBootstrapToolRegistry', () => {
 
     expect(registry.list()).toHaveLength(1);
     expect(registry.list()[0]?.description).toBe('second');
-    expect(registry.find('toolbox__same')).toBe(v2);
+    expect(registry.find('toolbx__same')).toBe(v2);
   });
 });

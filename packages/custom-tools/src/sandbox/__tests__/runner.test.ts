@@ -192,14 +192,14 @@ describe('runTool', () => {
     const fs = await import('node:fs/promises');
     const { importTool } = await import('../../manifest/import.js');
 
-    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-runtime-cfg-'));
-    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-runtime-src-'));
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-runtime-cfg-'));
+    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-runtime-src-'));
     try {
       const source = `/**
- * @toolbox-tool name echo
- * @toolbox-tool title Echo
- * @toolbox-tool description Echoes a message.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name echo
+ * @toolbx-tool title Echo
+ * @toolbx-tool description Echoes a message.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = {
   type: 'object',
@@ -234,14 +234,14 @@ export default function echo(input) {
     const fs = await import('node:fs/promises');
     const { importTool } = await import('../../manifest/import.js');
 
-    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-js-cfg-'));
-    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-js-src-'));
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-js-cfg-'));
+    const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-js-src-'));
     try {
       const source = `/**
- * @toolbox-tool name jsgreet
- * @toolbox-tool title JsGreet
- * @toolbox-tool description ESM JS tool.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name jsgreet
+ * @toolbx-tool title JsGreet
+ * @toolbx-tool description ESM JS tool.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = {
   type: 'object',
@@ -503,7 +503,7 @@ describe('runTool sandbox strict mode', () => {
       isSupportedPlatform: () => true,
       checkDependencies: () => ({ warnings: [], errors: [] }),
       wrapWithSandboxArgv: () =>
-        Promise.resolve({ argv: ['/nonexistent/toolbox-no-such-binary'], env: {} }),
+        Promise.resolve({ argv: ['/nonexistent/toolbx-no-such-binary'], env: {} }),
       cleanupAfterCommand: cleanup,
     };
     const outcome = await runTool(manifest('returns.ts'), { who: 'x' }, { sandboxProbe: probe });

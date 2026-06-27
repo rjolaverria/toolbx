@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
-import type { ToolManifest } from '@rjolaverria/toolbox-custom-tools';
+import { DEFAULT_CONFIG, type ToolbxConfig } from '@toolbx/core';
+import type { ToolManifest } from '@toolbx/custom-tools';
 
 import { runToolsSearch } from '../tools-search.js';
 
@@ -34,7 +34,7 @@ afterEach(async () => {
   }
 });
 
-function configWith(servers: ToolBoxConfig['servers']): ToolBoxConfig {
+function configWith(servers: ToolbxConfig['servers']): ToolbxConfig {
   return { ...DEFAULT_CONFIG, servers, tools: {} };
 }
 

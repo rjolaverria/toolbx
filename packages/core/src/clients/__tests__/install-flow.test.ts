@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 async function makeTmpFile(initial: string): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-install-flow-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-install-flow-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'config.cfg');
   await fs.writeFile(file, initial);
@@ -232,7 +232,7 @@ describe('runInstallFlow', () => {
   });
 
   it('passes exists:false to merge when the config file is absent', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-install-flow-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-install-flow-'));
     cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
     const missing = path.join(dir, 'does-not-exist.cfg');
 

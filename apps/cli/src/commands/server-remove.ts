@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { saveConfig, withConfigLock, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
+import { saveConfig, withConfigLock, type ToolbxConfig } from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -91,9 +91,9 @@ export async function runServerRemove(
       );
       return 1;
     }
-    const nextServers: ToolBoxConfig['servers'] = { ...latest.servers };
+    const nextServers: ToolbxConfig['servers'] = { ...latest.servers };
     delete nextServers[name];
-    const candidate: ToolBoxConfig = { ...latest, servers: nextServers };
+    const candidate: ToolbxConfig = { ...latest, servers: nextServers };
     const validated = validateNextConfig(candidate, target, deps);
     if (!validated.ok) {
       return 1;

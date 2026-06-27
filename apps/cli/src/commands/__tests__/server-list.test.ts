@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
+import { DEFAULT_CONFIG, type ToolbxConfig } from '@toolbx/core';
 
 import { runServerList } from '../server-list.js';
 
@@ -18,9 +18,9 @@ afterEach(async () => {
 });
 
 function withServers(
-  servers: ToolBoxConfig['servers'],
-  base: ToolBoxConfig = DEFAULT_CONFIG,
-): ToolBoxConfig {
+  servers: ToolbxConfig['servers'],
+  base: ToolbxConfig = DEFAULT_CONFIG,
+): ToolbxConfig {
   return { ...base, servers };
 }
 
@@ -115,11 +115,11 @@ describe('runServerList', () => {
   });
 
   it('exits 1 with a clear message when the config is missing', async () => {
-    const h = makeHarness('/nonexistent/toolbox/config.json');
+    const h = makeHarness('/nonexistent/toolbx/config.json');
 
     const code = await runServerList({}, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No ToolBox config found');
+    expect(h.stderr.value).toContain('No Toolbx config found');
   });
 });

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { CONFIG_SCHEMA_URL, DEFAULT_CONFIG, DEFAULT_NAMESPACE_SEPARATOR } from '../defaults.js';
-import { ToolBoxConfigSchema } from '../schema.js';
+import { ToolbxConfigSchema } from '../schema.js';
 
 describe('DEFAULT_CONFIG', () => {
-  it('parses cleanly through ToolBoxConfigSchema', () => {
-    const result = ToolBoxConfigSchema.safeParse(DEFAULT_CONFIG);
+  it('parses cleanly through ToolbxConfigSchema', () => {
+    const result = ToolbxConfigSchema.safeParse(DEFAULT_CONFIG);
     expect(result.success).toBe(true);
   });
 
@@ -24,6 +24,6 @@ describe('DEFAULT_CONFIG', () => {
   });
 
   it('exposes the documented schema URL', () => {
-    expect(CONFIG_SCHEMA_URL).toBe('https://toolbox.dev/schema/config.schema.json');
+    expect(CONFIG_SCHEMA_URL).toBe('https://toolbx.dev/schema/config.schema.json');
   });
 });

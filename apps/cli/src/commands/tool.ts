@@ -7,7 +7,7 @@ import { toolRemoveCommand } from './tool-remove.js';
 import { toolDisableCommand, toolEnableCommand } from './tool-toggle.js';
 
 export function toolCommand(): CommandUnknownOpts {
-  const cmd = new Command('tool').description('Manage custom local tools imported into ToolBox.');
+  const cmd = new Command('tool').description('Manage custom local tools imported into Toolbx.');
   cmd.addCommand(toolImportCommand());
   cmd.addCommand(toolListCommand());
   cmd.addCommand(toolInspectCommand());

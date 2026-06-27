@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 async function tempFile(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cache-source-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cache-source-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   return path.join(dir, 'tools-cache.json');
 }

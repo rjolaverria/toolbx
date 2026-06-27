@@ -7,11 +7,11 @@ import {
 } from '../session-visibility.js';
 
 const BOOTSTRAP = [
-  'toolbox__search_tools',
-  'toolbox__reveal_tools',
-  'toolbox__hide_tools',
-  'toolbox__list_available_servers',
-  'toolbox__list_revealed_tools',
+  'toolbx__search_tools',
+  'toolbx__reveal_tools',
+  'toolbx__hide_tools',
+  'toolbx__list_available_servers',
+  'toolbx__list_revealed_tools',
 ] as const;
 
 beforeEach(() => {
@@ -43,7 +43,7 @@ describe('createSessionVisibility — initial state', () => {
 
   it('omitting bootstrapToolNames is allowed (bootstrap disabled)', () => {
     const v = createSessionVisibility({ mode: 'session' });
-    expect(v.isVisible('toolbox__search_tools')).toBe(false);
+    expect(v.isVisible('toolbx__search_tools')).toBe(false);
     expect(v.snapshot()).toEqual([]);
   });
 });
@@ -80,7 +80,7 @@ describe('createSessionVisibility — reveal', () => {
     const listener = vi.fn();
     v.on('change', listener);
 
-    const added = v.reveal(['toolbox__search_tools']);
+    const added = v.reveal(['toolbx__search_tools']);
 
     expect(added).toEqual([]);
     expect(v.list()).toEqual([]);
@@ -97,7 +97,7 @@ describe('createSessionVisibility — reveal', () => {
     const added = v.reveal([
       'jira__search_issues', // already revealed
       'github__create_issue', // new
-      'toolbox__search_tools', // bootstrap → skip
+      'toolbx__search_tools', // bootstrap → skip
       'github__create_issue', // duplicate within batch
     ]);
 
@@ -139,10 +139,10 @@ describe('createSessionVisibility — hide', () => {
     const listener = vi.fn();
     v.on('change', listener);
 
-    const removed = v.hide(['toolbox__search_tools']);
+    const removed = v.hide(['toolbx__search_tools']);
 
     expect(removed).toEqual([]);
-    expect(v.isVisible('toolbox__search_tools')).toBe(true);
+    expect(v.isVisible('toolbx__search_tools')).toBe(true);
     expect(listener).not.toHaveBeenCalled();
   });
 });
@@ -180,11 +180,11 @@ describe('createSessionVisibility — snapshot ordering', () => {
       [
         'github__create_issue',
         'jira__search_issues',
-        'toolbox__hide_tools',
-        'toolbox__list_available_servers',
-        'toolbox__list_revealed_tools',
-        'toolbox__reveal_tools',
-        'toolbox__search_tools',
+        'toolbx__hide_tools',
+        'toolbx__list_available_servers',
+        'toolbx__list_revealed_tools',
+        'toolbx__reveal_tools',
+        'toolbx__search_tools',
       ].sort(),
     );
   });

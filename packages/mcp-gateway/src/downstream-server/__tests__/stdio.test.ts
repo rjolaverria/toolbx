@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { CallToolRequestSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger } from '@rjolaverria/toolbox-core';
+import { createNoopLogger } from '@toolbx/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDownstreamStdioServer } from '../stdio.js';
@@ -55,12 +55,12 @@ describe('createDownstreamStdioServer — protocol surface (in-memory transport)
     await downstream.server.connect(serverTransport);
 
     const client = new Client(
-      { name: 'toolbox-test-client', version: '0.0.0' },
+      { name: 'toolbx-test-client', version: '0.0.0' },
       { capabilities: {} },
     );
     await client.connect(clientTransport);
 
-    expect(client.getServerVersion()).toMatchObject({ name: 'toolbox' });
+    expect(client.getServerVersion()).toMatchObject({ name: 'toolbx' });
     expect(client.getServerCapabilities()?.tools).toMatchObject({ listChanged: true });
 
     await client.close();
@@ -81,7 +81,7 @@ describe('createDownstreamStdioServer — protocol surface (in-memory transport)
     await downstream.server.connect(serverTransport);
 
     const client = new Client(
-      { name: 'toolbox-test-client', version: '0.0.0' },
+      { name: 'toolbx-test-client', version: '0.0.0' },
       { capabilities: {} },
     );
     await client.connect(clientTransport);

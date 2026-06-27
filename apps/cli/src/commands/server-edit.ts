@@ -5,12 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import {
-  saveConfig,
-  withConfigLock,
-  type ServerConfig,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+import { saveConfig, withConfigLock, type ServerConfig, type ToolbxConfig } from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -75,7 +70,7 @@ export function defaultEditDeps(): EditDeps {
           resolve({ code, signal });
         });
       }),
-    tempFilePath: (name) => path.join(os.tmpdir(), `toolbox-server-${name}-${randomUUID()}.json`),
+    tempFilePath: (name) => path.join(os.tmpdir(), `toolbx-server-${name}-${randomUUID()}.json`),
   };
 }
 
@@ -160,7 +155,7 @@ export async function runServerEdit(
         );
         return 1;
       }
-      const candidate: ToolBoxConfig = {
+      const candidate: ToolbxConfig = {
         ...latest,
         servers: { ...latest.servers, [name]: parsed as ServerConfig },
       };

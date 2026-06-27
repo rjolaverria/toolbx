@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import type { SessionVisibility } from '@rjolaverria/toolbox-core';
+import type { SessionVisibility } from '@toolbx/core';
 import { z } from 'zod';
 
 import { BOOTSTRAP_TOOL_NAMES, HIDE_TOOLS_NAME } from './names.js';
@@ -9,7 +9,7 @@ import type { BootstrapTool } from './registry.js';
 export { HIDE_TOOLS_NAME };
 
 /**
- * `toolbox__hide_tools` (M4-04) — removes exposed names from the session's
+ * `toolbx__hide_tools` (M4-04) — removes exposed names from the session's
  * revealed set. Bootstrap tools cannot be hidden; passing one is a hard error
  * that does not mutate state. Names that aren't currently revealed (or aren't
  * known at all) are pass-through no-ops in line with `SessionVisibility.hide`.
@@ -23,7 +23,7 @@ const ArgsSchema = z
 
 const HIDE_TOOLS_DESCRIPTOR: Tool = {
   name: HIDE_TOOLS_NAME,
-  title: 'Hide ToolBox tools',
+  title: 'Hide Toolbx tools',
   description:
     'Remove one or more exposed (namespaced) tools from the current session so they no ' +
     'longer appear in tools/list. Bootstrap tools cannot be hidden. Names that are not ' +

@@ -7,19 +7,19 @@
 //     the upstream client's stderr forwarding.
 //
 // Honors a few optional environment variables, set by tests:
-//   - TOOLBOX_FIXTURE_STARTUP_STDERR — printed to stderr right after start.
-//   - TOOLBOX_FIXTURE_REQUIRED_ENV  — bails out unless that var is present.
+//   - TOOLBX_FIXTURE_STARTUP_STDERR — printed to stderr right after start.
+//   - TOOLBX_FIXTURE_REQUIRED_ENV  — bails out unless that var is present.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const required = process.env['TOOLBOX_FIXTURE_REQUIRED_ENV'];
+const required = process.env['TOOLBX_FIXTURE_REQUIRED_ENV'];
 if (required && !process.env[required]) {
   process.stderr.write(`fixture: missing required env ${required}\n`);
   process.exit(2);
 }
 
-const startupStderr = process.env['TOOLBOX_FIXTURE_STARTUP_STDERR'];
+const startupStderr = process.env['TOOLBX_FIXTURE_STARTUP_STDERR'];
 if (startupStderr) {
   process.stderr.write(`${startupStderr}\n`);
 }

@@ -13,8 +13,8 @@ import {
   saveConfig,
   serveDaemonPathsForConfig,
   type ServeDaemonState,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import {
   defaultServeDeps,
@@ -26,7 +26,7 @@ import {
 
 /**
  * Shared paths for the upstream MCP fixtures used by the integration suite.
- * These ship with `@rjolaverria/toolbox-gateway`'s upstream-client tests (M1-01, M1-02)
+ * These ship with `@toolbx/mcp-gateway`'s upstream-client tests (M1-01, M1-02)
  * — the same fixtures power both the unit and integration coverage so the
  * surface under test is identical.
  */
@@ -50,7 +50,7 @@ export const NAMED_TOOL_FIXTURE = fileURLToPath(
  * Path to the built CLI entrypoint. The integration suite spawns this through
  * `node` so a real MCP client (`StdioClientTransport`) drives the same code
  * path a Claude / Codex / OpenCode user would hit when they run
- * `npx -y @rjolaverria/toolbox serve --stdio`. The Turbo `test:integration` task lists `build`
+ * `npx -y @toolbx/cli serve --stdio`. The Turbo `test:integration` task lists `build`
  * as a dependency so this file is guaranteed to exist before the suite runs.
  */
 export const CLI_BIN = fileURLToPath(new URL('../../dist/index.js', import.meta.url));
@@ -61,8 +61,8 @@ export interface TempConfigHandle {
   cleanup(): Promise<void>;
 }
 
-export async function makeTempConfig(initial: ToolBoxConfig): Promise<TempConfigHandle> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-integration-'));
+export async function makeTempConfig(initial: ToolbxConfig): Promise<TempConfigHandle> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cli-integration-'));
   const target = path.join(dir, 'config.json');
   await saveConfig(initial, target);
   return {
@@ -97,10 +97,10 @@ export async function getEphemeralPort(): Promise<number> {
  * Tests fill in `servers` and (optionally) `progressiveDisclosure` overrides.
  */
 export async function makeConfig(overrides: {
-  servers: ToolBoxConfig['servers'];
-  progressiveDisclosure?: Partial<ToolBoxConfig['progressiveDisclosure']>;
-  tools?: ToolBoxConfig['tools'];
-}): Promise<ToolBoxConfig> {
+  servers: ToolbxConfig['servers'];
+  progressiveDisclosure?: Partial<ToolbxConfig['progressiveDisclosure']>;
+  tools?: ToolbxConfig['tools'];
+}): Promise<ToolbxConfig> {
   const port = await getEphemeralPort();
   return {
     version: 1,
@@ -143,7 +143,7 @@ export interface StartInProcessServeOptions {
    * the same object the runtime closes over (the runtime reads
    * `deps.config.progressiveDisclosure.enabled` lazily on every request).
    */
-  configObject?: ToolBoxConfig;
+  configObject?: ToolbxConfig;
   /**
    * Optional override of the serve deps. Tests rarely need this — the helper
    * already swaps the cache writer to a no-op so a temporary config dir is
@@ -154,7 +154,7 @@ export interface StartInProcessServeOptions {
 }
 
 /**
- * Starts ToolBox in-process via `runServe()` and waits until the downstream
+ * Starts Toolbx in-process via `runServe()` and waits until the downstream
  * is ready. Tests get the bound URL (HTTP) or the runtime handle (stdio) via
  * `info`. Stop the server with `handle.stop()` — this triggers a SIGINT on
  * the helper's fake process, mirroring how the real CLI shuts down.
@@ -179,7 +179,7 @@ export async function startInProcessServe(
     },
     signalProcess: fakeProcess,
     ...(options.configObject !== undefined
-      ? { loadConfig: () => Promise.resolve(options.configObject as ToolBoxConfig) }
+      ? { loadConfig: () => Promise.resolve(options.configObject as ToolbxConfig) }
       : {}),
     ...options.depsOverrides,
   };

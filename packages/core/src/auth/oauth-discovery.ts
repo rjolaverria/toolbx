@@ -46,7 +46,7 @@ export async function probeUpstreamAuth(url: URL, deps: ProbeUpstreamAuthDeps): 
         params: {
           protocolVersion: LATEST_PROTOCOL_VERSION,
           capabilities: {},
-          clientInfo: { name: 'toolbox-probe', version: '0' },
+          clientInfo: { name: 'toolbx-probe', version: '0' },
         },
       }),
       signal: controller.signal,

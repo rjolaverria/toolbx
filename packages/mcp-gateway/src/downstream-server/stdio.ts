@@ -1,11 +1,11 @@
 // Stdout is reserved for MCP protocol traffic on this transport. All logging
 // must flow through `deps.logger`, which the caller is expected to configure
-// with a stderr destination (see `createLogger` in @rjolaverria/toolbox-core). Do not
+// with a stderr destination (see `createLogger` in @toolbx/core). Do not
 // `console.log` or `process.stdout.write` from this module.
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { buildToolBoxMcpServer } from './server.js';
+import { buildToolbxMcpServer } from './server.js';
 import type { CreateDownstreamStdioServerDeps, DownstreamStdioServer } from './types.js';
 
 const LIFECYCLE_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
@@ -24,7 +24,7 @@ export function createDownstreamStdioServer(
   // (e.g. tests using InMemoryTransport) exercise the same handler set as
   // start(), and so any registerHandlers wiring failures surface
   // deterministically at construction time rather than during start().
-  const { server, session } = buildToolBoxMcpServer({
+  const { server, session } = buildToolbxMcpServer({
     logger: log,
     sessionId: 'stdio',
     registerHandlers: deps.registerHandlers,

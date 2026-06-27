@@ -12,7 +12,7 @@ import {
   type RunOAuthLoginInput,
   type RunOAuthLoginResult,
   type TokenStore,
-} from '@rjolaverria/toolbox-core';
+} from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

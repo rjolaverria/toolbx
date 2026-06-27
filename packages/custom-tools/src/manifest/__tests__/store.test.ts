@@ -18,10 +18,10 @@ import {
 } from '../store.js';
 
 const SPEC_EXAMPLE = `/**
- * @toolbox-tool name send_slack_summary
- * @toolbox-tool title Send Slack Summary
- * @toolbox-tool description Summarize text and send it to a configured Slack channel.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name send_slack_summary
+ * @toolbx-tool title Send Slack Summary
+ * @toolbx-tool description Summarize text and send it to a configured Slack channel.
+ * @toolbx-tool namespace personal
  */
 
 export const inputSchema = { type: 'object', properties: {}, additionalProperties: false };
@@ -35,8 +35,8 @@ let configDir: string;
 let sourceDir: string;
 
 beforeEach(async () => {
-  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-store-cfg-'));
-  sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-store-src-'));
+  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-store-cfg-'));
+  sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-store-src-'));
 });
 
 afterEach(async () => {

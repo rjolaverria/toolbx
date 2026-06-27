@@ -11,7 +11,7 @@ import * as fs from 'node:fs/promises';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { DEFAULT_CONFIG, loadConfig } from '@rjolaverria/toolbox-core';
+import { DEFAULT_CONFIG, loadConfig } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { defaultServerAddDeps, runAddStdio } from '../../src/commands/server-add.js';
@@ -137,15 +137,15 @@ describe('end-to-end CLI lifecycle (stdio downstream)', () => {
       stderr: 'ignore',
     });
     const client = new Client(
-      { name: 'toolbox-cli-stdio-it', version: '0.0.0' },
+      { name: 'toolbx-cli-stdio-it', version: '0.0.0' },
       { capabilities: {} },
     );
     activeClients.add(client);
     await client.connect(transport);
 
-    // 4. Initialize succeeded; identify the server (`toolbox`) and confirm
+    // 4. Initialize succeeded; identify the server (`toolbx`) and confirm
     //    the namespaced tools are exposed (acceptance criteria #6, #7).
-    expect(client.getServerVersion()?.name).toBe('toolbox');
+    expect(client.getServerVersion()?.name).toBe('toolbx');
 
     // The upstream session connects asynchronously after the downstream
     // binds; the gateway accepts requests immediately and yields an empty
@@ -162,7 +162,7 @@ describe('end-to-end CLI lifecycle (stdio downstream)', () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    // The fixture exposes echo / emit_log / slow; ToolBox namespaces them.
+    // The fixture exposes echo / emit_log / slow; Toolbx namespaces them.
     expect(exposed).toEqual(['echo__echo', 'echo__emit_log', 'echo__slow']);
 
     const result = await client.callTool({

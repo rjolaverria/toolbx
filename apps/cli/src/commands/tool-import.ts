@@ -7,7 +7,7 @@ import {
   ToolImportError,
   ToolMetadataParseError,
   type ImportPlan,
-} from '@rjolaverria/toolbox-custom-tools';
+} from '@toolbx/custom-tools';
 
 import { loadOrReportMissing, resolveTargetPath } from './server-shared.js';
 import {
@@ -154,7 +154,7 @@ export async function runToolImport(
 
 export function toolImportCommand(): CommandUnknownOpts {
   return new Command('import')
-    .description('Import a local .ts or .js custom tool file into ToolBox.')
+    .description('Import a local .ts or .js custom tool file into Toolbx.')
     .argument('<path>', 'path to the .ts or .js tool file')
     .option('-y, --yes', 'skip the interactive confirmation prompt')
     .option('-c, --config <path>', 'override the resolved config path')

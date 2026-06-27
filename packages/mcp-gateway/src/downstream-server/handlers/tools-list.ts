@@ -1,7 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import type { SessionVisibility } from '@rjolaverria/toolbox-core';
+import type { SessionVisibility } from '@toolbx/core';
 
 import type { BootstrapToolRegistry } from '../../bootstrap-tools/index.js';
 import type { ToolRegistry } from '../../registry/index.js';
@@ -48,8 +48,8 @@ export interface RegisterToolsListHandlerOptions {
  *
  * Bootstrap tools reserve their exposed names regardless of mode: any upstream
  * tool whose namespaced name collides with a bootstrap name (e.g. an upstream
- * server literally named `toolbox` exposing a tool that namespaces to
- * `toolbox__search_tools`) is dropped from the listing so it matches what
+ * server literally named `toolbx` exposing a tool that namespaces to
+ * `toolbx__search_tools`) is dropped from the listing so it matches what
  * `tools/call` will actually dispatch — bootstrap always wins. Callers that
  * don't register any bootstrap tools pass an empty registry; the listing then
  * matches the previous upstream-only behaviour byte-for-byte.

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { importTool, setToolEnabled } from '@rjolaverria/toolbox-custom-tools';
+import { importTool, setToolEnabled } from '@toolbx/custom-tools';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CUSTOM_TOOL_META_KEY } from '../custom-tools-host.js';
@@ -29,10 +29,10 @@ afterEach(async () => {
 });
 
 const TOOL_SOURCE = `/**
- * @toolbox-tool name greet
- * @toolbox-tool title Greet
- * @toolbox-tool description Greets the named person.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name greet
+ * @toolbx-tool title Greet
+ * @toolbx-tool description Greets the named person.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = {
   type: 'object',
@@ -47,9 +47,9 @@ export default function greet(input) {
 
 /** Imports the greet tool into a fresh config dir, optionally enabling it. */
 async function scaffoldCustomTool(enabled: boolean): Promise<string> {
-  const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-p3-05-'));
+  const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-p3-05-'));
   tempDirs.push(configDir);
-  const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-p3-05-src-'));
+  const srcDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-p3-05-src-'));
   tempDirs.push(srcDir);
   const srcPath = path.join(srcDir, 'greet.ts');
   await fs.writeFile(srcPath, TOOL_SOURCE, 'utf8');

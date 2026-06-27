@@ -16,7 +16,7 @@ export interface CreateTokenStoreDeps {
  * temp dir so they never contend on — or write into — the real per-user lock
  * location; production leaves it unset and falls back to {@link credentialLockHome}.
  */
-export const CREDENTIAL_LOCK_DIR_ENV = 'TOOLBOX_CREDENTIAL_LOCK_DIR';
+export const CREDENTIAL_LOCK_DIR_ENV = 'TOOLBX_CREDENTIAL_LOCK_DIR';
 
 /**
  * Per-user base for the credential lock, deliberately **independent of the
@@ -62,7 +62,7 @@ export function resolveCredentialLockRoot(
 ): string {
   switch (storage.type) {
     case 'keychain': {
-      const base = env[CREDENTIAL_LOCK_DIR_ENV] ?? path.join(credentialLockHome(), '.toolbox');
+      const base = env[CREDENTIAL_LOCK_DIR_ENV] ?? path.join(credentialLockHome(), '.toolbx');
       return path.join(base, 'credential-locks', KEYCHAIN_SERVICE_NAME);
     }
   }

@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 
-import { computeConfigIdentity, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
-import { digestToolSources, readToolManifest } from '@rjolaverria/toolbox-custom-tools';
+import { computeConfigIdentity, type ToolbxConfig } from '@toolbx/core';
+import { digestToolSources, readToolManifest } from '@toolbx/custom-tools';
 
 /**
  * Reads the custom-tool manifest for daemon-identity purposes and annotates each
@@ -29,7 +29,7 @@ export async function readManifestForIdentity(configDir: string): Promise<readon
  * already is for a config edit (P3-05).
  */
 export async function computeDaemonIdentity(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   configPath: string,
 ): Promise<string> {
   const manifest = await readManifestForIdentity(path.dirname(configPath));

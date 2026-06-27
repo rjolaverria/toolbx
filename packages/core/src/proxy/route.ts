@@ -10,7 +10,7 @@ import type { RoutedCallToolResult, SessionLookup } from './session-view.js';
  * Executes a custom (`source: 'custom'`) tool. The router delegates here instead
  * of consulting the session lookup. The gateway supplies an implementation that
  * runs the tool through the custom-tool sandbox and maps its outcome to a
- * {@link RouteResult}. `@rjolaverria/toolbox-core` cannot depend on `@rjolaverria/toolbox-custom-tools`
+ * {@link RouteResult}. `@toolbx/core` cannot depend on `@toolbx/custom-tools`
  * (the dependency runs the other way), so the executor is injected as a seam.
  */
 export interface CustomToolExecutor {
@@ -112,7 +112,7 @@ function isUpstreamTimeoutError(err: unknown): boolean {
   );
 }
 
-// `@rjolaverria/toolbox-core` cannot import the gateway's `UpstreamAuthExpiredError`
+// `@toolbx/core` cannot import the gateway's `UpstreamAuthExpiredError`
 // (mcp-gateway depends on core, not the reverse), so match by name — the same
 // approach `isUpstreamTimeoutError` uses for the timeout error.
 function isAuthExpiredError(err: unknown): boolean {

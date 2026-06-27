@@ -1,6 +1,6 @@
-# Contributing to ToolBox
+# Contributing to Toolbx
 
-Thanks for hacking on ToolBox. This is a pnpm + Turborepo monorepo.
+Thanks for hacking on Toolbx. This is a pnpm + Turborepo monorepo.
 
 ## Prerequisites
 
@@ -10,8 +10,8 @@ Thanks for hacking on ToolBox. This is a pnpm + Turborepo monorepo.
 ## Getting set up
 
 ```bash
-git clone https://github.com/rjolaverria/ToolBox.git
-cd ToolBox
+git clone https://github.com/rjolaverria/Toolbx.git
+cd Toolbx
 pnpm install
 pnpm build        # Turbo-ordered build of all packages
 ```
@@ -20,7 +20,7 @@ Run the local CLI without installing it globally:
 
 ```bash
 node apps/cli/dist/index.js --help
-# or after `pnpm build`, link it:  pnpm --filter @rjolaverria/toolbox exec npm link
+# or after `pnpm build`, link it:  pnpm --filter @toolbx/cli exec npm link
 ```
 
 ## Quality bar
@@ -41,21 +41,21 @@ it with `--no-verify`.
 ## Repository layout
 
 ```
-apps/cli                  — Commander CLI, produces the tlbx binary (@rjolaverria/toolbox)
+apps/cli                  — Commander CLI, produces the tlbx binary (@toolbx/cli)
 packages/core             — config, registry, proxy, disclosure, namespacing, auth
 packages/mcp-gateway      — MCP protocol layer (downstream server + upstream client)
 packages/custom-tools     — custom-tool importer + on-disk child-process sandbox
 ```
 
-`@rjolaverria/toolbox-core` is the shared heart and must not depend on CLI-specific concerns.
+`@toolbx/core` is the shared heart and must not depend on CLI-specific concerns.
 See [`CLAUDE.md`](./CLAUDE.md) for conventions (TypeScript config, code style,
 namespacing, the task workflow) and [`.agents/SPECS.md`](./.agents/SPECS.md) for
 the full product spec.
 
 ## Packaging note
 
-ToolBox publishes as four packages, not one bundle. The custom-tools sandbox
+Toolbx publishes as four packages, not one bundle. The custom-tools sandbox
 spawns a child-process harness and re-imports modules from disk, so the packages
 must keep their real on-disk file layout — do not introduce a bundler that
-inlines `@rjolaverria/toolbox-custom-tools` into a single file. See
+inlines `@toolbx/custom-tools` into a single file. See
 [`RELEASING.md`](./RELEASING.md) for how releases are cut.

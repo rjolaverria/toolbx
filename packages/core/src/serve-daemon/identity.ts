@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { ToolBoxConfig } from '../config/schema.js';
+import type { ToolbxConfig } from '../config/schema.js';
 
 /**
  * Serializes a value to JSON with object keys sorted recursively, so two
@@ -39,10 +39,7 @@ function canonicalize(value: unknown): unknown {
  * contributes nothing, so deployments with no custom tools keep the exact hash
  * they had before this parameter existed.
  */
-export function computeConfigIdentity(
-  config: ToolBoxConfig,
-  manifest?: readonly unknown[],
-): string {
+export function computeConfigIdentity(config: ToolbxConfig, manifest?: readonly unknown[]): string {
   const payload =
     manifest !== undefined && manifest.length > 0
       ? { config: canonicalize(config), tools: canonicalize(manifest) }

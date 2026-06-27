@@ -1,9 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import {
-  describeConfigPath,
-  type ConfigPathSource,
-  type ResolvedConfigPath,
-} from '@rjolaverria/toolbox-core';
+import { describeConfigPath, type ConfigPathSource, type ResolvedConfigPath } from '@toolbx/core';
 
 export interface ConfigPathOptions {
   json?: true;
@@ -24,7 +20,7 @@ export function defaultConfigPathDeps(): ConfigPathDeps {
 }
 
 const SOURCE_DESCRIPTIONS: Record<ConfigPathSource, string> = {
-  'env-toolbox-config': 'TOOLBOX_CONFIG environment variable',
+  'env-toolbx-config': 'TOOLBX_CONFIG environment variable',
   'env-xdg-config-home': 'XDG_CONFIG_HOME environment variable',
   'env-appdata': 'APPDATA environment variable',
   'home-windows': 'Windows home directory default',
@@ -58,7 +54,7 @@ export function runConfigPath(options: ConfigPathOptions, deps: ConfigPathDeps):
 
 export function configPathCommand(): CommandUnknownOpts {
   return new Command('path')
-    .description('Print the resolved ToolBox config path and which precedence rule produced it.')
+    .description('Print the resolved Toolbx config path and which precedence rule produced it.')
     .option('--json', 'emit machine-readable JSON')
     .action((opts) => {
       const code = runConfigPath(opts, defaultConfigPathDeps());

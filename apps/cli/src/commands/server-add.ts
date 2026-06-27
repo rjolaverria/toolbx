@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 
 import { Command, Option, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { readToolManifest, ToolManifestError } from '@rjolaverria/toolbox-custom-tools';
+import { readToolManifest, ToolManifestError } from '@toolbx/custom-tools';
 import {
   ConfigLockError,
   createNoopLogger,
@@ -22,8 +22,8 @@ import {
   type StoredOAuthRecord,
   type TokenStorage,
   type TokenStore,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -55,7 +55,7 @@ export interface ServerAddDeps extends ServerCommandDeps {
    * failure after a successful login) can be exercised in tests; defaults to the
    * real `saveConfig`.
    */
-  saveConfig: (config: ToolBoxConfig, target: string) => Promise<void>;
+  saveConfig: (config: ToolbxConfig, target: string) => Promise<void>;
 }
 
 export function defaultServerAddDeps(): ServerAddDeps {
@@ -117,7 +117,7 @@ function parseKeyValuePairs(
 }
 
 async function saveAndPrint(
-  next: ToolBoxConfig,
+  next: ToolbxConfig,
   name: string,
   target: string,
   deps: ServerCommandDeps,
@@ -128,7 +128,7 @@ async function saveAndPrint(
 }
 
 function rejectDuplicate(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   name: string,
   target: string,
   deps: ServerCommandDeps,
@@ -174,10 +174,10 @@ async function rejectToolNamespaceCollision(
 }
 
 function buildCandidate(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   name: string,
   entry: StdioServerConfig | HttpServerConfig,
-): ToolBoxConfig {
+): ToolbxConfig {
   return {
     ...config,
     servers: { ...config.servers, [name]: entry },
@@ -362,7 +362,7 @@ function orphanedTokenHint(name: string): string {
  * command's own token. Registrations for different names are not blocked.
  */
 async function runOAuthAndWrite(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   name: string,
   target: string,
   options: AddHttpOptions,

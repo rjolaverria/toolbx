@@ -5,8 +5,8 @@ import {
   type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeAuthHarness, makeTempConfig, type ConfigHarness } from '../../__tests__/harness.js';
@@ -20,7 +20,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-function oauthConfig(): ToolBoxConfig {
+function oauthConfig(): ToolbxConfig {
   return {
     ...DEFAULT_CONFIG,
     servers: {
@@ -31,7 +31,7 @@ function oauthConfig(): ToolBoxConfig {
   };
 }
 
-async function harness(config: ToolBoxConfig = oauthConfig()) {
+async function harness(config: ToolbxConfig = oauthConfig()) {
   const cfg = await makeTempConfig(config);
   harnesses.push(cfg);
   // Root the credential lock under the temp dir so login's lock acquisition

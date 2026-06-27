@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { atomicWriteFile, withConfigLock } from '@rjolaverria/toolbox-core';
+import { atomicWriteFile, withConfigLock } from '@toolbx/core';
 
 import { manifestFileSchema, MANIFEST_FILENAME, TOOLS_DIR, type ToolManifest } from './import.js';
 
@@ -92,12 +92,12 @@ export class ToolManifestError extends Error {
   }
 }
 
-/** Absolute path of the tools directory inside a ToolBox config directory. */
+/** Absolute path of the tools directory inside a Toolbx config directory. */
 export function toolsDirPath(configDir: string): string {
   return path.join(configDir, TOOLS_DIR);
 }
 
-/** Absolute path of the central manifest file inside a ToolBox config directory. */
+/** Absolute path of the central manifest file inside a Toolbx config directory. */
 export function toolsManifestPath(configDir: string): string {
   return path.join(toolsDirPath(configDir), MANIFEST_FILENAME);
 }

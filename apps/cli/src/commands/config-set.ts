@@ -7,9 +7,9 @@ import {
   DuplicateKeyError,
   loadConfig,
   saveConfig,
-  ToolBoxConfigSchema,
+  ToolbxConfigSchema,
   withConfigLock,
-} from '@rjolaverria/toolbox-core';
+} from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -136,7 +136,7 @@ export async function runConfigSet(
       if (error instanceof ConfigLoadError) {
         const cause = error.cause as NodeJS.ErrnoException | undefined;
         if (cause?.code === 'ENOENT') {
-          deps.stderr(`No ToolBox config found at ${target}. Run \`tlbx init\` first.\n`);
+          deps.stderr(`No Toolbx config found at ${target}. Run \`tlbx init\` first.\n`);
           return 1;
         }
         deps.stderr(`${error.message}\n`);
@@ -160,7 +160,7 @@ export async function runConfigSet(
       throw error;
     }
 
-    const result = ToolBoxConfigSchema.safeParse(candidate);
+    const result = ToolbxConfigSchema.safeParse(candidate);
     if (!result.success) {
       deps.stderr(`${new ConfigValidationError(result.error, target).message}\n`);
       return 1;

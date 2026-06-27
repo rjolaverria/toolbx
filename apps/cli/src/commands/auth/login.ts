@@ -1,9 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import {
-  ConfigLockError,
-  resolveCredentialLockRoot,
-  withCredentialLock,
-} from '@rjolaverria/toolbox-core';
+import { ConfigLockError, resolveCredentialLockRoot, withCredentialLock } from '@toolbx/core';
 
 import { loadOrReportMissing, parsePositiveInt, resolveTargetPath } from '../server-shared.js';
 import {
@@ -93,7 +89,7 @@ export async function runAuthLogin(
           switch (result.kind) {
             case 'success':
               deps.stdout(
-                `✓ ${serverName} authenticated. ToolBox will use the new token automatically.\n`,
+                `✓ ${serverName} authenticated. Toolbx will use the new token automatically.\n`,
               );
               return 0;
             case 'cancelled':

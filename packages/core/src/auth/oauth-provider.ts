@@ -20,7 +20,7 @@ import {
   type TokenStore,
 } from './token-store.js';
 
-export interface ToolBoxOAuthProviderOpts {
+export interface ToolbxOAuthProviderOpts {
   serverName: string;
   redirectUrl: URL;
   /** Scopes to request when DCR happens. Optional; many MCP servers accept no scope. */
@@ -98,7 +98,7 @@ export class CredentialChangedDuringRefreshError extends Error {
  */
 export class SuppressedRedirectError extends Error {
   constructor(public readonly authorizationUrl: URL) {
-    super('Authorization redirect intercepted by ToolBox');
+    super('Authorization redirect intercepted by Toolbx');
     this.name = 'SuppressedRedirectError';
   }
 }
@@ -123,7 +123,7 @@ type DiscoveredResourceSelection =
   | { kind: 'invalid'; error: Error };
 
 /**
- * Implements the SDK's OAuthClientProvider against a ToolBox TokenStore.
+ * Implements the SDK's OAuthClientProvider against a Toolbx TokenStore.
  *
  * One instance per (serverName, redirectUrl). Never reused across servers
  * or across CLI invocations — each login binds a fresh callback server.
@@ -135,7 +135,7 @@ type DiscoveredResourceSelection =
  * updates and prevent the auth_expired → connected transition. Keychain reads
  * are local and cheap.
  */
-export class ToolBoxOAuthProvider implements OAuthClientProvider {
+export class ToolbxOAuthProvider implements OAuthClientProvider {
   // Atomicity: client info from a fresh DCR is held in-memory only. We never
   // write a partial record to the TokenStore — saveTokens is the single commit
   // point that writes clientInformation + tokens together, so a Ctrl-C between
@@ -194,7 +194,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
   // login` just wrote.
   private fallbackRefreshFingerprint: string | undefined;
 
-  constructor(private readonly opts: ToolBoxOAuthProviderOpts) {}
+  constructor(private readonly opts: ToolbxOAuthProviderOpts) {}
 
   get redirectUrl(): URL {
     return this.opts.redirectUrl;
@@ -202,7 +202,7 @@ export class ToolBoxOAuthProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: this.opts.clientName ?? `ToolBox (${this.opts.serverName})`,
+      client_name: this.opts.clientName ?? `Toolbx (${this.opts.serverName})`,
       redirect_uris: [this.opts.redirectUrl.toString()],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

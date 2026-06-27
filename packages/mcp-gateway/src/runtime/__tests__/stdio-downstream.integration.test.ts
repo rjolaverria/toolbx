@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger } from '@rjolaverria/toolbox-core';
+import { createNoopLogger } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDownstreamStdioServer } from '../../downstream-server/stdio.js';
@@ -97,7 +97,7 @@ describe('gateway runtime + downstream stdio integration', () => {
     // spawn path; this test covers the protocol path through
     // `createDownstreamStdioServer` directly.
     const clientTransport = new StdioServerTransport(pipes.serverToClient, pipes.clientToServer);
-    const client = new Client({ name: 'toolbox-stdio-it', version: '0.0.0' }, { capabilities: {} });
+    const client = new Client({ name: 'toolbx-stdio-it', version: '0.0.0' }, { capabilities: {} });
     activeClients.add(client);
 
     let toolsListChanged = 0;
@@ -108,7 +108,7 @@ describe('gateway runtime + downstream stdio integration', () => {
 
     await client.connect(clientTransport);
 
-    expect(client.getServerVersion()).toMatchObject({ name: 'toolbox' });
+    expect(client.getServerVersion()).toMatchObject({ name: 'toolbx' });
     expect(client.getServerCapabilities()?.tools).toMatchObject({ listChanged: true });
 
     const list = await client.listTools();

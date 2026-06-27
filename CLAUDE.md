@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-ToolBox is a local MCP gateway/proxy. It sits between MCP clients (Claude, Codex, OpenCode) and upstream MCP servers (Jira, GitHub, Linear, etc.), letting users configure all their MCP servers once in one place instead of repeating setup per client.
+Toolbx is a local MCP gateway/proxy. It sits between MCP clients (Claude, Codex, OpenCode) and upstream MCP servers (Jira, GitHub, Linear, etc.), letting users configure all their MCP servers once in one place instead of repeating setup per client.
 
 ```
 MCP Clients (Claude / Codex / OpenCode)
         ↓
-ToolBox  ← this repo
+Toolbx  ← this repo
         ↓
 Upstream MCP Servers (Jira / GitHub / Linear / custom)
 ```
 
-The CLI binary is `tlbx`; zero-install `npx` examples use the package target `@rjolaverria/toolbox`. The product name is **ToolBox**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
+The CLI binary is `tlbx`; zero-install `npx` examples use the package target `@toolbx/cli`. The product name is **Toolbx**. Use `tlbx` only in CLI commands — not in file names, config dirs, package names, schemas, or UI labels.
 
 ## Commands
 
@@ -47,16 +47,16 @@ The pre-commit hook runs `lint-staged`, which auto-fixes ESLint and Prettier on 
 The repo uses pnpm workspaces + Turborepo. Build order is enforced by Turbo's `dependsOn: ["^build"]` — packages must build before the apps that import them.
 
 ```
-apps/cli          (@rjolaverria/toolbox)          — Commander CLI, produces the tlbx binary
-packages/core     (@rjolaverria/toolbox-core)         — config, registry, proxy logic, disclosure, namespacing, auth
-packages/mcp-gateway (@rjolaverria/toolbox-gateway) — MCP protocol layer (upstream client + downstream server)
+apps/cli          (@toolbx/cli)          — Commander CLI, produces the tlbx binary
+packages/core     (@toolbx/core)         — config, registry, proxy logic, disclosure, namespacing, auth
+packages/mcp-gateway (@toolbx/mcp-gateway) — MCP protocol layer (upstream client + downstream server)
 ```
 
-**`@rjolaverria/toolbox-core`** is the shared heart of the system. It will also be imported by the future Electron desktop app (Phase 2), so it must not depend on CLI-specific concerns.
+**`@toolbx/core`** is the shared heart of the system. It will also be imported by the future Electron desktop app (Phase 2), so it must not depend on CLI-specific concerns.
 
-**`@rjolaverria/toolbox-gateway`** wraps `@modelcontextprotocol/sdk` and implements ToolBox as both an MCP server (for downstream clients) and an MCP client (for upstream servers). It depends on `@rjolaverria/toolbox-core`.
+**`@toolbx/mcp-gateway`** wraps `@modelcontextprotocol/sdk` and implements Toolbx as both an MCP server (for downstream clients) and an MCP client (for upstream servers). It depends on `@toolbx/core`.
 
-**`apps/cli`** wires Commander commands to `@rjolaverria/toolbox-core`. It does not depend on `@rjolaverria/toolbox-gateway` directly — gateway logic is called through core.
+**`apps/cli`** wires Commander commands to `@toolbx/core`. It does not depend on `@toolbx/mcp-gateway` directly — gateway logic is called through core.
 
 ## TypeScript Configuration
 
@@ -70,7 +70,7 @@ Each package uses `composite: true` for TypeScript project references.
 
 ## Key Product Conventions
 
-**Tool namespacing** — every tool exposed through ToolBox is prefixed with its server name and a double-underscore separator:
+**Tool namespacing** — every tool exposed through Toolbx is prefixed with its server name and a double-underscore separator:
 
 ```
 jira__search_issues
@@ -79,17 +79,17 @@ github__create_issue
 
 The internal mapping preserves `{ exposedName, serverName, upstreamName }`. Never expose raw upstream tool names.
 
-**Config file location** — `~/.config/toolbox/config.json` (respects `XDG_CONFIG_HOME` and `TOOLBOX_CONFIG` env override). Config is validated with Zod.
+**Config file location** — `~/.config/toolbx/config.json` (respects `XDG_CONFIG_HOME` and `TOOLBX_CONFIG` env override). Config is validated with Zod.
 
-**Progressive disclosure** — when enabled, `tools/list` returns only bootstrap tools (`toolbox__search_tools`, `toolbox__reveal_tools`, etc.) plus previously revealed tools for the current session. When disabled, all enabled namespaced tools are returned. This is configurable and optional.
+**Progressive disclosure** — when enabled, `tools/list` returns only bootstrap tools (`toolbx__search_tools`, `toolbx__reveal_tools`, etc.) plus previously revealed tools for the current session. When disabled, all enabled namespaced tools are returned. This is configurable and optional.
 
 **Bootstrap tools** (used when progressive disclosure is on):
 
-- `toolbox__search_tools`
-- `toolbox__reveal_tools`
-- `toolbox__hide_tools`
-- `toolbox__list_available_servers`
-- `toolbox__list_revealed_tools`
+- `toolbx__search_tools`
+- `toolbx__reveal_tools`
+- `toolbx__hide_tools`
+- `toolbx__list_available_servers`
+- `toolbx__list_revealed_tools`
 
 **Upstream server types** — Phase 1 supports `stdio` and Streamable HTTP (`http`). Each server has a `ServerStatus` that is one of: `disabled | starting | connected | auth_required | auth_expired | error | stopped`.
 

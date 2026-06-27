@@ -15,43 +15,43 @@ import type {
   InstallResult,
 } from './types.js';
 import {
-  TOOLBOX_LEGACY_STDIO_ARGS,
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_STDIO_ARGS,
-} from './toolbox-command.js';
+  TOOLBX_LEGACY_STDIO_ARGS,
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_STDIO_ARGS,
+} from './toolbx-command.js';
 
 const CLAUDE_CONFIG_FILENAME = '.claude.json';
-const TOOLBOX_KEY = 'toolbox';
+const TOOLBX_KEY = 'toolbx';
 
-interface ToolboxEntry {
+interface ToolbxEntry {
   type: 'stdio';
   command: string;
   args: string[];
   env: Record<string, string>;
 }
 
-function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+function buildToolbxEntry(extraArgs: readonly string[]): ToolbxEntry {
   return {
     type: 'stdio',
-    command: TOOLBOX_NPX_COMMAND,
-    args: [...TOOLBOX_STDIO_ARGS, ...extraArgs],
+    command: TOOLBX_NPX_COMMAND,
+    args: [...TOOLBX_STDIO_ARGS, ...extraArgs],
     env: {},
   };
 }
 
-function buildLegacyToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+function buildLegacyToolbxEntry(extraArgs: readonly string[]): ToolbxEntry {
   return {
     type: 'stdio',
-    command: TOOLBOX_NPX_COMMAND,
-    args: [...TOOLBOX_LEGACY_STDIO_ARGS, ...extraArgs],
+    command: TOOLBX_NPX_COMMAND,
+    args: [...TOOLBX_LEGACY_STDIO_ARGS, ...extraArgs],
     env: {},
   };
 }
 
 export interface CreateClaudeAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y @rjolaverria/toolbox serve --stdio` in the wired
-   * `mcpServers.toolbox` entry. `tlbx setup --config <path>` uses this to
+   * Extra args to append after `npx -y @toolbx/cli serve --stdio` in the wired
+   * `mcpServers.toolbx` entry. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.
    */
@@ -76,8 +76,8 @@ export function createClaudeAdapterInternal(
   const homedir = options.homedir ?? osHomedir;
   const configPath = resolveConfigPath(homedir);
   const extraServeArgs = options.extraServeArgs ?? [];
-  const toolboxEntry = buildToolboxEntry(extraServeArgs);
-  const legacyToolboxEntry = buildLegacyToolboxEntry(extraServeArgs);
+  const toolbxEntry = buildToolbxEntry(extraServeArgs);
+  const legacyToolbxEntry = buildLegacyToolbxEntry(extraServeArgs);
 
   return {
     name: 'claude',
@@ -104,8 +104,8 @@ export function createClaudeAdapterInternal(
             exists,
             configPath: resolvedPath,
             opts,
-            toolboxEntry,
-            legacyToolboxEntry,
+            toolbxEntry,
+            legacyToolbxEntry,
           }),
       });
     },
@@ -123,12 +123,12 @@ interface MergeInput {
   readonly exists: boolean;
   readonly configPath: string;
   readonly opts: InstallOpts;
-  readonly toolboxEntry: ToolboxEntry;
-  readonly legacyToolboxEntry: ToolboxEntry;
+  readonly toolbxEntry: ToolbxEntry;
+  readonly legacyToolbxEntry: ToolbxEntry;
 }
 
 function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts, toolboxEntry, legacyToolboxEntry } = input;
+  const { currentText, exists, configPath, opts, toolbxEntry, legacyToolbxEntry } = input;
   if (!exists) {
     return {
       ok: false,
@@ -172,17 +172,17 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
     };
   }
   const existingServers = mcpServersAbsent ? undefined : (mcpServersRaw as Record<string, unknown>);
-  const existingToolbox = existingServers?.[TOOLBOX_KEY];
+  const existingToolbx = existingServers?.[TOOLBX_KEY];
 
-  if (existingToolbox !== undefined) {
-    if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
+  if (existingToolbx !== undefined) {
+    if (toolbxEntryMatches(existingToolbx, toolbxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
-    const legacyEntryNeedsMigration = toolboxEntryMatches(existingToolbox, legacyToolboxEntry);
+    const legacyEntryNeedsMigration = toolbxEntryMatches(existingToolbx, legacyToolbxEntry);
     if (!legacyEntryNeedsMigration && !opts.force) {
       return {
         ok: false,
-        reason: 'mcpServers.toolbox already present with different command/args',
+        reason: 'mcpServers.toolbx already present with different command/args',
         hint: 're-run with --force to overwrite (use --dry-run --force to preview)',
       };
     }
@@ -190,15 +190,15 @@ function mergeClaudeConfig(input: MergeInput): InstallFlowMergeResult {
 
   const merged: Record<string, unknown> = { ...parsed };
   const mergedServers: Record<string, unknown> = { ...(existingServers ?? {}) };
-  mergedServers[TOOLBOX_KEY] = { ...toolboxEntry, args: [...toolboxEntry.args] };
+  mergedServers[TOOLBX_KEY] = { ...toolbxEntry, args: [...toolbxEntry.args] };
   merged.mcpServers = mergedServers;
 
   const nextContent = JSON.stringify(merged, null, 2) + '\n';
-  const diff = formatDiff(existingToolbox, mergedServers[TOOLBOX_KEY]);
+  const diff = formatDiff(existingToolbx, mergedServers[TOOLBX_KEY]);
   return { ok: true, status: 'installed', nextContent, diff };
 }
 
-function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
+function toolbxEntryMatches(value: unknown, expected: ToolbxEntry): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
@@ -234,8 +234,8 @@ function formatDiff(previous: unknown, next: unknown): string {
   const before = previous === undefined ? null : previous;
   const lines: string[] = [];
   if (before !== null) {
-    lines.push('- mcpServers.toolbox = ' + JSON.stringify(before));
+    lines.push('- mcpServers.toolbx = ' + JSON.stringify(before));
   }
-  lines.push('+ mcpServers.toolbox = ' + JSON.stringify(next));
+  lines.push('+ mcpServers.toolbx = ' + JSON.stringify(next));
   return lines.join('\n');
 }

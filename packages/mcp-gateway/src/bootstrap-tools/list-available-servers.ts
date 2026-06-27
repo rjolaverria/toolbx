@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import type { ServerStatus, ServerStatusEntry, StatusRegistry } from '@rjolaverria/toolbox-core';
+import type { ServerStatus, ServerStatusEntry, StatusRegistry } from '@toolbx/core';
 import { z } from 'zod';
 
 import { LIST_AVAILABLE_SERVERS_NAME } from './names.js';
@@ -9,7 +9,7 @@ import type { BootstrapTool } from './registry.js';
 export { LIST_AVAILABLE_SERVERS_NAME };
 
 /**
- * `toolbox__list_available_servers` (M4-05) — read-only introspection over
+ * `toolbx__list_available_servers` (M4-05) — read-only introspection over
  * the M1-04 status registry. Lets an agent see which upstream servers are
  * configured and which are currently usable without revealing any tools.
  *
@@ -27,12 +27,12 @@ const ArgsSchema = z
 
 const LIST_AVAILABLE_SERVERS_DESCRIPTOR: Tool = {
   name: LIST_AVAILABLE_SERVERS_NAME,
-  title: 'List available ToolBox servers',
+  title: 'List available Toolbx servers',
   description:
-    'List every upstream MCP server ToolBox is configured to talk to, with its transport, ' +
+    'List every upstream MCP server Toolbx is configured to talk to, with its transport, ' +
     'enabled flag, current connection status, and the number of tools it currently exposes. ' +
     'Disabled servers are omitted unless includeDisabled is true. Use ' +
-    'toolbox__search_tools to find specific tools across these servers.',
+    'toolbx__search_tools to find specific tools across these servers.',
   inputSchema: {
     type: 'object',
     properties: {

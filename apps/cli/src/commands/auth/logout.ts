@@ -1,9 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import {
-  ConfigLockError,
-  resolveCredentialLockRoot,
-  withCredentialLock,
-} from '@rjolaverria/toolbox-core';
+import { ConfigLockError, resolveCredentialLockRoot, withCredentialLock } from '@toolbx/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
 import {

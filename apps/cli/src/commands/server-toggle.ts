@@ -1,12 +1,7 @@
 import * as path from 'node:path';
 
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import {
-  saveConfig,
-  withConfigLock,
-  type ServerConfig,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+import { saveConfig, withConfigLock, type ServerConfig, type ToolbxConfig } from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -46,7 +41,7 @@ async function applyEnabledChange(
     }
 
     const updated: ServerConfig = { ...entry, enabled: desired };
-    const candidate: ToolBoxConfig = {
+    const candidate: ToolbxConfig = {
       ...config,
       servers: { ...config.servers, [name]: updated },
     };

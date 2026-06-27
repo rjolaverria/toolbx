@@ -1,5 +1,5 @@
 {
-  "name": "@rjolaverria/toolbox",
+  "name": "@toolbx/cli",
   "version": "0.1.0",
   "description": "Local MCP gateway — configure your MCP servers once and connect every MCP client (Claude, Codex, OpenCode) to one place.",
   "keywords": [
@@ -13,13 +13,13 @@
     "cli",
     "ai-tools"
   ],
-  "homepage": "https://github.com/rjolaverria/ToolBox#readme",
+  "homepage": "https://github.com/rjolaverria/Toolbx#readme",
   "bugs": {
-    "url": "https://github.com/rjolaverria/ToolBox/issues"
+    "url": "https://github.com/rjolaverria/Toolbx/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rjolaverria/ToolBox.git",
+    "url": "git+https://github.com/rjolaverria/Toolbx.git",
     "directory": "apps/cli"
   },
   "license": "MIT",
@@ -48,9 +48,9 @@
   },
   "dependencies": {
     "@commander-js/extra-typings": "^14.0.0",
-    "@rjolaverria/toolbox-core": "workspace:^",
-    "@rjolaverria/toolbox-custom-tools": "workspace:^",
-    "@rjolaverria/toolbox-gateway": "workspace:^",
+    "@toolbx/core": "workspace:^",
+    "@toolbx/custom-tools": "workspace:^",
+    "@toolbx/mcp-gateway": "workspace:^",
     "commander": "^14.0.3"
   },
   "devDependencies": {

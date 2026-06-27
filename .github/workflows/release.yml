@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes all four @toolbox/* packages to npm when a vX.Y.Z tag is pushed.
+# Publishes all four @toolbx/* packages to npm when a vX.Y.Z tag is pushed.
 # The first release (0.1.0) is published manually (see RELEASING.md); this
 # workflow handles every tagged release after that.
 on:

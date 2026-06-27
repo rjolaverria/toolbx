@@ -6,7 +6,7 @@ import {
   type ServerStatus,
   type SessionVisibility,
   type SessionVisibilityChangeReason,
-} from '@rjolaverria/toolbox-core';
+} from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createToolRegistry, type ToolRegistry } from '../../registry/index.js';
@@ -74,7 +74,7 @@ function errorText(result: CallToolResult): string {
   return blocks[0]!.text;
 }
 
-describe('toolbox__reveal_tools (M4-04)', () => {
+describe('toolbx__reveal_tools (M4-04)', () => {
   it('exposes the canonical descriptor', () => {
     const reveal = createRevealToolsBootstrap({
       visibility: freshVisibility(),
@@ -158,12 +158,12 @@ describe('toolbox__reveal_tools (M4-04)', () => {
     const reveal = createRevealToolsBootstrap({ visibility, toolRegistry: populated() });
 
     const result = await reveal.invoke({
-      tools: ['toolbox__search_tools', 'jira__search_issues'],
+      tools: ['toolbx__search_tools', 'jira__search_issues'],
     });
 
     const text = errorText(result);
     expect(text).toContain('cannot reveal bootstrap tools:');
-    expect(text).toContain('toolbox__search_tools');
+    expect(text).toContain('toolbx__search_tools');
     expect(visibility.list()).toEqual([]);
   });
 
@@ -172,7 +172,7 @@ describe('toolbox__reveal_tools (M4-04)', () => {
     const reveal = createRevealToolsBootstrap({ visibility, toolRegistry: populated() });
 
     const result = await reveal.invoke({
-      tools: ['toolbox__search_tools', 'nope__missing', 'jira__search_issues'],
+      tools: ['toolbx__search_tools', 'nope__missing', 'jira__search_issues'],
     });
 
     const text = errorText(result);
@@ -219,7 +219,7 @@ describe('toolbox__reveal_tools (M4-04)', () => {
     visibility.on('change', listener);
 
     await reveal.invoke({ tools: ['nope__missing'] });
-    await reveal.invoke({ tools: ['toolbox__search_tools'] });
+    await reveal.invoke({ tools: ['toolbx__search_tools'] });
 
     expect(listener).not.toHaveBeenCalled();
   });

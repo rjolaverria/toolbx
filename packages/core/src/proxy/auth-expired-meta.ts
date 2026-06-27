@@ -8,7 +8,7 @@
  * caller such as `tlbx run` recognise the auth failure and react to it (exit
  * code 5) instead of treating it as a generic tool error.
  */
-export const AUTH_EXPIRED_META_KEY = 'toolbox/authExpired';
+export const AUTH_EXPIRED_META_KEY = 'toolbx/authExpired';
 
 export interface AuthExpiredMeta {
   /** The upstream server whose credentials expired. */

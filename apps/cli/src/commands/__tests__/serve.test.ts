@@ -6,15 +6,15 @@ import {
   DEFAULT_CONFIG,
   type CreateLoggerOptions,
   type ServeDaemonState,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import type {
   CreateDownstreamHttpServerDeps,
   CreateDownstreamStdioServerDeps,
   DownstreamHttpServer,
   DownstreamStdioServer,
   GatewayRuntime,
-} from '@rjolaverria/toolbox-gateway';
+} from '@toolbx/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -115,7 +115,7 @@ interface Harness {
   readStateSpy: ReturnType<typeof vi.fn>;
 }
 
-function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
+function makeHarness(config: ToolbxConfig = DEFAULT_CONFIG): Harness {
   const stderr = { value: '' };
   const stdioControls = makeFakeStdio();
   const httpControls = makeFakeHttp(new URL('http://127.0.0.1:7331/mcp'));
@@ -129,7 +129,7 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     Promise.resolve(null),
   );
 
-  const loadConfig = vi.fn<(path: string) => Promise<ToolBoxConfig>>(() => Promise.resolve(config));
+  const loadConfig = vi.fn<(path: string) => Promise<ToolbxConfig>>(() => Promise.resolve(config));
   const createRuntime = vi.fn<() => GatewayRuntime>(() => runtime);
   const createStdio = vi.fn<(deps: CreateDownstreamStdioServerDeps) => DownstreamStdioServer>(
     () => stdioControls.server,
@@ -151,7 +151,7 @@ function makeHarness(config: ToolBoxConfig = DEFAULT_CONFIG): Harness {
     stderr: (msg) => {
       stderr.value += msg;
     },
-    processEnv: { TOOLBOX_TEST: '1' },
+    processEnv: { TOOLBX_TEST: '1' },
     signalProcess: new EventEmitter() as unknown as NodeJS.Process,
     writeServeState: writeStateSpy,
     clearServeState: clearStateSpy,
@@ -295,7 +295,7 @@ describe('runServe', () => {
   });
 
   it('refuses --http when config.server.http.enabled is false', async () => {
-    const config: ToolBoxConfig = {
+    const config: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       server: {
         ...DEFAULT_CONFIG.server,
@@ -344,7 +344,7 @@ describe('runServe', () => {
   });
 
   it('binds http with --force-http even when server.http.enabled is false', async () => {
-    const config: ToolBoxConfig = {
+    const config: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       server: {
         ...DEFAULT_CONFIG.server,
@@ -378,8 +378,8 @@ describe('runServe', () => {
   it('publishes the state file after the listener binds when managed', async () => {
     const h = makeHarness();
     h.deps.processEnv = {
-      TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json',
-      TOOLBOX_SERVE_LOG_PATH: '/state/serve.log',
+      TOOLBX_SERVE_STATE_PATH: '/state/serve-state.json',
+      TOOLBX_SERVE_LOG_PATH: '/state/serve.log',
     };
     h.deps.isManagedChild = () => true;
     const onStarted = vi.fn();
@@ -412,7 +412,7 @@ describe('runServe', () => {
 
   it('defaults the recorded log path to a sibling serve.log when unset', async () => {
     const h = makeHarness();
-    h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.deps.processEnv = { TOOLBX_SERVE_STATE_PATH: '/state/serve-state.json' };
     h.deps.isManagedChild = () => true;
 
     const promise = runServe({ http: true, forceHttp: true }, h.deps);
@@ -429,7 +429,7 @@ describe('runServe', () => {
 
   it('tears down the listener and returns 1 when publishing state fails', async () => {
     const h = makeHarness();
-    h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.deps.processEnv = { TOOLBX_SERVE_STATE_PATH: '/state/serve-state.json' };
     h.deps.isManagedChild = () => true;
     h.writeStateSpy.mockRejectedValueOnce(new Error('ENOSPC'));
 
@@ -444,7 +444,7 @@ describe('runServe', () => {
 
   it('does not clear a successor daemon that bound the freed port', async () => {
     const h = makeHarness();
-    h.deps.processEnv = { TOOLBOX_SERVE_STATE_PATH: '/state/serve-state.json' };
+    h.deps.processEnv = { TOOLBX_SERVE_STATE_PATH: '/state/serve-state.json' };
     h.deps.isManagedChild = () => true;
     // On shutdown the state now names a different pid — a successor took over.
     h.readStateSpy.mockResolvedValueOnce({
@@ -468,16 +468,16 @@ describe('runServe', () => {
 
 describe('resolveForceHttp', () => {
   it('forces HTTP only when the marker is set AND the managed-child handshake holds', () => {
-    expect(resolveForceHttp({ TOOLBOX_SERVE_FORCE_HTTP: '1' }, true)).toBe(true);
+    expect(resolveForceHttp({ TOOLBX_SERVE_FORCE_HTTP: '1' }, true)).toBe(true);
   });
 
   it('rejects the marker without the unforgeable handshake (forged ambient env)', () => {
-    expect(resolveForceHttp({ TOOLBOX_SERVE_FORCE_HTTP: '1' }, false)).toBe(false);
+    expect(resolveForceHttp({ TOOLBX_SERVE_FORCE_HTTP: '1' }, false)).toBe(false);
   });
 
   it('returns false when the marker is absent even for a managed child', () => {
     expect(resolveForceHttp({}, true)).toBe(false);
-    expect(resolveForceHttp({ TOOLBOX_SERVE_FORCE_HTTP: '0' }, true)).toBe(false);
+    expect(resolveForceHttp({ TOOLBX_SERVE_FORCE_HTTP: '0' }, true)).toBe(false);
   });
 });
 

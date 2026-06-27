@@ -1,5 +1,5 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { createNoopLogger } from '@rjolaverria/toolbox-core';
+import { createNoopLogger } from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

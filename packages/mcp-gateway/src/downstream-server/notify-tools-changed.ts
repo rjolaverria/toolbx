@@ -1,6 +1,6 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import type { Logger } from '@rjolaverria/toolbox-core';
+import type { Logger } from '@toolbx/core';
 
 import type { DownstreamSession } from './session.js';
 

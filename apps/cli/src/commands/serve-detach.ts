@@ -16,8 +16,8 @@ import {
   type LogLevel,
   type ServeDaemonPaths,
   type ServeDaemonState,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import { SERVE_FORCE_HTTP_ENV, SERVE_LOG_PATH_ENV, SERVE_STATE_PATH_ENV } from './serve.js';
 
@@ -46,7 +46,7 @@ export interface SpawnedChildHandle {
 
 export interface ServeDetachDeps {
   resolvePath: () => string;
-  loadConfig: (path: string) => Promise<ToolBoxConfig>;
+  loadConfig: (path: string) => Promise<ToolbxConfig>;
   resolveDaemonPaths: (configPath: string) => ServeDaemonPaths;
   readState: (statePath: string) => Promise<ServeDaemonState | null>;
   clearState: (statePath: string) => Promise<void>;
@@ -175,7 +175,7 @@ function buildChildArgs(options: ServeDetachOptions, configPath: string): string
   return args;
 }
 
-export function buildEndpointUrl(http: ToolBoxConfig['server']['http']): string {
+export function buildEndpointUrl(http: ToolbxConfig['server']['http']): string {
   const host = http.host === '::1' ? '[::1]' : http.host;
   return `http://${host}:${String(http.port)}${http.path}`;
 }
@@ -188,7 +188,7 @@ export function buildEndpointUrl(http: ToolBoxConfig['server']['http']): string 
  *   published first; our child was torn down and the sibling is reused.
  * `died` — the child exited before binding and nothing is on the port.
  * `collision` — the child could not bind because the port is held by a
- *   foreign process or a ToolBox daemon for a different config.
+ *   foreign process or a Toolbx daemon for a different config.
  * `timeout` — the child neither published nor died within the budget.
  */
 type WaitOutcome =
@@ -266,7 +266,7 @@ export async function runServeDetached(
       ? path.resolve(options.config)
       : deps.resolvePath();
 
-  let config: ToolBoxConfig;
+  let config: ToolbxConfig;
   try {
     config = await deps.loadConfig(configPath);
   } catch (error) {
@@ -399,7 +399,7 @@ export async function runServeDetached(
     }
     case 'collision': {
       deps.stderr(
-        `tlbx serve: cannot bind ${endpoint}: the port is held by another process (a ToolBox daemon for a different config, or a foreign process). Stop it or change server.http.port.\n`,
+        `tlbx serve: cannot bind ${endpoint}: the port is held by another process (a Toolbx daemon for a different config, or a foreign process). Stop it or change server.http.port.\n`,
       );
       return 1;
     }

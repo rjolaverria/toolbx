@@ -11,10 +11,10 @@ import {
   type InternalInstallHooks,
 } from '../codex.js';
 import {
-  TOOLBOX_LEGACY_STDIO_ARGS,
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_STDIO_ARGS,
-} from '../toolbox-command.js';
+  TOOLBX_LEGACY_STDIO_ARGS,
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_STDIO_ARGS,
+} from '../toolbx-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 async function makeFakeHome(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-codex-adapter-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-codex-adapter-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -47,8 +47,8 @@ function formatTomlArray(values: readonly string[]): string {
   return `[${values.map((value) => JSON.stringify(value)).join(', ')}]`;
 }
 
-const TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_STDIO_ARGS);
-const LEGACY_TOOLBOX_STDIO_ARGS_TOML = formatTomlArray(TOOLBOX_LEGACY_STDIO_ARGS);
+const TOOLBX_STDIO_ARGS_TOML = formatTomlArray(TOOLBX_STDIO_ARGS);
+const LEGACY_TOOLBX_STDIO_ARGS_TOML = formatTomlArray(TOOLBX_LEGACY_STDIO_ARGS);
 
 describe('createCodexAdapter — detect()', () => {
   it('returns null when ~/.codex/config.toml is missing', async () => {
@@ -67,7 +67,7 @@ describe('createCodexAdapter — detect()', () => {
 });
 
 describe('createCodexAdapter — install()', () => {
-  it('adds [mcp_servers.toolbox] to an empty config', async () => {
+  it('adds [mcp_servers.toolbx] to an empty config', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
     await fs.writeFile(configPath, '');
@@ -86,9 +86,9 @@ describe('createCodexAdapter — install()', () => {
 
     const parsed = parseToml(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const servers = parsed.mcp_servers as Record<string, unknown>;
-    expect(servers.toolbox).toEqual({
-      command: TOOLBOX_NPX_COMMAND,
-      args: [...TOOLBOX_STDIO_ARGS],
+    expect(servers.toolbx).toEqual({
+      command: TOOLBX_NPX_COMMAND,
+      args: [...TOOLBX_STDIO_ARGS],
     });
   });
 
@@ -122,21 +122,21 @@ describe('createCodexAdapter — install()', () => {
     const servers = parsed.mcp_servers as Record<string, unknown>;
     expect(servers.github).toEqual({ command: 'npx', args: ['-y', 'github-mcp'] });
     expect(servers.linear).toEqual({ command: 'linear-mcp', args: [] });
-    expect(servers.toolbox).toEqual({
-      command: TOOLBOX_NPX_COMMAND,
-      args: [...TOOLBOX_STDIO_ARGS],
+    expect(servers.toolbx).toEqual({
+      command: TOOLBX_NPX_COMMAND,
+      args: [...TOOLBX_STDIO_ARGS],
     });
     const other = parsed.other_section as Record<string, unknown>;
     expect(other.key).toBe('value');
   });
 
-  it('is a no-op when toolbox already matches', async () => {
+  it('is a no-op when toolbx already matches', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
     const initial = [
-      '[mcp_servers.toolbox]',
-      `command = "${TOOLBOX_NPX_COMMAND}"`,
-      `args = ${TOOLBOX_STDIO_ARGS_TOML}`,
+      '[mcp_servers.toolbx]',
+      `command = "${TOOLBX_NPX_COMMAND}"`,
+      `args = ${TOOLBX_STDIO_ARGS_TOML}`,
       '',
     ].join('\n');
     await fs.writeFile(configPath, initial);
@@ -155,13 +155,13 @@ describe('createCodexAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(before);
   });
 
-  it('migrates a legacy npx tlbx toolbox entry without requiring --force', async () => {
+  it('migrates a legacy npx tlbx toolbx entry without requiring --force', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
     const initial = [
-      '[mcp_servers.toolbox]',
-      `command = "${TOOLBOX_NPX_COMMAND}"`,
-      `args = ${LEGACY_TOOLBOX_STDIO_ARGS_TOML}`,
+      '[mcp_servers.toolbx]',
+      `command = "${TOOLBX_NPX_COMMAND}"`,
+      `args = ${LEGACY_TOOLBX_STDIO_ARGS_TOML}`,
       '',
     ].join('\n');
     await fs.writeFile(configPath, initial);
@@ -178,16 +178,16 @@ describe('createCodexAdapter — install()', () => {
 
     const parsed = parseToml(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const servers = parsed.mcp_servers as Record<string, unknown>;
-    expect(servers.toolbox).toEqual({
-      command: TOOLBOX_NPX_COMMAND,
-      args: [...TOOLBOX_STDIO_ARGS],
+    expect(servers.toolbx).toEqual({
+      command: TOOLBX_NPX_COMMAND,
+      args: [...TOOLBX_STDIO_ARGS],
     });
   });
 
-  it('refuses to overwrite a conflicting toolbox entry without --force', async () => {
+  it('refuses to overwrite a conflicting toolbx entry without --force', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
-    const initial = ['[mcp_servers.toolbox]', 'command = "old-binary"', 'args = []', ''].join('\n');
+    const initial = ['[mcp_servers.toolbx]', 'command = "old-binary"', 'args = []', ''].join('\n');
     await fs.writeFile(configPath, initial);
     const before = await fs.readFile(configPath);
 
@@ -203,10 +203,10 @@ describe('createCodexAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(before);
   });
 
-  it('overwrites a conflicting toolbox entry with --force and writes a backup', async () => {
+  it('overwrites a conflicting toolbx entry with --force and writes a backup', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
-    const initial = ['[mcp_servers.toolbox]', 'command = "old-binary"', 'args = []', ''].join('\n');
+    const initial = ['[mcp_servers.toolbx]', 'command = "old-binary"', 'args = []', ''].join('\n');
     await fs.writeFile(configPath, initial);
 
     const adapter = makeAdapter(home);
@@ -221,9 +221,9 @@ describe('createCodexAdapter — install()', () => {
 
     const parsed = parseToml(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const servers = parsed.mcp_servers as Record<string, unknown>;
-    expect(servers.toolbox).toEqual({
-      command: TOOLBOX_NPX_COMMAND,
-      args: [...TOOLBOX_STDIO_ARGS],
+    expect(servers.toolbx).toEqual({
+      command: TOOLBX_NPX_COMMAND,
+      args: [...TOOLBX_STDIO_ARGS],
     });
   });
 
@@ -235,7 +235,7 @@ describe('createCodexAdapter — install()', () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
     const initial = [
-      '[mcp_servers.toolbox]',
+      '[mcp_servers.toolbx]',
       'command = "old-binary"',
       'args = ["legacy"]',
       '',
@@ -249,17 +249,17 @@ describe('createCodexAdapter — install()', () => {
     if (!result.ok) {
       return;
     }
-    expect(result.diff).toContain('- [mcp_servers.toolbox]');
+    expect(result.diff).toContain('- [mcp_servers.toolbx]');
     expect(result.diff).toContain('-   command = "old-binary"');
     expect(result.diff).toContain('-   args = ["legacy"]');
-    expect(result.diff).toContain('+ [mcp_servers.toolbox]');
-    expect(result.diff).toContain(`+   command = "${TOOLBOX_NPX_COMMAND}"`);
+    expect(result.diff).toContain('+ [mcp_servers.toolbx]');
+    expect(result.diff).toContain(`+   command = "${TOOLBX_NPX_COMMAND}"`);
   });
 
   it('returns ok:false when the file is malformed TOML', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureCodexDir(home);
-    await fs.writeFile(configPath, '[mcp_servers.toolbox\ncommand = "broken"');
+    await fs.writeFile(configPath, '[mcp_servers.toolbx\ncommand = "broken"');
 
     const adapter = makeAdapter(home);
     const result = await adapter.install({ dryRun: false, force: false });
@@ -312,9 +312,9 @@ describe('createCodexAdapter — install()', () => {
     if (!result.ok) {
       return;
     }
-    expect(result.diff).toContain('+ [mcp_servers.toolbox]');
-    expect(result.diff).toContain(`+   command = "${TOOLBOX_NPX_COMMAND}"`);
-    expect(result.diff).toContain(`+   args = ${TOOLBOX_STDIO_ARGS_TOML}`);
+    expect(result.diff).toContain('+ [mcp_servers.toolbx]');
+    expect(result.diff).toContain(`+   command = "${TOOLBX_NPX_COMMAND}"`);
+    expect(result.diff).toContain(`+   args = ${TOOLBX_STDIO_ARGS_TOML}`);
   });
 
   it('dryRun returns the diff without touching disk', async () => {

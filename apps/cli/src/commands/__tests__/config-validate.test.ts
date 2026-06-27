@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ToolBoxConfig } from '@rjolaverria/toolbox-core';
+import { DEFAULT_CONFIG, type ToolbxConfig } from '@toolbx/core';
 
 import {
   collectIssues,
@@ -86,7 +86,7 @@ describe('collectIssues', () => {
   });
 
   it('flags broken stdio commands', async () => {
-    const cfg: ToolBoxConfig = {
+    const cfg: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         ghost: { type: 'stdio', enabled: true, command: 'definitely-not-on-path-xyz', args: [] },
@@ -149,7 +149,7 @@ describe('collectIssues', () => {
   });
 
   it('flags missing env vars in auth.tokenEnv', async () => {
-    const cfg: ToolBoxConfig = {
+    const cfg: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         jira: {
@@ -174,7 +174,7 @@ describe('collectIssues', () => {
   });
 
   it('flags missing ${env:NAME} placeholders inside stdio env values', async () => {
-    const cfg: ToolBoxConfig = {
+    const cfg: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         github: {
@@ -219,7 +219,7 @@ describe('collectIssues', () => {
   });
 
   it('flags tool overrides that reference unknown servers', async () => {
-    const cfg: ToolBoxConfig = {
+    const cfg: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {},
       tools: { ghost__do_thing: { enabled: false } },
@@ -253,7 +253,7 @@ describe('collectIssues', () => {
   });
 
   it('passes the server cwd to commandExists for path-like commands', async () => {
-    const cfg: ToolBoxConfig = {
+    const cfg: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         local: {
@@ -282,7 +282,7 @@ describe('collectIssues', () => {
   });
 
   it('emits RFC 6901 JSON Pointers (escapes ~ and / in segment names)', async () => {
-    const cfg: ToolBoxConfig = {
+    const cfg: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         jira: {
@@ -383,6 +383,6 @@ describe('runConfigValidate', () => {
     const code = await runConfigValidate({}, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No ToolBox config found');
+    expect(h.stderr.value).toContain('No Toolbx config found');
   });
 });

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, saveConfig } from '@rjolaverria/toolbox-core';
+import { DEFAULT_CONFIG, loadConfig, saveConfig } from '@toolbx/core';
 
 import { runConfigEdit, type ConfigEditDeps } from '../config-edit.js';
 
@@ -224,7 +224,7 @@ describe('runConfigEdit', () => {
     const code = await runConfigEdit({}, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No ToolBox config found');
+    expect(h.stderr.value).toContain('No Toolbx config found');
     expect(h.invocations).toHaveLength(0);
   });
 

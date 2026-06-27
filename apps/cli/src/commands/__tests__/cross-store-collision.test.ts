@@ -1,8 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { readToolManifest } from '@rjolaverria/toolbox-custom-tools';
-import { loadConfig } from '@rjolaverria/toolbox-core';
+import { readToolManifest } from '@toolbx/custom-tools';
+import { loadConfig } from '@toolbx/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runAddStdio } from '../server-add.js';
@@ -11,10 +11,10 @@ import { makeHarness, makeTempConfig, type ConfigHarness } from './harness.js';
 
 // A custom tool whose namespace ("x") matches the server name added concurrently.
 const TOOL_SOURCE = `/**
- * @toolbox-tool name go
- * @toolbox-tool title Go
- * @toolbox-tool description A self-contained tool.
- * @toolbox-tool namespace x
+ * @toolbx-tool name go
+ * @toolbx-tool title Go
+ * @toolbx-tool description A self-contained tool.
+ * @toolbx-tool namespace x
  */
 export const inputSchema = { type: 'object', properties: {}, additionalProperties: false };
 export default async function f() {

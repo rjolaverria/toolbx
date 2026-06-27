@@ -76,7 +76,7 @@ export const ServersMapSchema = z.record(ServerNameSchema, ServerConfigSchema);
 
 // Exposed (namespaced) tool name shape, e.g. `github__create_issue`. The
 // canonical exposed name is produced by `formatExposedName` in
-// `@rjolaverria/toolbox-core`'s namespace module (which concatenates a validated server
+// `@toolbx/core`'s namespace module (which concatenates a validated server
 // name and an upstream tool name); this regex is a defensive sanity check
 // for hand-edited config so obvious nonsense like spaces or empty segments
 // can't slip through to tool overrides.
@@ -102,8 +102,8 @@ export const StdioServerSettingsSchema = z
   })
   .strict();
 
-// Phase 1 binds the downstream ToolBox HTTP server to loopback only. Allowing
-// `0.0.0.0` or LAN IPs would expose ToolBox without auth (Phase 1 has none),
+// Phase 1 binds the downstream Toolbx HTTP server to loopback only. Allowing
+// `0.0.0.0` or LAN IPs would expose Toolbx without auth (Phase 1 has none),
 // so non-loopback hosts are rejected at config load. Future tasks may relax
 // this once auth ships.
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
@@ -153,14 +153,14 @@ export const NamespacingSchema = z
   .strict();
 
 // Token-store backend selector for OAuth credentials and other per-server
-// secrets that ToolBox manages itself. Phase 1 ships a single backend
+// secrets that Toolbx manages itself. Phase 1 ships a single backend
 // (`keychain`) backed by the OS keyring; future backends (e.g. `file`,
 // `memory` for tests) will join this union.
 export const TokenStorageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('keychain') }).strict(),
 ]);
 
-// The top-level `auth` block scopes ToolBox-wide auth settings, currently
+// The top-level `auth` block scopes Toolbx-wide auth settings, currently
 // just the token-store backend. Defaulted in two layers so consumers always
 // see `config.auth.storage.type` resolved without conditional reads:
 //   - `storage` defaults to `{ type: 'keychain' }` when omitted
@@ -191,7 +191,7 @@ export const CustomToolsSchema = z
   })
   .strict();
 
-export const ToolBoxConfigSchema = z
+export const ToolbxConfigSchema = z
   .object({
     $schema: z.string().min(1).optional(),
     version: z.literal(1),
@@ -205,8 +205,8 @@ export const ToolBoxConfigSchema = z
   })
   .strict();
 
-export type ToolBoxConfig = z.infer<typeof ToolBoxConfigSchema>;
-export type ToolBoxConfigInput = z.input<typeof ToolBoxConfigSchema>;
+export type ToolbxConfig = z.infer<typeof ToolbxConfigSchema>;
+export type ToolbxConfigInput = z.input<typeof ToolbxConfigSchema>;
 export type ToolOverride = z.infer<typeof ToolOverrideSchema>;
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 export type StdioServerConfig = z.infer<typeof StdioServerConfigSchema>;

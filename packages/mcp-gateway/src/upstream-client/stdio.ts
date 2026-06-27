@@ -9,7 +9,7 @@ import {
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import type { Logger, StdioServerConfig } from '@rjolaverria/toolbox-core';
+import type { Logger, StdioServerConfig } from '@toolbx/core';
 
 import { resolveEnvPlaceholders } from './env.js';
 import {
@@ -26,8 +26,8 @@ import type {
   UpstreamCallToolOptions,
 } from './types.js';
 
-const TOOLBOX_CLIENT_INFO = {
-  name: 'toolbox-upstream-client',
+const TOOLBX_CLIENT_INFO = {
+  name: 'toolbx-upstream-client',
   version: '0.0.0',
 } as const;
 
@@ -127,7 +127,7 @@ export function createStdioUpstreamClient(
       stderr: 'pipe',
     });
 
-    const localClient = new Client(TOOLBOX_CLIENT_INFO, { capabilities: {} });
+    const localClient = new Client(TOOLBX_CLIENT_INFO, { capabilities: {} });
 
     localClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       emit('tools_list_changed');

@@ -12,8 +12,8 @@ import {
   parseConfig,
   saveConfig,
   withConfigLock,
-  type ToolBoxConfig,
-} from '@rjolaverria/toolbox-core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import { splitEditorCommand, type EditorExit } from './server-edit.js';
 import {
@@ -48,7 +48,7 @@ export function defaultConfigEditDeps(): ConfigEditDeps {
           resolve({ code, signal });
         });
       }),
-    tempFilePath: () => path.join(os.tmpdir(), `toolbox-config-${randomUUID()}.json`),
+    tempFilePath: () => path.join(os.tmpdir(), `toolbx-config-${randomUUID()}.json`),
     platform: () => process.platform,
   };
 }
@@ -84,7 +84,7 @@ export async function runConfigEdit(
   const target = resolveTargetPath(deps, options.config);
   const source = await readSource(target);
   if (source === null) {
-    deps.stderr(`No ToolBox config found at ${target}. Run \`tlbx init\` first.\n`);
+    deps.stderr(`No Toolbx config found at ${target}. Run \`tlbx init\` first.\n`);
     return 1;
   }
 
@@ -118,7 +118,7 @@ export async function runConfigEdit(
       return 0;
     }
 
-    let validated: ToolBoxConfig;
+    let validated: ToolbxConfig;
     try {
       validated = parseConfig(edited, target);
     } catch (error) {
@@ -152,7 +152,7 @@ export async function runConfigEdit(
 
 export function configEditCommand(): CommandUnknownOpts {
   return new Command('edit')
-    .description('Open the ToolBox config in $EDITOR; validate and save on exit.')
+    .description('Open the Toolbx config in $EDITOR; validate and save on exit.')
     .option('--editor <command>', 'override the editor command (defaults to $EDITOR or vi)')
     .option('-c, --config <path>', 'override the resolved config path')
     .action(async (opts) => {

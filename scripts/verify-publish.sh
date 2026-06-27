@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end verification of the PUBLISHED package shape, using a throwaway local
 # npm registry (verdaccio). This proves what `npm pack` of a single package can't:
-# that the four @rjolaverria/* packages publish together, that pnpm rewrites their
-# workspace:^ refs to real versions, that `npx @rjolaverria/toolbox` resolves the whole
+# that the four @toolbx/* packages publish together, that pnpm rewrites their
+# workspace:^ refs to real versions, that `npx @toolbx/cli` resolves the whole
 # dependency tree from a clean install, and that the custom-tools sandbox (which
 # spawns a child harness and re-imports modules from disk) works from the
 # installed on-disk layout.
@@ -22,19 +22,19 @@ mkdir -p "$STORAGE" "$PREFIX"
 VERDACCIO_PID=""
 cleanup() {
   [[ -n "$VERDACCIO_PID" ]] && kill "$VERDACCIO_PID" >/dev/null 2>&1 || true
-  PATH="$PREFIX/bin:$PATH" TOOLBOX_CONFIG="$WORK/config.json" tlbx stop >/dev/null 2>&1 || true
+  PATH="$PREFIX/bin:$PATH" TOOLBX_CONFIG="$WORK/config.json" tlbx stop >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
 
-# Anonymous publish + read for the @rjolaverria scope; everything else proxies npmjs.
+# Anonymous publish + read for the @toolbx scope; everything else proxies npmjs.
 cat > "$CONFIG" <<YAML
 storage: $STORAGE
 uplinks:
   npmjs:
     url: https://registry.npmjs.org/
 packages:
-  '@rjolaverria/*':
+  '@toolbx/*':
     access: \$all
     publish: \$all
   '**':
@@ -63,18 +63,18 @@ export NPM_CONFIG_USERCONFIG="$WORK/.npmrc"
   echo "//localhost:${PORT}/:_authToken=fake-token-for-local-verdaccio"
 } > "$NPM_CONFIG_USERCONFIG"
 
-echo "▶ building and publishing all @rjolaverria packages to the local registry"
+echo "▶ building and publishing all @toolbx packages to the local registry"
 ( cd "$REPO_ROOT" && pnpm build >/dev/null )
 # pnpm rewrites workspace:^ -> the real version on publish.
 ( cd "$REPO_ROOT" && pnpm -r publish --registry "$REGISTRY" --no-git-checks >/dev/null )
 rm -f "$REPO_ROOT/pnpm-publish-summary.json"
-echo "  ✓ published the four @rjolaverria/toolbox packages @ 0.1.0"
+echo "  ✓ published the four @toolbx packages @ 0.1.0"
 
-echo "▶ clean global install of @rjolaverria/toolbox from the local registry"
+echo "▶ clean global install of @toolbx/cli from the local registry"
 export NPM_CONFIG_PREFIX="$PREFIX"
-export TOOLBOX_CONFIG="$WORK/config.json"
+export TOOLBX_CONFIG="$WORK/config.json"
 export PATH="$PREFIX/bin:$PATH"
-npm install -g --registry "$REGISTRY" @rjolaverria/toolbox@0.1.0
+npm install -g --registry "$REGISTRY" @toolbx/cli@0.1.0
 
 fail() { echo "✗ FAIL: $1" >&2; exit 1; }
 pass() { echo "  ✓ $1"; }
@@ -97,10 +97,10 @@ pass "upstream tools/call"
 echo "▶ custom tool: the path that bundling broke — import, enable, list, run"
 cat > "$WORK/adder.ts" <<'TS'
 /**
- * @toolbox-tool name add
- * @toolbox-tool title Add
- * @toolbox-tool description Adds two numbers.
- * @toolbox-tool namespace math
+ * @toolbx-tool name add
+ * @toolbx-tool title Add
+ * @toolbx-tool description Adds two numbers.
+ * @toolbx-tool namespace math
  */
 export const inputSchema = {
   type: 'object',
@@ -122,4 +122,4 @@ echo "$ADD" | grep -q '"42"' || fail "custom tool did not run: $ADD"
 pass "custom tool import → list → run (sandbox works from installed layout)"
 
 tlbx stop >/dev/null 2>&1 || true
-echo "✓ PUBLISHED SHAPE VERIFIED — npx @rjolaverria/toolbox works end-to-end from a clean install"
+echo "✓ PUBLISHED SHAPE VERIFIED — npx @toolbx/cli works end-to-end from a clean install"
