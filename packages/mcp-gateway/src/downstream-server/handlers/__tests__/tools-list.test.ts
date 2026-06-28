@@ -3,8 +3,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility } from '@toolbx/core';
+import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbx/core';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -13,7 +13,7 @@ import {
   type BootstrapToolRegistry,
 } from '../../../bootstrap-tools/index.js';
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
-import { buildToolBoxMcpServer } from '../../server.js';
+import { buildToolbxMcpServer } from '../../server.js';
 import { registerToolsListHandler } from '../tools-list.js';
 
 const NS: NamespaceOptions = { separator: '__', format: 'server__tool' };
@@ -38,7 +38,7 @@ async function connect(opts: {
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
-  const built = buildToolBoxMcpServer({
+  const built = buildToolbxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-list-test',
     ...(opts.controlPlane !== undefined ? { controlPlane: opts.controlPlane } : {}),
@@ -58,7 +58,7 @@ async function connect(opts: {
   await built.server.connect(serverTransport);
 
   const client = new Client(
-    { name: 'toolbox-tools-list-test-client', version: '0.0.0' },
+    { name: 'toolbx-tools-list-test-client', version: '0.0.0' },
     { capabilities: {} },
   );
   await client.connect(clientTransport);
@@ -226,13 +226,13 @@ describe('tools/list handler — non-disclosure mode', () => {
   });
 
   it('drops upstream tools whose exposed name is reserved by a bootstrap tool', async () => {
-    // Simulates an upstream server literally named `toolbox` exposing a
-    // tool that namespaces to `toolbox__search_tools`. The bootstrap entry
+    // Simulates an upstream server literally named `toolbx` exposing a
+    // tool that namespaces to `toolbx__search_tools`. The bootstrap entry
     // reserves that name; the upstream tool must not appear in the listing
     // because it isn't reachable through tools/call either.
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({
-      serverName: 'toolbox',
+      serverName: 'toolbx',
       status: CONNECTED,
       enabled: true,
       tools: [tool('search_tools'), tool('something_else')],
@@ -240,7 +240,7 @@ describe('tools/list handler — non-disclosure mode', () => {
     const bootstrap = createBootstrapToolRegistry();
     bootstrap.add({
       descriptor: {
-        name: 'toolbox__search_tools',
+        name: 'toolbx__search_tools',
         description: 'reserved bootstrap',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
@@ -252,7 +252,7 @@ describe('tools/list handler — non-disclosure mode', () => {
     const { client, closeAll } = await connect({ registry, bootstrap });
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name);
-    expect(names).toEqual(['toolbox__search_tools', 'toolbox__something_else']);
+    expect(names).toEqual(['toolbx__search_tools', 'toolbx__something_else']);
     expect(result.tools[0]?.description).toBe('reserved bootstrap');
     await closeAll();
   });

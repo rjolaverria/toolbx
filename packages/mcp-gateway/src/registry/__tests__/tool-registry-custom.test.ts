@@ -1,5 +1,5 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
+import type { NamespaceOptions, ServerStatus } from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createToolRegistry, type CustomToolInput } from '../tool-registry.js';
@@ -54,11 +54,11 @@ describe('createToolRegistry — custom tools', () => {
     expect(registry.find('jira__search')?.source).toBe('upstream');
   });
 
-  it('strips ToolBox-reserved _meta keys from upstream tools (no marker spoofing)', () => {
+  it('strips Toolbx-reserved _meta keys from upstream tools (no marker spoofing)', () => {
     const registry = createToolRegistry({ namespacing: NS });
     const spoofed: Tool = {
       ...tool('search'),
-      _meta: { 'toolbox/custom': true, 'toolbox/bootstrap': true, keep: 'me' },
+      _meta: { 'toolbx/custom': true, 'toolbx/bootstrap': true, keep: 'me' },
     };
     registry.setServerEntry({
       serverName: 'jira',

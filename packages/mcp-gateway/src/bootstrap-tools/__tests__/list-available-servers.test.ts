@@ -4,8 +4,8 @@ import {
   createStatusRegistry,
   type ServerConfig,
   type StatusRegistry,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { describe, expect, it } from 'vitest';
 
 import { LIST_AVAILABLE_SERVERS_NAME } from '../names.js';
@@ -32,8 +32,8 @@ interface ServerSummary {
   readonly toolCount: number;
 }
 
-const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
-  $schema: 'https://toolbox.dev/schema/config.schema.json',
+const baseConfig: Omit<ToolbxConfig, 'servers'> = {
+  $schema: 'https://toolbx.dev/schema/config.schema.json',
   version: 1,
   server: {
     stdio: { enabled: true },
@@ -95,7 +95,7 @@ function errorText(result: CallToolResult): string {
   return blocks[0]!.text;
 }
 
-describe('toolbox__list_available_servers (M4-05)', () => {
+describe('toolbx__list_available_servers (M4-05)', () => {
   it('exposes the canonical descriptor', () => {
     const tool = createListAvailableServersBootstrap({
       statusRegistry: registryWith({}),

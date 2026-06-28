@@ -1,4 +1,4 @@
-export { getToolBoxVersion } from './version.js';
+export { getToolbxVersion } from './version.js';
 
 export {
   AuthSchema,
@@ -18,7 +18,7 @@ export {
   StdioServerConfigSchema,
   StdioServerSettingsSchema,
   TokenStorageSchema,
-  ToolBoxConfigSchema,
+  ToolbxConfigSchema,
   ToolOverrideSchema,
   ToolOverridesMapSchema,
   TopLevelAuthSchema,
@@ -30,8 +30,8 @@ export {
   type ServerSettings,
   type StdioServerConfig,
   type TokenStorage,
-  type ToolBoxConfig,
-  type ToolBoxConfigInput,
+  type ToolbxConfig,
+  type ToolbxConfigInput,
   type ToolOverride,
   type TopLevelAuth,
 } from './config/schema.js';
@@ -204,10 +204,10 @@ export {
   createOpencodeAdapter,
   detectClients,
   opencodeAdapter,
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_NPX_PACKAGE,
-  TOOLBOX_STDIO_ARGS,
-  TOOLBOX_STDIO_COMMAND,
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_NPX_PACKAGE,
+  TOOLBX_STDIO_ARGS,
+  TOOLBX_STDIO_COMMAND,
   type ClientAdapter,
   type ClientAdapterEnv,
   type ClientName,
@@ -230,7 +230,7 @@ export {
   runOAuthLogin,
   runOAuthRefresh,
   SuppressedRedirectError,
-  ToolBoxOAuthProvider,
+  ToolbxOAuthProvider,
   type AuthHint,
   type CreateTokenStoreDeps,
   type ProbeUpstreamAuthDeps,
@@ -241,5 +241,5 @@ export {
   type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
-  type ToolBoxOAuthProviderOpts,
+  type ToolbxOAuthProviderOpts,
 } from './auth/index.js';

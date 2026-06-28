@@ -9,7 +9,7 @@ import {
   serveDaemonPathsForConfig,
   type ServeDaemonPaths,
   type ServeDaemonState,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 export interface StopOptions {
   config?: string;
@@ -194,7 +194,7 @@ async function reportStaleCleanup(
 
 export function stopCommand(): CommandUnknownOpts {
   return new Command('stop')
-    .description('Stop a ToolBox gateway started with `tlbx serve --detach`.')
+    .description('Stop a Toolbx gateway started with `tlbx serve --detach`.')
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .action(async (opts) => {
       const code = await runStop(opts, defaultStopDeps());

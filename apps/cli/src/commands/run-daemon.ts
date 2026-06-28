@@ -13,9 +13,9 @@ import {
   type LogLevel,
   type ServeDaemonPaths,
   type ServeDaemonState,
-  type ToolBoxConfig,
+  type ToolbxConfig,
   type WaitForDaemonReadyDeps,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import { computeDaemonIdentity } from './daemon-identity.js';
 import {
@@ -33,7 +33,7 @@ export interface EnsureDaemonOptions {
   logFormat?: LogFormat;
 }
 
-/** A ready, reusable ToolBox daemon for a resolved config. */
+/** A ready, reusable Toolbx daemon for a resolved config. */
 export interface DaemonHandle {
   readonly url: string;
   readonly pid: number;
@@ -47,7 +47,7 @@ export interface DaemonHandle {
    * can produce config-aware remediation (bearer vs OAuth auth, disabled vs
    * unknown tools) without re-reading and re-parsing the file (P2-05 §5.5).
    */
-  readonly config: ToolBoxConfig;
+  readonly config: ToolbxConfig;
 }
 
 export type EnsureDaemonResult =
@@ -62,7 +62,7 @@ export interface ColdStartResult {
 
 export interface EnsureDaemonDeps {
   resolvePath: () => string;
-  loadConfig: (configPath: string) => Promise<ToolBoxConfig>;
+  loadConfig: (configPath: string) => Promise<ToolbxConfig>;
   resolveDaemonPaths: (configPath: string) => ServeDaemonPaths;
   readState: (statePath: string) => Promise<ServeDaemonState | null>;
   clearState: (statePath: string) => Promise<void>;
@@ -128,7 +128,7 @@ function resolveConfig(options: EnsureDaemonOptions, deps: EnsureDaemonDeps): st
 }
 
 /**
- * Ensures a ToolBox daemon is running and ready for the resolved config, then
+ * Ensures a Toolbx daemon is running and ready for the resolved config, then
  * returns a handle to its local HTTP endpoint. Reuses a healthy daemon for the
  * same config, clears stale state, and otherwise cold-starts a detached daemon
  * with HTTP forced on. Never starts a daemon for a different config on a port
@@ -141,7 +141,7 @@ export async function ensureDaemon(
 ): Promise<EnsureDaemonResult> {
   const configPath = resolveConfig(options, deps);
 
-  let config: ToolBoxConfig;
+  let config: ToolbxConfig;
   try {
     config = await deps.loadConfig(configPath);
   } catch (error) {
@@ -205,7 +205,7 @@ export async function ensureDaemon(
       message:
         detail.length > 0
           ? detail
-          : `tlbx run: failed to start the ToolBox daemon for ${configPath}; see ${logPath} and run \`tlbx doctor\``,
+          : `tlbx run: failed to start the Toolbx daemon for ${configPath}; see ${logPath} and run \`tlbx doctor\``,
     };
   }
 

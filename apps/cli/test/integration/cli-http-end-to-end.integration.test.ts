@@ -1,6 +1,6 @@
 // End-to-end CLI integration test for the HTTP downstream + HTTP upstream
 // path. Drives `tlbx server add-http` to register a remote MCP server and
-// then connects an MCP SDK client to ToolBox over Streamable HTTP. Covers
+// then connects an MCP SDK client to Toolbx over Streamable HTTP. Covers
 // SPECS §4.8 acceptance criteria 3, 4, 5, 6, 7.
 //
 // The fixture upstream is `http-echo-server.mjs` from M1-02, run in-process
@@ -9,7 +9,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { loadConfig } from '@toolbox/core';
+import { loadConfig } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { defaultServerAddDeps, runAddHttp } from '../../src/commands/server-add.js';
@@ -107,7 +107,7 @@ describe('end-to-end CLI lifecycle (HTTP downstream + HTTP upstream)', () => {
       url: upstream.url,
     });
 
-    // 2. Start ToolBox in-process via runServe and grab the bound URL from
+    // 2. Start Toolbx in-process via runServe and grab the bound URL from
     //    the onStarted callback (acceptance criteria #4, #5).
     const serveHandle = await startInProcessServe({
       configPath: handle.target,
@@ -126,16 +126,16 @@ describe('end-to-end CLI lifecycle (HTTP downstream + HTTP upstream)', () => {
       () => serveHandle.info.runtime.statusRegistry.get('remote')?.status.kind === 'connected',
     );
 
-    // 4. Connect an MCP client to ToolBox and exercise tools/list /
+    // 4. Connect an MCP client to Toolbx and exercise tools/list /
     //    tools/call (acceptance criteria #6, #7).
     const client = new Client(
-      { name: 'toolbox-cli-http-it', version: '0.0.0' },
+      { name: 'toolbx-cli-http-it', version: '0.0.0' },
       { capabilities: {} },
     );
     activeClients.add(client);
     await client.connect(new StreamableHTTPClientTransport(url) as Transport);
 
-    expect(client.getServerVersion()?.name).toBe('toolbox');
+    expect(client.getServerVersion()?.name).toBe('toolbx');
 
     const list = await client.listTools();
     const exposed = list.tools.map((t) => t.name).sort();

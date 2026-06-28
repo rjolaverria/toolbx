@@ -3,7 +3,7 @@ import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 
 import { Command } from '@commander-js/extra-typings';
-import { DEFAULT_CONFIG, resolveConfigPath, saveConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, resolveConfigPath, saveConfig } from '@toolbx/core';
 
 export interface InitOptions {
   force?: boolean;
@@ -105,14 +105,14 @@ export async function runInit(options: InitOptions, deps: InitDeps): Promise<num
   }
 
   await saveConfig(DEFAULT_CONFIG, target);
-  deps.stdout(`Created ToolBox config at ${target}\n`);
+  deps.stdout(`Created Toolbx config at ${target}\n`);
   deps.stdout('Next: run `tlbx serve` to start the gateway.\n');
   return 0;
 }
 
 export function initCommand(): Command {
   return new Command('init')
-    .description('Create a new ToolBox config file at the resolved location.')
+    .description('Create a new Toolbx config file at the resolved location.')
     .option('-f, --force', 'overwrite an existing config file')
     .option('-p, --path <path>', 'write the config to this path instead of the resolved default')
     .action(async (opts) => {

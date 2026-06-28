@@ -11,7 +11,7 @@ import {
   type DetectedClient,
   type InstallOpts,
   type InstallResult,
-} from '@toolbox/core';
+} from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -24,7 +24,7 @@ import {
 
 const tempDirs: string[] = [];
 
-async function makeTempDir(prefix = 'toolbox-cli-setup-'): Promise<string> {
+async function makeTempDir(prefix = 'toolbx-cli-setup-'): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
@@ -115,7 +115,7 @@ interface MakeHarnessOptions {
 function makeHarness(opts: MakeHarnessOptions = {}): Harness {
   const stdout = { value: '' };
   const stderr = { value: '' };
-  const configPath = opts.configPath ?? path.join(os.tmpdir(), 'toolbox-fake-config.json');
+  const configPath = opts.configPath ?? path.join(os.tmpdir(), 'toolbx-fake-config.json');
   const detected = opts.detected ?? [];
   const adapters = opts.adapters ?? {};
   const prompter =
@@ -283,7 +283,7 @@ describe('runSetup', () => {
             ok: true,
             status: 'installed',
             configPath: '/fake/home/.claude.json',
-            diff: '+ mcpServers.toolbox = ...',
+            diff: '+ mcpServers.toolbx = ...',
           }),
       }),
       codex: fakeAdapter({
@@ -294,7 +294,7 @@ describe('runSetup', () => {
             ok: true,
             status: 'installed',
             configPath: '/fake/home/.codex/config.toml',
-            diff: '+ [mcp_servers.toolbox]',
+            diff: '+ [mcp_servers.toolbx]',
           }),
       }),
     };
@@ -325,7 +325,7 @@ describe('runSetup', () => {
             status: 'installed',
             configPath: '/fake/.claude.json',
             backupPath: '/fake/.claude.json.bak',
-            diff: '+ mcpServers.toolbox = {...}',
+            diff: '+ mcpServers.toolbx = {...}',
           });
         },
       }),
@@ -339,7 +339,7 @@ describe('runSetup', () => {
             status: 'installed',
             configPath: '/fake/.codex/config.toml',
             backupPath: '/fake/.codex/config.toml.bak',
-            diff: '+ [mcp_servers.toolbox]',
+            diff: '+ [mcp_servers.toolbx]',
           });
         },
       }),
@@ -392,7 +392,7 @@ describe('runSetup', () => {
 
     expect(code).toBe(0);
     expect(prompter.confirms).toHaveLength(1);
-    expect(prompter.confirms[0]).toMatch(/Wire ToolBox into Claude Code/);
+    expect(prompter.confirms[0]).toMatch(/Wire Toolbx into Claude Code/);
     expect(installCalls).toEqual([
       { dryRun: true, force: false },
       { dryRun: false, force: false },
@@ -484,7 +484,7 @@ describe('runSetup', () => {
               ok: true,
               status: 'installed',
               configPath: '/fake/.codex/config.toml',
-              diff: '+ [mcp_servers.toolbox]',
+              diff: '+ [mcp_servers.toolbx]',
             });
           }
           return Promise.resolve({
@@ -550,7 +550,7 @@ describe('runSetup', () => {
             status: 'installed',
             configPath: '/fake/.codex/config.toml',
             backupPath: '/fake/.codex/config.toml.bak',
-            diff: '+ [mcp_servers.toolbox]',
+            diff: '+ [mcp_servers.toolbx]',
           });
         },
       }),
@@ -646,7 +646,7 @@ describe('runSetup', () => {
             ok: true,
             status: 'installed',
             configPath: '/fake/.codex/config.toml',
-            diff: '+ [mcp_servers.toolbox]',
+            diff: '+ [mcp_servers.toolbx]',
           });
         },
       }),
@@ -869,8 +869,8 @@ describe('parseShellCommand', () => {
 
 describe('runSetup integration (real adapters with a temp HOME)', () => {
   it('wires Claude Code and Codex from a clean state and is idempotent', async () => {
-    const home = await makeTempDir('toolbox-cli-setup-home-');
-    const configPath = path.join(home, 'toolbox-config.json');
+    const home = await makeTempDir('toolbx-cli-setup-home-');
+    const configPath = path.join(home, 'toolbx-config.json');
     const claudePath = path.join(home, '.claude.json');
     await fs.writeFile(claudePath, '{}\n', 'utf8');
     const codexDir = path.join(home, '.codex');
@@ -891,10 +891,10 @@ describe('runSetup integration (real adapters with a temp HOME)', () => {
 
     await expect(fs.stat(configPath)).resolves.toBeDefined();
     const claudeText = await fs.readFile(claudePath, 'utf8');
-    const claudeParsed = JSON.parse(claudeText) as { mcpServers?: { toolbox?: unknown } };
-    expect(claudeParsed.mcpServers?.toolbox).toBeDefined();
+    const claudeParsed = JSON.parse(claudeText) as { mcpServers?: { toolbx?: unknown } };
+    expect(claudeParsed.mcpServers?.toolbx).toBeDefined();
     const codexText = await fs.readFile(codexPath, 'utf8');
-    expect(codexText).toMatch(/\[mcp_servers\.toolbox\]/);
+    expect(codexText).toMatch(/\[mcp_servers\.toolbx\]/);
 
     const homeEntries = await fs.readdir(home);
     const claudeBackups = homeEntries.filter((f) => f.startsWith('.claude.json.bak'));
@@ -923,13 +923,13 @@ describe('runSetup integration (real adapters with a temp HOME)', () => {
   });
 
   it('propagates the resolved config path into wired entries even when --config is not set', async () => {
-    // The user runs `TOOLBOX_CONFIG=… tlbx setup` (or relies on
+    // The user runs `TOOLBX_CONFIG=… tlbx setup` (or relies on
     // XDG_CONFIG_HOME). `options.config` is `undefined`, but the resolved
     // target is non-default, so the wired client entry must still carry
     // `--config <target>` — otherwise the gateway the client spawns would
     // load a different file than the one setup just initialized.
-    const home = await makeTempDir('toolbox-cli-setup-home-');
-    const configPath = path.join(home, 'env-resolved-toolbox.json');
+    const home = await makeTempDir('toolbx-cli-setup-home-');
+    const configPath = path.join(home, 'env-resolved-toolbx.json');
     const claudePath = path.join(home, '.claude.json');
     await fs.writeFile(claudePath, '{}\n', 'utf8');
 
@@ -946,17 +946,17 @@ describe('runSetup integration (real adapters with a temp HOME)', () => {
 
     const claudeContent = await fs.readFile(claudePath, 'utf8');
     const parsed = JSON.parse(claudeContent) as {
-      mcpServers?: { toolbox?: { args?: string[] } };
+      mcpServers?: { toolbx?: { args?: string[] } };
     };
-    const args = parsed.mcpServers?.toolbox?.args;
+    const args = parsed.mcpServers?.toolbx?.args;
     expect(args).toBeDefined();
     expect(args).toContain('--config');
     expect(args).toContain(configPath);
   });
 
   it('propagates --config into the wired client entries so the gateway opens the same file', async () => {
-    const home = await makeTempDir('toolbox-cli-setup-home-');
-    const configPath = path.join(home, 'custom-toolbox.json');
+    const home = await makeTempDir('toolbx-cli-setup-home-');
+    const configPath = path.join(home, 'custom-toolbx.json');
     const claudePath = path.join(home, '.claude.json');
     await fs.writeFile(claudePath, '{}\n', 'utf8');
 
@@ -976,17 +976,17 @@ describe('runSetup integration (real adapters with a temp HOME)', () => {
 
     const claudeContent = await fs.readFile(claudePath, 'utf8');
     const parsed = JSON.parse(claudeContent) as {
-      mcpServers?: { toolbox?: { args?: string[] } };
+      mcpServers?: { toolbx?: { args?: string[] } };
     };
-    const args = parsed.mcpServers?.toolbox?.args;
+    const args = parsed.mcpServers?.toolbx?.args;
     expect(args).toBeDefined();
     expect(args).toContain('--config');
     expect(args).toContain(configPath);
   });
 
   it('returns 0 with the no-clients summary when nothing is detected', async () => {
-    const home = await makeTempDir('toolbox-cli-setup-home-');
-    const configPath = path.join(home, 'toolbox-config.json');
+    const home = await makeTempDir('toolbx-cli-setup-home-');
+    const configPath = path.join(home, 'toolbx-config.json');
     const stdout: string[] = [];
     const deps = defaultSetupDeps({
       env: { homedir: () => home, platform: 'darwin', env: {} },

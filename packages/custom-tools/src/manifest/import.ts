@@ -2,7 +2,7 @@
  * Custom tool importer (SPECS §6.2, §6.3).
  *
  * Validates a user-provided `.ts` / `.js` tool file's metadata and exported
- * shape, copies it into the ToolBox tools directory, and records it in the
+ * shape, copies it into the Toolbx tools directory, and records it in the
  * central tool manifest. Never executes the tool — shape checks are static
  * (P3-01's type-checker pass). Evaluation and the runtime live in P3-03.
  */
@@ -16,12 +16,12 @@ import {
   loadConfig,
   ServerNameSchema,
   withConfigLock,
-} from '@toolbox/core';
+} from '@toolbx/core';
 import { z } from 'zod';
 
 import { parseToolMetadata, type ParseWarning } from './parse.js';
 
-/** Tool source files ToolBox can import, keyed to their stored runtime. */
+/** Tool source files Toolbx can import, keyed to their stored runtime. */
 const SUPPORTED_EXTENSIONS = new Set(['.ts', '.js']);
 
 /** The tool name must be a safe path segment (no traversal). */
@@ -30,8 +30,8 @@ const IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 /** Default namespace separator for exposed tool names (SPECS §6.2). */
 const DEFAULT_SEPARATOR = '__';
 
-/** Namespace reserved for ToolBox's own bootstrap/internal tools (`toolbox__*`). */
-const RESERVED_NAMESPACE = 'toolbox';
+/** Namespace reserved for Toolbx's own bootstrap/internal tools (`toolbx__*`). */
+const RESERVED_NAMESPACE = 'toolbx';
 
 /** Sub-directory of the config directory that holds imported tools. */
 export const TOOLS_DIR = 'tools';
@@ -62,7 +62,7 @@ export interface ToolManifest {
 }
 
 export interface ImportToolOptions {
-  /** Absolute ToolBox config directory (parent of the `tools/` directory). */
+  /** Absolute Toolbx config directory (parent of the `tools/` directory). */
   readonly configDir: string;
   /**
    * Names of configured upstream servers. A custom-tool namespace equal to one
@@ -148,7 +148,7 @@ const permissionsSchema = z.looseObject({
 });
 
 // Loose: unknown keys on existing entries (e.g. fields written by a newer
-// ToolBox component) are preserved, not silently dropped when the manifest is
+// Toolbx component) are preserved, not silently dropped when the manifest is
 // rewritten during an unrelated import.
 const toolManifestSchema = z.looseObject({
   name: z.string(),
@@ -278,7 +278,7 @@ export async function planImport(
     throw new ToolImportError(
       'invalid-identifier',
       sourcePath,
-      `@toolbox-tool namespace "${metadata.namespace}" must be alphanumeric with "-" or "_" and must not contain the "__" separator`,
+      `@toolbx-tool namespace "${metadata.namespace}" must be alphanumeric with "-" or "_" and must not contain the "__" separator`,
     );
   }
   // ServerNameSchema only knows the default `__` separator; reject a custom one
@@ -287,24 +287,24 @@ export async function planImport(
     throw new ToolImportError(
       'invalid-identifier',
       sourcePath,
-      `@toolbox-tool namespace "${metadata.namespace}" must not contain the "${separator}" namespace separator`,
+      `@toolbx-tool namespace "${metadata.namespace}" must not contain the "${separator}" namespace separator`,
     );
   }
-  // `toolbox` is reserved for ToolBox's own bootstrap tools (`toolbox__*`). A
+  // `toolbx` is reserved for Toolbx's own bootstrap tools (`toolbx__*`). A
   // custom tool under it would be shadowed by the gateway's bootstrap dispatch
   // and filtered from `tools/list`, i.e. unreachable — reject it up front.
   if (metadata.namespace === RESERVED_NAMESPACE) {
     throw new ToolImportError(
       'namespace-collision',
       sourcePath,
-      `namespace "${RESERVED_NAMESPACE}" is reserved for ToolBox built-in tools`,
+      `namespace "${RESERVED_NAMESPACE}" is reserved for Toolbx built-in tools`,
     );
   }
   if (!IDENTIFIER.test(metadata.name)) {
     throw new ToolImportError(
       'invalid-identifier',
       sourcePath,
-      `@toolbox-tool name "${metadata.name}" must contain only letters, digits, "-", and "_"`,
+      `@toolbx-tool name "${metadata.name}" must contain only letters, digits, "-", and "_"`,
     );
   }
 
@@ -479,7 +479,7 @@ async function readConfigServerNames(
     throw new ToolImportError(
       'config-unreadable',
       sourcePath,
-      `the ToolBox config could not be read to verify "${path.basename(sourcePath)}"'s namespace ` +
+      `the Toolbx config could not be read to verify "${path.basename(sourcePath)}"'s namespace ` +
         `does not collide with a configured server`,
     );
   }

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { DEFAULT_CONFIG, saveConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, saveConfig } from '@toolbx/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -16,10 +16,10 @@ import { readToolManifest } from '../store.js';
 
 /** The SPECS §6.2 example tool source (pure: no imports, JSON Schema input). */
 const SPEC_EXAMPLE = `/**
- * @toolbox-tool name send_slack_summary
- * @toolbox-tool title Send Slack Summary
- * @toolbox-tool description Summarize text and send it to a configured Slack channel.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name send_slack_summary
+ * @toolbx-tool title Send Slack Summary
+ * @toolbx-tool description Summarize text and send it to a configured Slack channel.
+ * @toolbx-tool namespace personal
  */
 
 export const inputSchema = {
@@ -48,8 +48,8 @@ let configDir: string;
 let sourceDir: string;
 
 beforeEach(async () => {
-  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-import-cfg-'));
-  sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-import-src-'));
+  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-import-cfg-'));
+  sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-import-src-'));
 });
 
 afterEach(async () => {
@@ -89,7 +89,7 @@ describe('importTool', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('copies the source file into the toolbox tools directory verbatim', async () => {
+  it('copies the source file into the toolbx tools directory verbatim', async () => {
     const sourcePath = await writeSource('send_slack_summary.ts', SPEC_EXAMPLE);
 
     const result = await importTool(sourcePath, { configDir });
@@ -143,10 +143,10 @@ describe('importTool', () => {
     expect(result.manifest.runtime).toBe('node');
   });
 
-  it('surfaces unknown @toolbox-tool directives as warnings', async () => {
+  it('surfaces unknown @toolbx-tool directives as warnings', async () => {
     const withUnknown = SPEC_EXAMPLE.replace(
-      '@toolbox-tool namespace personal',
-      '@toolbox-tool namespace personal\n * @toolbox-tool category messaging',
+      '@toolbx-tool namespace personal',
+      '@toolbx-tool namespace personal\n * @toolbx-tool category messaging',
     );
     const sourcePath = await writeSource('send_slack_summary.ts', withUnknown);
 
@@ -248,10 +248,10 @@ describe('importTool', () => {
       await expect(readToolManifest(configDir)).resolves.toEqual([]);
     });
 
-    it('rejects the reserved "toolbox" namespace', async () => {
+    it('rejects the reserved "toolbx" namespace', async () => {
       const reserved = SPEC_EXAMPLE.replace(
-        '@toolbox-tool namespace personal',
-        '@toolbox-tool namespace toolbox',
+        '@toolbx-tool namespace personal',
+        '@toolbx-tool namespace toolbx',
       );
       const sourcePath = await writeSource('send_slack_summary.ts', reserved);
 
@@ -309,8 +309,8 @@ describe('importTool', () => {
       // `github__foo` + name `bar` would expose `github__foo__bar`, which is
       // indistinguishable from proxied server `github` tool `foo__bar`.
       const ambiguous = SPEC_EXAMPLE.replace(
-        '@toolbox-tool namespace personal',
-        '@toolbox-tool namespace github__foo',
+        '@toolbx-tool namespace personal',
+        '@toolbx-tool namespace github__foo',
       );
       const sourcePath = await writeSource('send_slack_summary.ts', ambiguous);
 
@@ -326,7 +326,7 @@ describe('importTool', () => {
       // separator, so the exposed name would be ambiguous.
       const sourcePath = await writeSource(
         'send_slack_summary.ts',
-        SPEC_EXAMPLE.replace('@toolbox-tool namespace personal', '@toolbox-tool namespace team-a'),
+        SPEC_EXAMPLE.replace('@toolbx-tool namespace personal', '@toolbx-tool namespace team-a'),
       );
 
       await expect(importTool(sourcePath, { configDir, separator: '-' })).rejects.toMatchObject({
@@ -337,8 +337,8 @@ describe('importTool', () => {
 
     it('rejects a namespace containing path traversal segments', async () => {
       const traversal = SPEC_EXAMPLE.replace(
-        '@toolbox-tool namespace personal',
-        '@toolbox-tool namespace ../../etc',
+        '@toolbx-tool namespace personal',
+        '@toolbx-tool namespace ../../etc',
       );
       const sourcePath = await writeSource('send_slack_summary.ts', traversal);
 
@@ -392,10 +392,10 @@ describe('importTool', () => {
 
     it('rejects a tool that re-exports inputSchema from another module', async () => {
       const reexport = `/**
- * @toolbox-tool name send_slack_summary
- * @toolbox-tool title Send Slack Summary
- * @toolbox-tool description Summarize text and send it to a configured Slack channel.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name send_slack_summary
+ * @toolbx-tool title Send Slack Summary
+ * @toolbx-tool description Summarize text and send it to a configured Slack channel.
+ * @toolbx-tool namespace personal
  */
 export { inputSchema } from './schema.js';
 export default async function f() {

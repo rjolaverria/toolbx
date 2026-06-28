@@ -1,4 +1,4 @@
-import type { Logger, ServerConfig, ServerStatus, TokenStore } from '@toolbox/core';
+import type { Logger, ServerConfig, ServerStatus, TokenStore } from '@toolbx/core';
 
 import {
   UpstreamAuthExpiredError,
@@ -54,7 +54,7 @@ export interface CreateUpstreamSessionDeps {
   backoff?: Partial<UpstreamSessionBackoff>;
   /**
    * Token store backing OAuth credentials, forwarded to the HTTP upstream
-   * client so it can build a `ToolBoxOAuthProvider`. Omitted for non-OAuth
+   * client so it can build a `ToolbxOAuthProvider`. Omitted for non-OAuth
    * servers.
    */
   tokenStore?: TokenStore;

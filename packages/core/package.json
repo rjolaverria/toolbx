@@ -1,9 +1,12 @@
 {
-  "name": "@toolbox/core",
-  "version": "0.0.0",
+  "name": "@toolbx/core",
+  "version": "0.1.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/__tests__/**",
+    "!dist/**/*.test.*",
+    "!dist/**/__fixtures__/**"
   ],
   "exports": {
     ".": "./dist/index.js"

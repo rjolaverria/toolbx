@@ -9,7 +9,7 @@ import {
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import type { Logger, StdioServerConfig } from '@toolbox/core';
+import { getToolbxVersion, type Logger, type StdioServerConfig } from '@toolbx/core';
 
 import { resolveEnvPlaceholders } from './env.js';
 import {
@@ -26,10 +26,7 @@ import type {
   UpstreamCallToolOptions,
 } from './types.js';
 
-const TOOLBOX_CLIENT_INFO = {
-  name: 'toolbox-upstream-client',
-  version: '0.0.0',
-} as const;
+const TOOLBX_UPSTREAM_CLIENT_NAME = 'toolbx-upstream-client';
 
 const DEFAULT_CALL_TOOL_TIMEOUT_MS = 60_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
@@ -127,7 +124,10 @@ export function createStdioUpstreamClient(
       stderr: 'pipe',
     });
 
-    const localClient = new Client(TOOLBOX_CLIENT_INFO, { capabilities: {} });
+    const localClient = new Client(
+      { name: TOOLBX_UPSTREAM_CLIENT_NAME, version: getToolbxVersion() },
+      { capabilities: {} },
+    );
 
     localClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       emit('tools_list_changed');

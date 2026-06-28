@@ -3,8 +3,13 @@ import { constants } from 'node:fs';
 import { access, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const roots = ['apps/cli/dist', 'packages/core/dist', 'packages/mcp-gateway/dist'];
-const runtimeLog = process.env.TOOLBOX_TOKEN_LEAK_LOG ?? 'runtime-token-leak-check.log';
+const roots = [
+  'apps/cli/dist',
+  'packages/core/dist',
+  'packages/mcp-gateway/dist',
+  'packages/custom-tools/dist',
+];
+const runtimeLog = process.env.TOOLBX_TOKEN_LEAK_LOG ?? 'runtime-token-leak-check.log';
 const patterns = [
   {
     name: 'bearer token',

@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import type { StoredOAuthRecord, ToolBoxConfig } from '@toolbox/core';
+import type { StoredOAuthRecord, ToolbxConfig } from '@toolbx/core';
 
 import { loadOrReportMissing, resolveTargetPath } from '../server-shared.js';
 import { defaultAuthCommandDeps, isOAuthServer, type AuthCommandDeps } from './shared.js';
@@ -43,7 +43,7 @@ function formatTable(rows: readonly StatusRow[]): string {
   return `${lines.join('\n')}\n`;
 }
 
-function oauthServerNames(config: ToolBoxConfig): string[] {
+function oauthServerNames(config: ToolbxConfig): string[] {
   return Object.entries(config.servers)
     .filter(([, entry]) => isOAuthServer(entry))
     .map(([name]) => name)

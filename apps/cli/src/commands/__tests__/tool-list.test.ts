@@ -1,17 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { importTool } from '@toolbox/custom-tools';
+import { importTool } from '@toolbx/custom-tools';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runToolList } from '../tool-list.js';
 import { makeHarness, makeTempConfig, type ConfigHarness } from './harness.js';
 
 const TOOL_SOURCE = `/**
- * @toolbox-tool name send_slack_summary
- * @toolbox-tool title Send Slack Summary
- * @toolbox-tool description Summarize text and send it to Slack.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name send_slack_summary
+ * @toolbx-tool title Send Slack Summary
+ * @toolbx-tool description Summarize text and send it to Slack.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = { type: 'object', properties: {}, additionalProperties: false };
 export default async function f() {

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Stdio MCP fixture used by the CLI integration tests for namespace
 // collision detection. Exposes a single tool whose name is read from the
-// TOOLBOX_FIXTURE_TOOL_NAME env var (default: `echo`). The tool returns the
+// TOOLBX_FIXTURE_TOOL_NAME env var (default: `echo`). The tool returns the
 // `message` argument verbatim so the collision test can still drive a real
 // tools/call round-trip if it wants to.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const toolName = process.env['TOOLBOX_FIXTURE_TOOL_NAME'] ?? 'echo';
+const toolName = process.env['TOOLBX_FIXTURE_TOOL_NAME'] ?? 'echo';
 
 const server = new Server(
   { name: 'fake-named-tool-server', version: '0.0.0' },

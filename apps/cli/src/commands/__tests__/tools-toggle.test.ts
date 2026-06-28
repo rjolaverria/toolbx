@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig, type ToolbxConfig } from '@toolbx/core';
 
 import { runToolsDisable, runToolsEnable } from '../tools-toggle.js';
 
@@ -17,7 +17,7 @@ afterEach(async () => {
   }
 });
 
-function configWith(servers: ToolBoxConfig['servers']): ToolBoxConfig {
+function configWith(servers: ToolbxConfig['servers']): ToolbxConfig {
   return { ...DEFAULT_CONFIG, servers, tools: {} };
 }
 

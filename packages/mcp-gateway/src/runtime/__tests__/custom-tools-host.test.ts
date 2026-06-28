@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger, type RegisteredToolView } from '@toolbox/core';
-import type { DescribeOutcome, RunOutcome, ToolManifest } from '@toolbox/custom-tools';
+import { createNoopLogger, type RegisteredToolView } from '@toolbx/core';
+import type { DescribeOutcome, RunOutcome, ToolManifest } from '@toolbx/custom-tools';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createCustomToolHost, CUSTOM_TOOL_META_KEY } from '../custom-tools-host.js';
@@ -168,7 +168,7 @@ describe('createCustomToolHost', () => {
     expect(describeFn).not.toHaveBeenCalled();
   });
 
-  it('skips a custom tool that uses the reserved "toolbox" namespace', async () => {
+  it('skips a custom tool that uses the reserved "toolbx" namespace', async () => {
     const describeFn = vi.fn(
       (): Promise<DescribeOutcome> => Promise.resolve({ outcome: 'ok', inputSchema: SCHEMA }),
     );
@@ -178,10 +178,10 @@ describe('createCustomToolHost', () => {
           (): Promise<ToolManifest[]> =>
             Promise.resolve([
               manifest({
-                namespace: 'toolbox',
+                namespace: 'toolbx',
                 name: 'search_tools',
-                exposedName: 'toolbox__search_tools',
-                entry: 'tools/toolbox/search_tools.ts',
+                exposedName: 'toolbx__search_tools',
+                entry: 'tools/toolbx/search_tools.ts',
               }),
             ]),
         ),

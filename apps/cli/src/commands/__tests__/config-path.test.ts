@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ResolvedConfigPath } from '@toolbox/core';
+import type { ResolvedConfigPath } from '@toolbx/core';
 
 import { describeSource, runConfigPath, type ConfigPathDeps } from '../config-path.js';
 
@@ -32,7 +32,7 @@ describe('runConfigPath', () => {
   });
 
   it('emits machine-readable JSON with --json', () => {
-    const h = makeHarness({ path: '/etc/c.json', source: 'env-toolbox-config' });
+    const h = makeHarness({ path: '/etc/c.json', source: 'env-toolbx-config' });
 
     const code = runConfigPath({ json: true }, h.deps);
 
@@ -40,14 +40,14 @@ describe('runConfigPath', () => {
     const parsed: unknown = JSON.parse(h.stdout.value);
     expect(parsed).toEqual({
       path: '/etc/c.json',
-      source: 'env-toolbox-config',
-      sourceDescription: describeSource('env-toolbox-config'),
+      source: 'env-toolbx-config',
+      sourceDescription: describeSource('env-toolbx-config'),
     });
   });
 
   it('reports each precedence rule with a distinct description', () => {
     const sources = [
-      'env-toolbox-config',
+      'env-toolbx-config',
       'env-xdg-config-home',
       'env-appdata',
       'home-windows',

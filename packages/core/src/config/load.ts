@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { DuplicateKeyError, findDuplicateKeys } from './duplicate-keys.js';
 import { resolveConfigPath } from './paths.js';
-import { ToolBoxConfigSchema, type ToolBoxConfig } from './schema.js';
+import { ToolbxConfigSchema, type ToolbxConfig } from './schema.js';
 
 export interface ConfigLoadErrorOptions {
   source?: string | undefined;
@@ -40,10 +40,10 @@ function formatValidationMessage(zodError: z.ZodError, source: string | undefine
       return `  - ${pointer}: ${issue.message}`;
     })
     .join('\n');
-  return `Invalid ToolBox config${where}:\n${issues}`;
+  return `Invalid Toolbx config${where}:\n${issues}`;
 }
 
-export function parseConfig(source: string, sourceLabel?: string): ToolBoxConfig {
+export function parseConfig(source: string, sourceLabel?: string): ToolbxConfig {
   const duplicates = findDuplicateKeys(source);
   if (duplicates.length > 0) {
     throw new DuplicateKeyError(duplicates, sourceLabel);
@@ -55,26 +55,26 @@ export function parseConfig(source: string, sourceLabel?: string): ToolBoxConfig
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new ConfigLoadError(
-      `Failed to parse ToolBox config${sourceLabel !== undefined ? ` at ${sourceLabel}` : ''}: ${message}`,
+      `Failed to parse Toolbx config${sourceLabel !== undefined ? ` at ${sourceLabel}` : ''}: ${message}`,
       { source: sourceLabel, cause: error },
     );
   }
 
-  const result = ToolBoxConfigSchema.safeParse(raw);
+  const result = ToolbxConfigSchema.safeParse(raw);
   if (!result.success) {
     throw new ConfigValidationError(result.error, sourceLabel);
   }
   return result.data;
 }
 
-export async function loadConfig(filePath?: string): Promise<ToolBoxConfig> {
+export async function loadConfig(filePath?: string): Promise<ToolbxConfig> {
   const resolved = filePath ?? resolveConfigPath();
   let source: string;
   try {
     source = await fs.readFile(resolved, 'utf8');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new ConfigLoadError(`Failed to read ToolBox config at ${resolved}: ${message}`, {
+    throw new ConfigLoadError(`Failed to read Toolbx config at ${resolved}: ${message}`, {
       source: resolved,
       cause: error,
     });

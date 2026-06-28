@@ -51,7 +51,7 @@ describe('gateway bearer auth env-var resolution', () => {
           type: 'http',
           enabled: true,
           url: upstream.url,
-          auth: { type: 'bearer', tokenEnv: 'TOOLBOX_IT_BEARER_TOKEN' },
+          auth: { type: 'bearer', tokenEnv: 'TOOLBX_IT_BEARER_TOKEN' },
         },
       },
     });
@@ -59,10 +59,10 @@ describe('gateway bearer auth env-var resolution', () => {
     const { runtime, downstream } = await startHarness({
       config,
       harness,
-      processEnv: { ...process.env, TOOLBOX_IT_BEARER_TOKEN: token },
+      processEnv: { ...process.env, TOOLBX_IT_BEARER_TOKEN: token },
     });
 
-    const client = await connectHttpClient(downstream.url, 'toolbox-bearer-it', harness);
+    const client = await connectHttpClient(downstream.url, 'toolbx-bearer-it', harness);
 
     const list = await client.listTools();
     expect(list.tools.map((t) => t.name).sort()).toEqual(['secured__echo', 'secured__slow']);
@@ -88,7 +88,7 @@ describe('gateway bearer auth env-var resolution', () => {
           type: 'http',
           enabled: true,
           url: upstream.url,
-          auth: { type: 'bearer', tokenEnv: 'TOOLBOX_IT_BEARER_MISSING' },
+          auth: { type: 'bearer', tokenEnv: 'TOOLBX_IT_BEARER_MISSING' },
         },
       },
     });
@@ -100,10 +100,10 @@ describe('gateway bearer auth env-var resolution', () => {
       const { runtime, downstream } = await startHarness({
         config,
         harness: harness2,
-        // Use a processEnv map that explicitly omits TOOLBOX_IT_BEARER_MISSING.
-        // We strip TOOLBOX_IT_BEARER_MISSING in case the developer happens to
+        // Use a processEnv map that explicitly omits TOOLBX_IT_BEARER_MISSING.
+        // We strip TOOLBX_IT_BEARER_MISSING in case the developer happens to
         // have it set; the rest of process.env passes through unchanged.
-        processEnv: stripEnvVar(process.env, 'TOOLBOX_IT_BEARER_MISSING'),
+        processEnv: stripEnvVar(process.env, 'TOOLBX_IT_BEARER_MISSING'),
         waitForServers: [],
       });
 
@@ -116,12 +116,12 @@ describe('gateway bearer auth env-var resolution', () => {
       expect(entry?.status.kind).toBe('auth_required');
       expect(entry?.authStatus).toBe('required');
       if (entry?.status.kind === 'auth_required') {
-        expect(entry.status.reason).toContain('TOOLBOX_IT_BEARER_MISSING');
+        expect(entry.status.reason).toContain('TOOLBX_IT_BEARER_MISSING');
       }
 
       // The gateway is still accepting client connections; tools/list just
       // returns an empty set because the only upstream isn't connected.
-      const client = await connectHttpClient(downstream.url, 'toolbox-bearer-missing-it', harness2);
+      const client = await connectHttpClient(downstream.url, 'toolbx-bearer-missing-it', harness2);
       const list = await client.listTools();
       expect(list.tools.map((t) => t.name)).toEqual([]);
     } finally {

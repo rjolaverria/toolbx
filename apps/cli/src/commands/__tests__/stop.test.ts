@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ServeDaemonPaths, ServeDaemonState } from '@toolbox/core';
+import type { ServeDaemonPaths, ServeDaemonState } from '@toolbx/core';
 
 import { runStop, type StopDeps } from '../stop.js';
 

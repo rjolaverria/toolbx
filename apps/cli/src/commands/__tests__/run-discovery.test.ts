@@ -4,8 +4,8 @@ import {
   type DaemonClient,
   type DaemonListToolsResult,
   type RegisteredToolView,
-} from '@toolbox/core';
-import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbox/mcp-gateway';
+} from '@toolbx/core';
+import { BOOTSTRAP_TOOL_META_KEY, CUSTOM_TOOL_META_KEY } from '@toolbx/mcp-gateway';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runDiscovery } from '../run-discovery.js';
@@ -46,8 +46,8 @@ const DEFAULT_TOOLS: ListedTool[] = [
   // Bootstrap tool — marked by the daemon, so it must be excluded from every
   // discovery surface regardless of its name.
   {
-    name: 'toolbox__search_tools',
-    description: 'Search ToolBox tools.',
+    name: 'toolbx__search_tools',
+    description: 'Search Toolbx tools.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
     _meta: { [BOOTSTRAP_TOOL_META_KEY]: true },
   },
@@ -116,6 +116,8 @@ function makeHarness(
       stderr += msg;
     },
     isStdoutTTY: opts.isStdoutTTY ?? true,
+    sleep: () => Promise.resolve(),
+    now: () => 0,
   };
 
   return {
@@ -177,7 +179,7 @@ describe('runDiscovery — list', () => {
     expect(h.stdout).toMatch(/EXPOSED\s+SERVER\s+TOOL\s+ENABLED\s+SOURCE\s+DESCRIPTION/);
     expect(h.stdout).toContain('github__create_issue');
     expect(h.stdout).toContain('Create a new GitHub issue');
-    expect(h.stdout).not.toContain('toolbox__search_tools');
+    expect(h.stdout).not.toContain('toolbx__search_tools');
   });
 
   it('labels custom tools with source "custom" in list output', async () => {
@@ -221,13 +223,13 @@ describe('runDiscovery — list', () => {
   });
 
   it('keeps an unmarked upstream tool that shares a bootstrap name', async () => {
-    // A server literally named `toolbox` with bootstrap tools disabled: the
-    // daemon lists `toolbox__search_tools` without the bootstrap marker, so it
+    // A server literally named `toolbx` with bootstrap tools disabled: the
+    // daemon lists `toolbx__search_tools` without the bootstrap marker, so it
     // is a normal, callable upstream tool that discovery must surface.
     const h = makeHarness({
       tools: [
         {
-          name: 'toolbox__search_tools',
+          name: 'toolbx__search_tools',
           description: 'A real upstream search tool.',
           inputSchema: { type: 'object', properties: {}, required: [] },
         },
@@ -236,7 +238,7 @@ describe('runDiscovery — list', () => {
     const code = await discover({}, { list: true, output: 'json' }, h);
     expect(code).toBe(0);
     const rows = JSON.parse(h.stdout) as { exposedName: string }[];
-    expect(rows.map((r) => r.exposedName)).toEqual(['toolbox__search_tools']);
+    expect(rows.map((r) => r.exposedName)).toEqual(['toolbx__search_tools']);
   });
 
   it('rejects a tool positional with a usage error', async () => {
@@ -264,7 +266,7 @@ describe('runDiscovery — search', () => {
     const rows = JSON.parse(h.stdout) as { exposedName: string }[];
 
     const views: RegisteredToolView[] = DEFAULT_TOOLS.filter(
-      (t) => t.name !== 'toolbox__search_tools',
+      (t) => t.name !== 'toolbx__search_tools',
     ).map((t) => {
       const [serverName, ...rest] = t.name.split('__');
       return {
@@ -276,7 +278,7 @@ describe('runDiscovery — search', () => {
     });
     const expected = searchTools('issue', views).map((hit) => hit.tool.exposedName);
     expect(rows.map((r) => r.exposedName)).toEqual(expected);
-    expect(rows.map((r) => r.exposedName)).not.toContain('toolbox__search_tools');
+    expect(rows.map((r) => r.exposedName)).not.toContain('toolbx__search_tools');
   });
 
   it('scopes search to a server filter', async () => {

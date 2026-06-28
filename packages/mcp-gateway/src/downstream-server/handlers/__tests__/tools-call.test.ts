@@ -3,8 +3,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility, readAuthExpiredMeta } from '@toolbox/core';
-import type { Logger, NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility, readAuthExpiredMeta } from '@toolbx/core';
+import type { Logger, NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -14,7 +14,7 @@ import {
 } from '../../../bootstrap-tools/index.js';
 import { createToolRegistry, type ToolRegistry } from '../../../registry/index.js';
 import type { CallToolResult, UpstreamSession } from '../../../upstream-client/index.js';
-import { buildToolBoxMcpServer } from '../../server.js';
+import { buildToolbxMcpServer } from '../../server.js';
 import { registerToolsCallHandler, type UpstreamSessionLookup } from '../tools-call.js';
 
 const NS: NamespaceOptions = { separator: '__', format: 'server__tool' };
@@ -113,7 +113,7 @@ async function connect(opts: {
 }): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const bootstrap = opts.bootstrap ?? createBootstrapToolRegistry();
-  const built = buildToolBoxMcpServer({
+  const built = buildToolbxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'tools-call-test',
     ...(opts.controlPlane !== undefined ? { controlPlane: opts.controlPlane } : {}),
@@ -137,7 +137,7 @@ async function connect(opts: {
   await built.server.connect(serverTransport);
 
   const client = new Client(
-    { name: 'toolbox-tools-call-test-client', version: '0.0.0' },
+    { name: 'toolbx-tools-call-test-client', version: '0.0.0' },
     { capabilities: {} },
   );
   await client.connect(clientTransport);
@@ -637,7 +637,7 @@ describe('tools/call handler', () => {
     const invokeCalls: unknown[] = [];
     bootstrap.add({
       descriptor: {
-        name: 'toolbox__ping',
+        name: 'toolbx__ping',
         description: 'test',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
@@ -654,7 +654,7 @@ describe('tools/call handler', () => {
     });
 
     const result = await client.callTool({
-      name: 'toolbox__ping',
+      name: 'toolbx__ping',
       arguments: { msg: 'hi' },
     });
 
@@ -670,7 +670,7 @@ describe('tools/call handler', () => {
     const bootstrap = createBootstrapToolRegistry();
     bootstrap.add({
       descriptor: {
-        name: 'toolbox__boom',
+        name: 'toolbx__boom',
         description: 'always throws',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
@@ -687,7 +687,7 @@ describe('tools/call handler', () => {
       logger: log.logger,
     });
 
-    const result = await client.callTool({ name: 'toolbox__boom' });
+    const result = await client.callTool({ name: 'toolbx__boom' });
     expect(result.isError).toBe(true);
     const block = (result.content as { type: string; text: string }[])[0];
     expect(block?.type).toBe('text');
@@ -695,8 +695,8 @@ describe('tools/call handler', () => {
     expect(log.warn).toHaveBeenCalled();
     const [fields] = log.warn.mock.calls.at(-1) as [Record<string, unknown>, string];
     expect(fields).toMatchObject({
-      server: 'toolbox',
-      tool: 'toolbox__boom',
+      server: 'toolbx',
+      tool: 'toolbx__boom',
       outcome: 'bootstrap_error',
     });
     await closeAll();
@@ -705,16 +705,16 @@ describe('tools/call handler', () => {
   it('warns when a bootstrap-tool dispatch shadows an upstream tool with the same exposed name', async () => {
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({
-      serverName: 'toolbox',
+      serverName: 'toolbx',
       status: CONNECTED,
       enabled: true,
       tools: [tool('search_tools')],
     });
-    const upstream = fakeUpstream({ serverName: 'toolbox' });
+    const upstream = fakeUpstream({ serverName: 'toolbx' });
     const bootstrap = createBootstrapToolRegistry();
     bootstrap.add({
       descriptor: {
-        name: 'toolbox__search_tools',
+        name: 'toolbx__search_tools',
         description: 'reserved',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
@@ -726,19 +726,19 @@ describe('tools/call handler', () => {
 
     const { client, closeAll } = await connect({
       registry,
-      upstreams: lookupFrom({ toolbox: upstream.session }),
+      upstreams: lookupFrom({ toolbx: upstream.session }),
       bootstrap,
       logger: log.logger,
     });
 
-    const result = await client.callTool({ name: 'toolbox__search_tools' });
+    const result = await client.callTool({ name: 'toolbx__search_tools' });
     expect(result).toMatchObject({ content: [{ type: 'text', text: 'reserved' }] });
     expect(upstream.callTool).not.toHaveBeenCalled();
 
     const shadowingWarn = log.warn.mock.calls.find(
       ([fields]) =>
         typeof (fields as Record<string, unknown>).tool === 'string' &&
-        (fields as Record<string, unknown>).tool === 'toolbox__search_tools' &&
+        (fields as Record<string, unknown>).tool === 'toolbx__search_tools' &&
         (fields as Record<string, unknown>).server === undefined,
     );
     expect(shadowingWarn).toBeDefined();
@@ -748,7 +748,7 @@ describe('tools/call handler', () => {
 
 function bootstrapWithRevealAndSearch(): BootstrapToolRegistry {
   const bootstrap = createBootstrapToolRegistry();
-  for (const name of ['toolbox__reveal_tools', 'toolbox__search_tools']) {
+  for (const name of ['toolbx__reveal_tools', 'toolbx__search_tools']) {
     bootstrap.add({
       descriptor: {
         name,
@@ -823,8 +823,8 @@ describe('tools/call handler — progressive disclosure mode', () => {
     const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
     expect(err.code).toBe(ErrorCode.InvalidRequest);
     expect(err.message).toContain('jira__search_issues');
-    expect(err.message).toContain('toolbox__reveal_tools');
-    expect(err.message).toContain('toolbox__search_tools');
+    expect(err.message).toContain('toolbx__reveal_tools');
+    expect(err.message).toContain('toolbx__search_tools');
     expect(err.data).toMatchObject({ tool: 'jira__search_issues', code: 'not_revealed' });
     expect(jira.callTool).not.toHaveBeenCalled();
     await closeAll();
@@ -866,7 +866,7 @@ describe('tools/call handler — progressive disclosure mode', () => {
     const bootstrap = createBootstrapToolRegistry();
     bootstrap.add({
       descriptor: {
-        name: 'toolbox__search_tools',
+        name: 'toolbx__search_tools',
         description: 'bootstrap',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
@@ -887,7 +887,7 @@ describe('tools/call handler — progressive disclosure mode', () => {
       isDisclosureEnabled: () => true,
     });
 
-    const result = await client.callTool({ name: 'toolbox__search_tools' });
+    const result = await client.callTool({ name: 'toolbx__search_tools' });
     expect(result).toMatchObject({ content: [{ type: 'text', text: 'searched' }] });
     await closeAll();
   });
@@ -918,7 +918,7 @@ describe('tools/call handler — progressive disclosure mode', () => {
   it('omits bootstrap-tool references from the not_revealed message when bootstrap tools are disabled', async () => {
     // The config schema permits `progressiveDisclosure.enabled=true` while
     // `bootstrapTools=false` (e.g. CLI-driven reveal flow). The error message
-    // must not point clients at toolbox__reveal_tools / toolbox__search_tools
+    // must not point clients at toolbx__reveal_tools / toolbx__search_tools
     // when those methods aren't actually registered.
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({
@@ -941,8 +941,8 @@ describe('tools/call handler — progressive disclosure mode', () => {
     const err = await rejectsAsMcpError(client.callTool({ name: 'jira__search_issues' }));
     expect(err.code).toBe(ErrorCode.InvalidRequest);
     expect(err.message).toContain('jira__search_issues');
-    expect(err.message).not.toContain('toolbox__reveal_tools');
-    expect(err.message).not.toContain('toolbox__search_tools');
+    expect(err.message).not.toContain('toolbx__reveal_tools');
+    expect(err.message).not.toContain('toolbx__search_tools');
     expect(err.data).toMatchObject({ tool: 'jira__search_issues', code: 'not_revealed' });
     await closeAll();
   });

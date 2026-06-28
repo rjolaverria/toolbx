@@ -1,13 +1,13 @@
 ---
-name: mcp-tools-via-toolbox
+name: mcp-tools-via-toolbx
 description: Use when a task needs a capability from one of the user's configured MCP servers and the `tlbx` command is available — reach those tools from the shell via `tlbx run` instead of needing each wired into your native tool list. Works even when the tools are not loaded into your context.
 ---
 
-# Using MCP tools via ToolBox (`tlbx run`)
+# Using MCP tools via Toolbx (`tlbx run`)
 
 ## Overview
 
-ToolBox is a local gateway that fronts whatever MCP servers a user has configured. The `tlbx run` command lets you **discover and call any of those tools straight from the shell** — no MCP wiring, and they don't need to be loaded into your context. If a task needs a capability ToolBox exposes and `tlbx` is on the machine, reach for it here.
+Toolbx is a local gateway that fronts whatever MCP servers a user has configured. The `tlbx run` command lets you **discover and call any of those tools straight from the shell** — no MCP wiring, and they don't need to be loaded into your context. If a task needs a capability Toolbx exposes and `tlbx` is on the machine, reach for it here.
 
 One command does everything, in three beats: **discover → inspect → invoke**.
 
@@ -19,7 +19,7 @@ Tools are namespaced `<server>__<tool>`. You can pass that exposed name as one a
 - You're under progressive disclosure (the upstream tools aren't in your tool list) but still need them.
 - You don't have native MCP wiring but you do have a shell.
 
-**Don't use for:** configuring ToolBox itself (`tlbx setup`, `server add-*`, `auth login`) — that's the user's setup. This skill is about _calling_ already-configured tools. If nothing is configured, say so; don't add a server yourself.
+**Don't use for:** configuring Toolbx itself (`tlbx setup`, `server add-*`, `auth login`) — that's the user's setup. This skill is about _calling_ already-configured tools. If nothing is configured, say so; don't add a server yourself.
 
 ## The loop
 
@@ -109,6 +109,6 @@ Each failure class has its own code, so you can react without scraping text:
 - **Guessing arguments.** Always `--describe` or `--example` first; don't hand-author JSON blind.
 - **Parsing stderr for control flow.** Use the exit code and the JSON envelope instead.
 - **Retrying on exit 5.** Auth needs the user to act (`tlbx auth login <server>`, or export a token and `tlbx stop`). Blind retries loop forever.
-- **Trying to configure ToolBox.** Calling tools is in scope; adding servers and auth is the user's job.
+- **Trying to configure Toolbx.** Calling tools is in scope; adding servers and auth is the user's job.
 
 **Full flag list, output envelope, and per-code remediation: see `reference.md`.**

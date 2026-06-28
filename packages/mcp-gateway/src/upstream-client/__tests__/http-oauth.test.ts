@@ -8,12 +8,12 @@ import {
   withCredentialLock,
   type StoredOAuthRecord,
   type TokenStore,
-} from '@toolbox/core';
+} from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { UpstreamAuthExpiredError, UpstreamAuthRequiredError } from '../errors.js';
 import { createHttpUpstreamClient } from '../http.js';
-import type { HttpServerConfig } from '@toolbox/core';
+import type { HttpServerConfig } from '@toolbx/core';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — `.mjs` fixture has no .d.ts; shape is described inline below.

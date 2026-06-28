@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-import { createSessionVisibility, type SessionVisibility } from '@toolbox/core';
+import { createSessionVisibility, type SessionVisibility } from '@toolbx/core';
 import { describe, expect, it } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES, LIST_REVEALED_TOOLS_NAME } from '../names.js';
@@ -46,7 +46,7 @@ function errorText(result: CallToolResult): string {
   return blocks[0]!.text;
 }
 
-describe('toolbox__list_revealed_tools (M4-05)', () => {
+describe('toolbx__list_revealed_tools (M4-05)', () => {
   it('exposes the canonical descriptor', () => {
     const tool = createListRevealedToolsBootstrap({ visibility: freshVisibility() });
     expect(tool.descriptor.name).toBe(LIST_REVEALED_TOOLS_NAME);

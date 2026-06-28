@@ -28,7 +28,7 @@ async function makeTempDir(prefix: string): Promise<string> {
 describe('defaultStopDeps', () => {
   it('wires up safe defaults that can be exercised end-to-end', async () => {
     const deps = defaultStopDeps();
-    const dir = await makeTempDir('toolbox-stop-defaults-');
+    const dir = await makeTempDir('toolbx-stop-defaults-');
     const stateFile = path.join(dir, 'serve-state.json');
 
     expect(typeof deps.resolvePath()).toBe('string');
@@ -62,7 +62,7 @@ describe('defaultStopDeps', () => {
 describe('defaultServeDetachDeps', () => {
   it('wires up safe defaults that can be exercised end-to-end', async () => {
     const deps = defaultServeDetachDeps();
-    const dir = await makeTempDir('toolbox-serve-detach-defaults-');
+    const dir = await makeTempDir('toolbx-serve-detach-defaults-');
     const stateFile = path.join(dir, 'serve-state.json');
     const logFile = path.join(dir, 'serve.log');
 

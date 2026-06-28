@@ -5,7 +5,7 @@ import { request as nodeHttpRequest } from 'node:http';
  *
  * `reachable: true` means the endpoint produced an HTTP response — the daemon
  * is bound and serving on that host/port, regardless of the status code (a
- * ToolBox daemon answers a bare GET with `400 mcp-session-id header required`,
+ * Toolbx daemon answers a bare GET with `400 mcp-session-id header required`,
  * which still proves it is up). `reachable: false` distinguishes a closed port
  * (`refused`) from a probe that ran out of time (`timeout`) or hit another
  * transport-level error (`error`).

@@ -1,19 +1,19 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import { getToolBoxVersion, type Logger } from '@toolbox/core';
+import { getToolbxVersion, type Logger } from '@toolbx/core';
 
 import { registerLifecycleHandlers } from './handlers/lifecycle.js';
 import { createDownstreamSession, type DownstreamSession } from './session.js';
 import type { RegisterDownstreamHandlers } from './types.js';
 
-export const TOOLBOX_SERVER_NAME = 'toolbox' as const;
+export const TOOLBX_SERVER_NAME = 'toolbx' as const;
 
-export const TOOLBOX_SERVER_CAPABILITIES = {
+export const TOOLBX_SERVER_CAPABILITIES = {
   tools: { listChanged: true },
   logging: {},
 } as const;
 
-export interface BuildToolBoxMcpServerDeps {
+export interface BuildToolbxMcpServerDeps {
   logger: Logger;
   /**
    * Stable identifier for this MCP session. stdio transports pass `'stdio'`;
@@ -30,23 +30,21 @@ export interface BuildToolBoxMcpServerDeps {
   registerHandlers?: RegisterDownstreamHandlers | undefined;
 }
 
-export interface BuildToolBoxMcpServerResult {
+export interface BuildToolbxMcpServerResult {
   server: Server;
   session: DownstreamSession;
 }
 
 /**
- * Builds a ToolBox MCP `Server` instance with shared identity, capabilities,
+ * Builds a Toolbx MCP `Server` instance with shared identity, capabilities,
  * lifecycle wiring, and out-of-band error logging. Both downstream transports
  * (stdio + HTTP) use this so the M2-03/04/05 handler set wires onto either
  * transport identically. The HTTP transport calls this once per session.
  */
-export function buildToolBoxMcpServer(
-  deps: BuildToolBoxMcpServerDeps,
-): BuildToolBoxMcpServerResult {
+export function buildToolbxMcpServer(deps: BuildToolbxMcpServerDeps): BuildToolbxMcpServerResult {
   const server = new Server(
-    { name: TOOLBOX_SERVER_NAME, version: getToolBoxVersion() },
-    { capabilities: TOOLBOX_SERVER_CAPABILITIES },
+    { name: TOOLBX_SERVER_NAME, version: getToolbxVersion() },
+    { capabilities: TOOLBX_SERVER_CAPABILITIES },
   );
 
   const session = createDownstreamSession(deps.sessionId, deps.controlPlane ?? false);

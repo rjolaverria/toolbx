@@ -6,7 +6,7 @@ import type {
   DetectedClient,
   InstallOpts,
   InstallResult,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import {
   runClientInstall,
@@ -100,14 +100,14 @@ describe('runClientInstall', () => {
           ok: true,
           status: 'installed',
           configPath: '/tmp/cfg',
-          diff: '+ mcpServers.toolbox = ...',
+          diff: '+ mcpServers.toolbx = ...',
         });
       },
     });
     const h = makeHarness(adapter);
     const code = await runClientInstall('claude', { ...baseOpts, dryRun: true }, h.deps);
     expect(code).toBe(0);
-    expect(h.stdout.value).toMatch(/\+ mcpServers\.toolbox/);
+    expect(h.stdout.value).toMatch(/\+ mcpServers\.toolbx/);
     expect(installCalls).toEqual([{ dryRun: true, force: false }]);
   });
 

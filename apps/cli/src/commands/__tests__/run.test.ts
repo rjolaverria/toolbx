@@ -4,8 +4,8 @@ import {
   type DaemonCallToolResult,
   type DaemonClient,
   type DaemonListToolsResult,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runRun, type RunDeps, type RunOptions, type RunPositionals } from '../run.js';
@@ -20,8 +20,18 @@ interface Harness {
   ensureDaemonCalls: number;
   connectCalls: string[];
   callToolCalls: { name: string; arguments: Record<string, unknown> | undefined }[];
+  sleepCalls: number[];
   stdout: string;
   stderr: string;
+}
+
+/** Builds the `server_unavailable (status: starting)` error the daemon raises
+ * while an upstream is still connecting. */
+function startingError(server = 'github'): Error {
+  return Object.assign(new Error(`MCP error -32603: Upstream server "${server}" is unavailable`), {
+    code: -32603,
+    data: { server, status: { kind: 'starting', attempt: 1 } },
+  });
 }
 
 function makeHarness(
@@ -35,7 +45,11 @@ function makeHarness(
     stdin?: string;
     files?: Record<string, string>;
     isStdoutTTY?: boolean;
-    config?: ToolBoxConfig;
+    config?: ToolbxConfig;
+    /** Reject `callTool` with a transient `starting` error this many times before succeeding. */
+    callToolStartingTimes?: number;
+    /** Reject every `callTool` with a transient `starting` error (never settles). */
+    callToolStartingForever?: boolean;
   } = {},
 ): Harness {
   const tools = opts.tools ?? [{ name: 'github__create_issue' }];
@@ -54,6 +68,11 @@ function makeHarness(
 
   const callToolCalls: { name: string; arguments: Record<string, unknown> | undefined }[] = [];
   const connectCalls: string[] = [];
+  const sleepCalls: number[] = [];
+  let clock = 0;
+  let startingRemaining = opts.callToolStartingForever
+    ? Number.POSITIVE_INFINITY
+    : (opts.callToolStartingTimes ?? 0);
   let ensureDaemonCalls = 0;
   let stdout = '';
   let stderr = '';
@@ -63,6 +82,10 @@ function makeHarness(
       opts.listToolsThrows ? Promise.reject(opts.listToolsThrows) : Promise.resolve(listResult),
     callTool: (params) => {
       callToolCalls.push({ name: params.name, arguments: params.arguments });
+      if (startingRemaining > 0) {
+        startingRemaining -= 1;
+        return Promise.reject(startingError());
+      }
       if (opts.callToolThrows !== undefined) {
         return Promise.reject(opts.callToolThrows);
       }
@@ -114,6 +137,14 @@ function makeHarness(
       stderr += msg;
     },
     isStdoutTTY: opts.isStdoutTTY ?? true,
+    // A fake clock: sleeping advances `now`, so startup-retry budgets resolve
+    // deterministically without real timers.
+    sleep: (ms) => {
+      sleepCalls.push(ms);
+      clock += ms;
+      return Promise.resolve();
+    },
+    now: () => clock,
   };
 
   return {
@@ -123,6 +154,7 @@ function makeHarness(
     },
     connectCalls,
     callToolCalls,
+    sleepCalls,
     get stdout() {
       return stdout;
     },
@@ -250,6 +282,34 @@ describe('runRun — daemon invocation', () => {
     expect(code).toBe(4);
     expect(h.callToolCalls).toHaveLength(1);
     expect(h.stderr).toMatch(/github__nope|unknown/i);
+  });
+
+  it('retries a transient "starting" upstream and succeeds once it connects', async () => {
+    // A cold-start `tlbx run` reaches the daemon while the target upstream is
+    // still connecting (status: starting). That state is transient, so the call
+    // must be retried until the server settles rather than failing immediately.
+    const h = makeHarness({
+      tools: [{ name: 'github__whoami', empty: true }],
+      callResult: { content: [{ type: 'text', text: 'octocat' }] },
+      callToolStartingTimes: 2,
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).toBe(0);
+    expect(h.callToolCalls).toHaveLength(3);
+    expect(h.sleepCalls).toHaveLength(2);
+    expect(h.stdout).toContain('octocat');
+  });
+
+  it('gives up retrying a perpetually "starting" upstream and surfaces the failure', async () => {
+    const h = makeHarness({
+      tools: [{ name: 'github__whoami', empty: true }],
+      callToolStartingForever: true,
+    });
+    const code = await run({ target: 'github__whoami' }, {}, h);
+    expect(code).not.toBe(0);
+    expect(h.stderr).toMatch(/unavailable|starting/i);
+    // The retry budget is bounded — it does not loop forever.
+    expect(h.callToolCalls.length).toBeGreaterThan(1);
   });
 
   it('prints the tool text result to stdout on success', async () => {

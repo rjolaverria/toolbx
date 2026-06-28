@@ -10,13 +10,13 @@ import {
   loadConfig,
   resolveCredentialLockRoot,
   saveConfig,
-  ToolBoxOAuthProvider,
+  ToolbxOAuthProvider,
   type AuthHint,
   type RunOAuthLoginInput,
   type RunOAuthLoginResult,
   type StoredOAuthRecord,
   type TokenStore,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import { runAuthLogout } from '../auth/logout.js';
 import type { AuthCommandDeps } from '../auth/shared.js';
@@ -195,7 +195,7 @@ describe('gateway token refresh racing auth logout (P3-09)', () => {
       list: () => backing.list(),
       probe: () => backing.probe(),
     };
-    const provider = new ToolBoxOAuthProvider({
+    const provider = new ToolbxOAuthProvider({
       serverName: 'acme',
       redirectUrl: new URL('http://127.0.0.1:0/unused'),
       tokenStore: gatedStore,
@@ -236,7 +236,7 @@ describe('cross-config same-credential serialization (P3-10)', () => {
 
     // A shared credential-lock base independent of either config dir — standing
     // in for the real machine-global location both invocations would resolve to.
-    const lockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cred-lock-base-'));
+    const lockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cred-lock-base-'));
     vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, lockBase);
     expect(resolveCredentialLockRoot(KEYCHAIN_STORAGE)).toContain(lockBase);
 

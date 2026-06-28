@@ -8,7 +8,7 @@ export interface ConfigPathEnv {
 }
 
 export type ConfigPathSource =
-  | 'env-toolbox-config'
+  | 'env-toolbx-config'
   | 'env-xdg-config-home'
   | 'env-appdata'
   | 'home-windows'
@@ -19,8 +19,8 @@ export interface ResolvedConfigPath {
   source: ConfigPathSource;
 }
 
-const TOOLBOX_DIR_POSIX = 'toolbox';
-const TOOLBOX_DIR_WIN = 'ToolBox';
+const TOOLBX_DIR_POSIX = 'toolbx';
+const TOOLBX_DIR_WIN = 'Toolbx';
 const CONFIG_FILENAME = 'config.json';
 
 function nonEmpty(value: string | undefined): value is string {
@@ -32,15 +32,15 @@ export function describeConfigPath(overrides: ConfigPathEnv = {}): ResolvedConfi
   const platform = overrides.platform ?? process.platform;
   const homedir = overrides.homedir ?? osHomedir;
 
-  const explicit = env.TOOLBOX_CONFIG;
+  const explicit = env.TOOLBX_CONFIG;
   if (nonEmpty(explicit)) {
-    return { path: path.resolve(explicit), source: 'env-toolbox-config' };
+    return { path: path.resolve(explicit), source: 'env-toolbx-config' };
   }
 
   const xdg = env.XDG_CONFIG_HOME;
   if (nonEmpty(xdg)) {
     return {
-      path: path.join(xdg, TOOLBOX_DIR_POSIX, CONFIG_FILENAME),
+      path: path.join(xdg, TOOLBX_DIR_POSIX, CONFIG_FILENAME),
       source: 'env-xdg-config-home',
     };
   }
@@ -49,18 +49,18 @@ export function describeConfigPath(overrides: ConfigPathEnv = {}): ResolvedConfi
     const appdata = env.APPDATA;
     if (nonEmpty(appdata)) {
       return {
-        path: path.join(appdata, TOOLBOX_DIR_WIN, CONFIG_FILENAME),
+        path: path.join(appdata, TOOLBX_DIR_WIN, CONFIG_FILENAME),
         source: 'env-appdata',
       };
     }
     return {
-      path: path.join(homedir(), 'AppData', 'Roaming', TOOLBOX_DIR_WIN, CONFIG_FILENAME),
+      path: path.join(homedir(), 'AppData', 'Roaming', TOOLBX_DIR_WIN, CONFIG_FILENAME),
       source: 'home-windows',
     };
   }
 
   return {
-    path: path.join(homedir(), '.config', TOOLBOX_DIR_POSIX, CONFIG_FILENAME),
+    path: path.join(homedir(), '.config', TOOLBX_DIR_POSIX, CONFIG_FILENAME),
     source: 'home-posix',
   };
 }

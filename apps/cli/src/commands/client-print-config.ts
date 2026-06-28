@@ -1,5 +1,5 @@
 import { Command, InvalidArgumentError, Option } from '@commander-js/extra-typings';
-import { TOOLBOX_NPX_COMMAND, TOOLBOX_STDIO_ARGS, type ToolBoxConfig } from '@toolbox/core';
+import { TOOLBX_NPX_COMMAND, TOOLBX_STDIO_ARGS, type ToolbxConfig } from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -30,14 +30,14 @@ interface Snippet {
   readonly native?: { readonly language: string; readonly body: string };
 }
 
-const STDIO_COMMAND = TOOLBOX_NPX_COMMAND;
-const STDIO_ARGS = TOOLBOX_STDIO_ARGS;
+const STDIO_COMMAND = TOOLBX_NPX_COMMAND;
+const STDIO_ARGS = TOOLBX_STDIO_ARGS;
 
 function isClientId(value: string): value is ClientId {
   return (SUPPORTED_CLIENTS as readonly string[]).includes(value);
 }
 
-function buildHttpUrl(http: ToolBoxConfig['server']['http']): string {
+function buildHttpUrl(http: ToolbxConfig['server']['http']): string {
   const host = http.host === '::1' ? '[::1]' : http.host;
   return `http://${host}:${String(http.port)}${http.path}`;
 }
@@ -55,7 +55,7 @@ function tomlStringArray(values: readonly string[]): string {
 
 function codexStdioToml(): string {
   return [
-    '[mcp_servers.toolbox]',
+    '[mcp_servers.toolbx]',
     `command = ${tomlString(STDIO_COMMAND)}`,
     `args = ${tomlStringArray(STDIO_ARGS)}`,
     '',
@@ -63,7 +63,7 @@ function codexStdioToml(): string {
 }
 
 function codexHttpToml(url: string): string {
-  return ['[mcp_servers.toolbox]', `url = ${tomlString(url)}`, ''].join('\n');
+  return ['[mcp_servers.toolbx]', `url = ${tomlString(url)}`, ''].join('\n');
 }
 
 const CLAUDE_CODE_LOCATION =
@@ -71,17 +71,17 @@ const CLAUDE_CODE_LOCATION =
 const CLAUDE_CODE_INSTALL_HINT =
   'Tip: `tlbx client install claude` writes the same entry for you (with a timestamped backup).';
 
-function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http']): Snippet {
+function claudeSnippet(transport: Transport, http: ToolbxConfig['server']['http']): Snippet {
   if (transport === 'stdio') {
     return {
       description: [
         CLAUDE_CODE_LOCATION,
-        "Merge the JSON block below into the file's top-level `mcpServers` object so Claude Code launches ToolBox over stdio on demand.",
+        "Merge the JSON block below into the file's top-level `mcpServers` object so Claude Code launches Toolbx over stdio on demand.",
         CLAUDE_CODE_INSTALL_HINT,
       ].join('\n\n'),
       json: {
         mcpServers: {
-          toolbox: {
+          toolbx: {
             type: 'stdio',
             command: STDIO_COMMAND,
             args: [...STDIO_ARGS],
@@ -97,11 +97,11 @@ function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http
   return {
     description: [
       CLAUDE_CODE_LOCATION,
-      "Run `tlbx serve --http` first, then merge the JSON block below into the file's top-level `mcpServers` object so Claude Code points at the running ToolBox.",
+      "Run `tlbx serve --http` first, then merge the JSON block below into the file's top-level `mcpServers` object so Claude Code points at the running Toolbx.",
     ].join('\n\n'),
     json: {
       mcpServers: {
-        toolbox: {
+        toolbx: {
           type: 'http',
           url: buildHttpUrl(http),
         },
@@ -110,14 +110,14 @@ function claudeSnippet(transport: Transport, http: ToolBoxConfig['server']['http
   };
 }
 
-function codexSnippet(transport: Transport, http: ToolBoxConfig['server']['http']): Snippet {
+function codexSnippet(transport: Transport, http: ToolbxConfig['server']['http']): Snippet {
   if (transport === 'stdio') {
     return {
       description:
-        'Add this to your Codex CLI MCP config (~/.codex/config.toml) so Codex launches ToolBox over stdio on demand:',
+        'Add this to your Codex CLI MCP config (~/.codex/config.toml) so Codex launches Toolbx over stdio on demand:',
       json: {
         mcp_servers: {
-          toolbox: {
+          toolbx: {
             command: STDIO_COMMAND,
             args: [...STDIO_ARGS],
           },
@@ -128,10 +128,10 @@ function codexSnippet(transport: Transport, http: ToolBoxConfig['server']['http'
   }
   return {
     description:
-      'Run `tlbx serve --http` first, then add this to your Codex CLI MCP config (~/.codex/config.toml) to point it at the running ToolBox:',
+      'Run `tlbx serve --http` first, then add this to your Codex CLI MCP config (~/.codex/config.toml) to point it at the running Toolbx:',
     json: {
       mcp_servers: {
-        toolbox: {
+        toolbx: {
           url: buildHttpUrl(http),
         },
       },
@@ -140,13 +140,13 @@ function codexSnippet(transport: Transport, http: ToolBoxConfig['server']['http'
   };
 }
 
-function opencodeSnippet(transport: Transport, http: ToolBoxConfig['server']['http']): Snippet {
+function opencodeSnippet(transport: Transport, http: ToolbxConfig['server']['http']): Snippet {
   if (transport === 'stdio') {
     return {
-      description: 'Add this to your OpenCode MCP config so OpenCode launches ToolBox over stdio:',
+      description: 'Add this to your OpenCode MCP config so OpenCode launches Toolbx over stdio:',
       json: {
         mcp: {
-          toolbox: {
+          toolbx: {
             type: 'local',
             command: [STDIO_COMMAND, ...STDIO_ARGS],
             enabled: true,
@@ -157,10 +157,10 @@ function opencodeSnippet(transport: Transport, http: ToolBoxConfig['server']['ht
   }
   return {
     description:
-      'Run `tlbx serve --http` first, then add this to your OpenCode MCP config to point it at the running ToolBox:',
+      'Run `tlbx serve --http` first, then add this to your OpenCode MCP config to point it at the running Toolbx:',
     json: {
       mcp: {
-        toolbox: {
+        toolbx: {
           type: 'remote',
           url: buildHttpUrl(http),
           enabled: true,
@@ -170,14 +170,14 @@ function opencodeSnippet(transport: Transport, http: ToolBoxConfig['server']['ht
   };
 }
 
-function genericSnippet(transport: Transport, http: ToolBoxConfig['server']['http']): Snippet {
+function genericSnippet(transport: Transport, http: ToolbxConfig['server']['http']): Snippet {
   if (transport === 'stdio') {
     return {
       description:
         'Generic MCP client (stdio). Most clients accept this shape; consult your client docs for the exact config key:',
       json: {
         mcpServers: {
-          toolbox: {
+          toolbx: {
             command: STDIO_COMMAND,
             args: [...STDIO_ARGS],
           },
@@ -190,7 +190,7 @@ function genericSnippet(transport: Transport, http: ToolBoxConfig['server']['htt
       'Generic MCP client (Streamable HTTP). Run `tlbx serve --http` first, then point your client at this URL:',
     json: {
       mcpServers: {
-        toolbox: {
+        toolbx: {
           url: buildHttpUrl(http),
         },
       },
@@ -201,7 +201,7 @@ function genericSnippet(transport: Transport, http: ToolBoxConfig['server']['htt
 function snippetFor(
   client: ClientId,
   transport: Transport,
-  http: ToolBoxConfig['server']['http'],
+  http: ToolbxConfig['server']['http'],
 ): Snippet {
   switch (client) {
     case 'claude':
@@ -244,7 +244,7 @@ export async function runClientPrintConfig(
   }
   const transport: Transport = options.http === true ? 'http' : 'stdio';
 
-  let http: ToolBoxConfig['server']['http'];
+  let http: ToolbxConfig['server']['http'];
   if (transport === 'http') {
     const target = resolveTargetPath(deps, options.config);
     const config = await loadOrReportMissing(target, deps);
@@ -280,7 +280,7 @@ function parseClient(value: string): string {
 }
 
 export function clientCommand(registerExtras: ReadonlyArray<(cmd: Command) => void> = []): Command {
-  const cmd = new Command('client').description('Configure MCP clients for ToolBox.');
+  const cmd = new Command('client').description('Configure MCP clients for Toolbx.');
 
   cmd
     .command('print-config')

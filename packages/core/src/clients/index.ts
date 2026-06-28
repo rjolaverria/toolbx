@@ -6,11 +6,11 @@ export { opencodeAdapter, createOpencodeAdapter } from './opencode.js';
 export type { CreateOpencodeAdapterOptions } from './opencode.js';
 export { detectClients } from './detect.js';
 export {
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_NPX_PACKAGE,
-  TOOLBOX_STDIO_ARGS,
-  TOOLBOX_STDIO_COMMAND,
-} from './toolbox-command.js';
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_NPX_PACKAGE,
+  TOOLBX_STDIO_ARGS,
+  TOOLBX_STDIO_COMMAND,
+} from './toolbx-command.js';
 export type {
   ClientAdapter,
   ClientAdapterEnv,

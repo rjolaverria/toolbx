@@ -4,10 +4,10 @@ import { analyzeToolImports, parseToolMetadata, ToolMetadataParseError } from '.
 
 // The canonical example from SPECS §6.2.
 const SPEC_EXAMPLE = `/**
- * @toolbox-tool name send_slack_summary
- * @toolbox-tool title Send Slack Summary
- * @toolbox-tool description Summarize text and send it to a configured Slack channel.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name send_slack_summary
+ * @toolbx-tool title Send Slack Summary
+ * @toolbx-tool description Summarize text and send it to a configured Slack channel.
+ * @toolbx-tool namespace personal
  */
 
 import { z } from 'zod';
@@ -46,7 +46,7 @@ describe('parseToolMetadata', () => {
     'throws naming the missing required directive %s and the source path',
     (missing) => {
       const source = SPEC_EXAMPLE.split('\n')
-        .filter((line) => !line.includes(`@toolbox-tool ${missing} `))
+        .filter((line) => !line.includes(`@toolbx-tool ${missing} `))
         .join('\n');
 
       let thrown: unknown;
@@ -67,7 +67,7 @@ describe('parseToolMetadata', () => {
   it('reports every missing required directive at once', () => {
     let thrown: unknown;
     try {
-      parseToolMetadata('/**\n * @toolbox-tool name only_name\n */\n', './partial.ts');
+      parseToolMetadata('/**\n * @toolbx-tool name only_name\n */\n', './partial.ts');
     } catch (error) {
       thrown = error;
     }
@@ -79,10 +79,10 @@ describe('parseToolMetadata', () => {
     expect(err.message).not.toContain('name require');
   });
 
-  it('surfaces unknown @toolbox-tool directives as warnings without failing', () => {
+  it('surfaces unknown @toolbx-tool directives as warnings without failing', () => {
     const source = SPEC_EXAMPLE.replace(
-      ' * @toolbox-tool namespace personal\n',
-      ' * @toolbox-tool namespace personal\n * @toolbox-tool category fun\n',
+      ' * @toolbx-tool namespace personal\n',
+      ' * @toolbx-tool namespace personal\n * @toolbx-tool category fun\n',
     );
 
     const result = parseToolMetadata(source, './extra.ts');
@@ -95,10 +95,10 @@ describe('parseToolMetadata', () => {
 
   it('detects the absence of an inputSchema export', () => {
     const source = `/**
- * @toolbox-tool name no_schema
- * @toolbox-tool title No Schema
- * @toolbox-tool description A tool without an input schema.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name no_schema
+ * @toolbx-tool title No Schema
+ * @toolbx-tool description A tool without an input schema.
+ * @toolbx-tool namespace personal
  */
 
 export default async function noSchema() {
@@ -112,10 +112,10 @@ export default async function noSchema() {
   });
 
   const META = `/**
- * @toolbox-tool name no_schema
- * @toolbox-tool title No Schema
- * @toolbox-tool description A tool without an input schema.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name no_schema
+ * @toolbx-tool title No Schema
+ * @toolbx-tool description A tool without an input schema.
+ * @toolbx-tool namespace personal
  */
 `;
 
@@ -269,7 +269,7 @@ export default async function noSchema() {
     expect(parseToolMetadata(source, './real.ts').hasInputSchema).toBe(true);
   });
 
-  it('throws when the source has no @toolbox-tool directives at all', () => {
+  it('throws when the source has no @toolbx-tool directives at all', () => {
     const source = `// just a plain module\nexport default function f() {\n  return { content: [] };\n}\n`;
 
     let thrown: unknown;
@@ -281,20 +281,20 @@ export default async function noSchema() {
 
     expect(thrown).toBeInstanceOf(ToolMetadataParseError);
     const err = thrown as ToolMetadataParseError;
-    expect(err.message).toContain('no @toolbox-tool directives');
+    expect(err.message).toContain('no @toolbx-tool directives');
     expect(err.message).toContain('./plain.ts');
   });
 
-  it('rejects multiple @toolbox-tool blocks and reports the duplicate line', () => {
+  it('rejects multiple @toolbx-tool blocks and reports the duplicate line', () => {
     const source = `/**
- * @toolbox-tool name first
- * @toolbox-tool title First
- * @toolbox-tool description The first block.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name first
+ * @toolbx-tool title First
+ * @toolbx-tool description The first block.
+ * @toolbx-tool namespace personal
  */
 
 /**
- * @toolbox-tool name second
+ * @toolbx-tool name second
  */
 
 export default async function f() {
@@ -316,7 +316,7 @@ export default async function f() {
   });
 
   it('ignores a JSDoc-looking block inside a string literal (no false duplicate)', () => {
-    const source = `${META}\nconst help = '/** @toolbox-tool name fake */';\nexport default async function f() {\n  return { content: [{ type: 'text', text: help }] };\n}\n`;
+    const source = `${META}\nconst help = '/** @toolbx-tool name fake */';\nexport default async function f() {\n  return { content: [{ type: 'text', text: help }] };\n}\n`;
 
     const result = parseToolMetadata(source, './strblock.ts');
 
@@ -328,10 +328,10 @@ export default async function f() {
     const source = [
       'const help = `',
       '/**',
-      ' * @toolbox-tool name fake',
-      ' * @toolbox-tool title Fake',
-      ' * @toolbox-tool description Not real metadata.',
-      ' * @toolbox-tool namespace personal',
+      ' * @toolbx-tool name fake',
+      ' * @toolbx-tool title Fake',
+      ' * @toolbx-tool description Not real metadata.',
+      ' * @toolbx-tool namespace personal',
       ' */',
       '`;',
       'export default async function f() {',
@@ -348,7 +348,7 @@ export default async function f() {
     }
 
     expect(thrown).toBeInstanceOf(ToolMetadataParseError);
-    expect((thrown as ToolMetadataParseError).message).toContain('no @toolbox-tool directives');
+    expect((thrown as ToolMetadataParseError).message).toContain('no @toolbx-tool directives');
   });
 
   describe('relativeImports', () => {
@@ -537,7 +537,7 @@ export default async function f() {
       expect(result.syntaxErrors).toEqual([]);
     });
 
-    it('detects a bare node: builtin import without requiring @toolbox-tool metadata', () => {
+    it('detects a bare node: builtin import without requiring @toolbx-tool metadata', () => {
       const source = `import { readFileSync } from 'node:fs';\nexport default function f() {\n  return { content: [] };\n}\n`;
       const result = analyzeToolImports(source, './bare-builtin.ts');
       expect(result.bareImports).toContain('node:fs');
@@ -545,7 +545,7 @@ export default async function f() {
       expect(result.dynamicImports).toEqual([]);
     });
 
-    it('detects a relative import without requiring @toolbox-tool metadata', () => {
+    it('detects a relative import without requiring @toolbx-tool metadata', () => {
       const source = `import { helper } from './util.js';\nexport default function f() {\n  return { content: [] };\n}\n`;
       const result = analyzeToolImports(source, './with-rel.ts');
       expect(result.relativeImports).toContain('./util.js');

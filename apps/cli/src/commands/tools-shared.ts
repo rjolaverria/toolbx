@@ -7,9 +7,9 @@ import {
   ToolCacheError,
   ToolCacheMissingError,
   type NamespacingConfig,
-  type ToolBoxConfig,
-} from '@toolbox/core';
-import { readToolManifest, type ToolManifest } from '@toolbox/custom-tools';
+  type ToolbxConfig,
+} from '@toolbx/core';
+import { readToolManifest, type ToolManifest } from '@toolbx/custom-tools';
 
 import type { ServerCommandDeps } from './server-shared.js';
 
@@ -93,7 +93,7 @@ export function reconcileCachedTool(
     upstreamName: string;
     source: 'upstream' | 'custom';
   },
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   manifestByExposed: ReadonlyMap<string, ToolManifest>,
 ): ReconciledCachedTool | { keep: false } {
   const configEnabled = config.tools[entry.exposedName]?.enabled !== false;
@@ -139,7 +139,7 @@ export interface LoadToolsOptions {
  * The caller exits non-zero.
  */
 export async function loadTools(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   configPath: string,
   options: LoadToolsOptions,
   deps: ToolsCommandDeps,
@@ -159,7 +159,7 @@ export async function loadTools(
     if (error instanceof ToolCacheMissingError) {
       deps.stderr(
         `${error.message} ` +
-          `Run \`tlbx serve\` once so ToolBox can populate the registry, ` +
+          `Run \`tlbx serve\` once so Toolbx can populate the registry, ` +
           `or pass \`--from-config\` to list only the configured servers.\n`,
       );
       return { kind: 'error' };

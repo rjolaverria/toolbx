@@ -3,7 +3,7 @@
 exports[`runClientPrintConfig > --json output for claude/http parses cleanly and matches snapshot 1`] = `
 "{
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "type": "http",
       "url": "http://127.0.0.1:7331/mcp"
     }
@@ -15,12 +15,12 @@ exports[`runClientPrintConfig > --json output for claude/http parses cleanly and
 exports[`runClientPrintConfig > --json output for claude/stdio parses cleanly and matches snapshot 1`] = `
 "{
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ],
@@ -34,7 +34,7 @@ exports[`runClientPrintConfig > --json output for claude/stdio parses cleanly an
 exports[`runClientPrintConfig > --json output for codex/http parses cleanly and matches snapshot 1`] = `
 "{
   "mcp_servers": {
-    "toolbox": {
+    "toolbx": {
       "url": "http://127.0.0.1:7331/mcp"
     }
   }
@@ -45,11 +45,11 @@ exports[`runClientPrintConfig > --json output for codex/http parses cleanly and 
 exports[`runClientPrintConfig > --json output for codex/stdio parses cleanly and matches snapshot 1`] = `
 "{
   "mcp_servers": {
-    "toolbox": {
+    "toolbx": {
       "command": "npx",
       "args": [
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ]
@@ -62,7 +62,7 @@ exports[`runClientPrintConfig > --json output for codex/stdio parses cleanly and
 exports[`runClientPrintConfig > --json output for generic/http parses cleanly and matches snapshot 1`] = `
 "{
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "url": "http://127.0.0.1:7331/mcp"
     }
   }
@@ -73,11 +73,11 @@ exports[`runClientPrintConfig > --json output for generic/http parses cleanly an
 exports[`runClientPrintConfig > --json output for generic/stdio parses cleanly and matches snapshot 1`] = `
 "{
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "command": "npx",
       "args": [
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ]
@@ -90,7 +90,7 @@ exports[`runClientPrintConfig > --json output for generic/stdio parses cleanly a
 exports[`runClientPrintConfig > --json output for opencode/http parses cleanly and matches snapshot 1`] = `
 "{
   "mcp": {
-    "toolbox": {
+    "toolbx": {
       "type": "remote",
       "url": "http://127.0.0.1:7331/mcp",
       "enabled": true
@@ -103,12 +103,12 @@ exports[`runClientPrintConfig > --json output for opencode/http parses cleanly a
 exports[`runClientPrintConfig > --json output for opencode/stdio parses cleanly and matches snapshot 1`] = `
 "{
   "mcp": {
-    "toolbox": {
+    "toolbx": {
       "type": "local",
       "command": [
         "npx",
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ],
@@ -122,12 +122,12 @@ exports[`runClientPrintConfig > --json output for opencode/stdio parses cleanly 
 exports[`runClientPrintConfig > default friendly output for claude/http contains an explanation and a fenced code block 1`] = `
 "Open Claude Code's user-scope MCP config — \`~/.claude.json\` on POSIX, \`%USERPROFILE%\\.claude.json\` on Windows.
 
-Run \`tlbx serve --http\` first, then merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code points at the running ToolBox.
+Run \`tlbx serve --http\` first, then merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code points at the running Toolbx.
 
 \`\`\`json
 {
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "type": "http",
       "url": "http://127.0.0.1:7331/mcp"
     }
@@ -140,19 +140,19 @@ Run \`tlbx serve --http\` first, then merge the JSON block below into the file's
 exports[`runClientPrintConfig > default friendly output for claude/stdio contains an explanation and a fenced code block 1`] = `
 "Open Claude Code's user-scope MCP config — \`~/.claude.json\` on POSIX, \`%USERPROFILE%\\.claude.json\` on Windows.
 
-Merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code launches ToolBox over stdio on demand.
+Merge the JSON block below into the file's top-level \`mcpServers\` object so Claude Code launches Toolbx over stdio on demand.
 
 Tip: \`tlbx client install claude\` writes the same entry for you (with a timestamped backup).
 
 \`\`\`json
 {
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ],
@@ -165,22 +165,22 @@ Tip: \`tlbx client install claude\` writes the same entry for you (with a timest
 `;
 
 exports[`runClientPrintConfig > default friendly output for codex/http contains an explanation and a fenced code block 1`] = `
-"Run \`tlbx serve --http\` first, then add this to your Codex CLI MCP config (~/.codex/config.toml) to point it at the running ToolBox:
+"Run \`tlbx serve --http\` first, then add this to your Codex CLI MCP config (~/.codex/config.toml) to point it at the running Toolbx:
 
 \`\`\`toml
-[mcp_servers.toolbox]
+[mcp_servers.toolbx]
 url = "http://127.0.0.1:7331/mcp"
 \`\`\`
 "
 `;
 
 exports[`runClientPrintConfig > default friendly output for codex/stdio contains an explanation and a fenced code block 1`] = `
-"Add this to your Codex CLI MCP config (~/.codex/config.toml) so Codex launches ToolBox over stdio on demand:
+"Add this to your Codex CLI MCP config (~/.codex/config.toml) so Codex launches Toolbx over stdio on demand:
 
 \`\`\`toml
-[mcp_servers.toolbox]
+[mcp_servers.toolbx]
 command = "npx"
-args = ["-y", "@toolbox/cli", "serve", "--stdio"]
+args = ["-y", "@toolbx/cli", "serve", "--stdio"]
 \`\`\`
 "
 `;
@@ -191,7 +191,7 @@ exports[`runClientPrintConfig > default friendly output for generic/http contain
 \`\`\`json
 {
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "url": "http://127.0.0.1:7331/mcp"
     }
   }
@@ -206,11 +206,11 @@ exports[`runClientPrintConfig > default friendly output for generic/stdio contai
 \`\`\`json
 {
   "mcpServers": {
-    "toolbox": {
+    "toolbx": {
       "command": "npx",
       "args": [
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ]
@@ -222,12 +222,12 @@ exports[`runClientPrintConfig > default friendly output for generic/stdio contai
 `;
 
 exports[`runClientPrintConfig > default friendly output for opencode/http contains an explanation and a fenced code block 1`] = `
-"Run \`tlbx serve --http\` first, then add this to your OpenCode MCP config to point it at the running ToolBox:
+"Run \`tlbx serve --http\` first, then add this to your OpenCode MCP config to point it at the running Toolbx:
 
 \`\`\`json
 {
   "mcp": {
-    "toolbox": {
+    "toolbx": {
       "type": "remote",
       "url": "http://127.0.0.1:7331/mcp",
       "enabled": true
@@ -239,17 +239,17 @@ exports[`runClientPrintConfig > default friendly output for opencode/http contai
 `;
 
 exports[`runClientPrintConfig > default friendly output for opencode/stdio contains an explanation and a fenced code block 1`] = `
-"Add this to your OpenCode MCP config so OpenCode launches ToolBox over stdio:
+"Add this to your OpenCode MCP config so OpenCode launches Toolbx over stdio:
 
 \`\`\`json
 {
   "mcp": {
-    "toolbox": {
+    "toolbx": {
       "type": "local",
       "command": [
         "npx",
         "-y",
-        "@toolbox/cli",
+        "@toolbx/cli",
         "serve",
         "--stdio"
       ],

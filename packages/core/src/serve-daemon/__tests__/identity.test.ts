@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG } from '../../config/defaults.js';
-import type { ToolBoxConfig } from '../../config/schema.js';
+import type { ToolbxConfig } from '../../config/schema.js';
 import { computeConfigIdentity } from '../identity.js';
 
 describe('computeConfigIdentity', () => {
@@ -10,11 +10,11 @@ describe('computeConfigIdentity', () => {
   });
 
   it('ignores object key order', () => {
-    const a: ToolBoxConfig = {
+    const a: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       tools: { github__create_issue: { enabled: true }, jira__search: { enabled: false } },
     };
-    const b: ToolBoxConfig = {
+    const b: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       // Same entries, declared in the opposite order.
       tools: { jira__search: { enabled: false }, github__create_issue: { enabled: true } },
@@ -23,11 +23,11 @@ describe('computeConfigIdentity', () => {
   });
 
   it('changes when a tool enable flag changes', () => {
-    const enabled: ToolBoxConfig = {
+    const enabled: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       tools: { github__create_issue: { enabled: true } },
     };
-    const disabled: ToolBoxConfig = {
+    const disabled: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       tools: { github__create_issue: { enabled: false } },
     };
@@ -35,7 +35,7 @@ describe('computeConfigIdentity', () => {
   });
 
   it('changes when the server set changes', () => {
-    const withServer: ToolBoxConfig = {
+    const withServer: ToolbxConfig = {
       ...DEFAULT_CONFIG,
       servers: {
         github: { type: 'http', enabled: true, url: 'https://api.example.com/mcp' },

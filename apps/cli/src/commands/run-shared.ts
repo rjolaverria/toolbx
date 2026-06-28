@@ -9,8 +9,8 @@ import {
   type LogFormat,
   type LogLevel,
   type NamespaceOptions,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import { ensureDaemon, defaultEnsureDaemonDeps, type EnsureDaemonResult } from './run-daemon.js';
 
@@ -89,6 +89,10 @@ export interface RunDeps {
   stderr: (msg: string) => void;
   /** Whether real stdout is a TTY; selects the default output mode (§5.4). */
   isStdoutTTY: boolean;
+  /** Resolves after `ms`. Injected so startup-retry waits are deterministic in tests. */
+  sleep: (ms: number) => Promise<void>;
+  /** Current epoch millis. Injected alongside {@link RunDeps.sleep} for a fake clock. */
+  now: () => number;
 }
 
 export function defaultRunDeps(): RunDeps {
@@ -104,6 +108,8 @@ export function defaultRunDeps(): RunDeps {
       process.stderr.write(msg);
     },
     isStdoutTTY: process.stdout.isTTY === true,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
   };
 }
 
@@ -166,7 +172,7 @@ export function resolveOutputMode(
 }
 
 export type OpenDaemonResult =
-  | { ok: true; client: DaemonClient; url: string; config: ToolBoxConfig }
+  | { ok: true; client: DaemonClient; url: string; config: ToolbxConfig }
   | { ok: false; message: string };
 
 /**

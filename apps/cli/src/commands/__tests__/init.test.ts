@@ -3,14 +3,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, loadConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, loadConfig } from '@toolbx/core';
 
 import { createConfigIfMissing, runInit, type InitDeps } from '../init.js';
 
 const tempDirs: string[] = [];
 
 async function makeTempDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-init-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cli-init-'));
   tempDirs.push(dir);
   return dir;
 }

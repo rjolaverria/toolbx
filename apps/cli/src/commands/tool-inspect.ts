@@ -7,7 +7,7 @@ import {
   resolveToolEntryPath,
   ToolManifestError,
   type ToolManifest,
-} from '@toolbox/custom-tools';
+} from '@toolbx/custom-tools';
 
 import {
   defaultToolCommandDeps,

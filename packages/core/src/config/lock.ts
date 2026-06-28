@@ -10,7 +10,7 @@ export class ConfigLockError extends Error {
 
   constructor(lockDir: string, timeoutMs: number) {
     super(
-      `could not acquire the ToolBox config lock at ${lockDir} within ${timeoutMs}ms; ` +
+      `could not acquire the Toolbx config lock at ${lockDir} within ${timeoutMs}ms; ` +
         `another command may be holding it. If no other command is running, remove ${lockDir} and retry.`,
     );
   }

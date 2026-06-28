@@ -5,7 +5,7 @@ import type {
   RegisteredToolView,
   RouteResult,
   RoutedCallToolResult,
-} from '@toolbox/core';
+} from '@toolbx/core';
 import {
   describeTool as defaultDescribeTool,
   digestToolSources,
@@ -17,7 +17,7 @@ import {
   type RunOutcome,
   type SandboxOptions,
   type ToolManifest,
-} from '@toolbox/custom-tools';
+} from '@toolbx/custom-tools';
 
 import type { CustomToolInput } from '../registry/index.js';
 
@@ -27,10 +27,10 @@ import type { CustomToolInput } from '../registry/index.js';
  * consumers (`tlbx run` discovery) can label it `custom` rather than inferring
  * source from the namespace, mirroring `BOOTSTRAP_TOOL_META_KEY`.
  */
-export const CUSTOM_TOOL_META_KEY = 'toolbox/custom';
+export const CUSTOM_TOOL_META_KEY = 'toolbx/custom';
 
-/** Namespace reserved for ToolBox's own bootstrap/internal tools (`toolbox__*`). */
-const RESERVED_NAMESPACE = 'toolbox';
+/** Namespace reserved for Toolbx's own bootstrap/internal tools (`toolbx__*`). */
+const RESERVED_NAMESPACE = 'toolbx';
 
 /**
  * Bridges imported custom tools (P3-05) into the gateway. `load()` reads the
@@ -39,12 +39,12 @@ const RESERVED_NAMESPACE = 'toolbox';
  * runtime publishes into `tools/list`. `executor` runs a custom tool through the
  * same sandbox and maps its outcome onto the router's {@link RouteResult}.
  *
- * `@toolbox/core` cannot depend on `@toolbox/custom-tools`, so the router takes
+ * `@toolbx/core` cannot depend on `@toolbx/custom-tools`, so the router takes
  * the executor as an injected seam; this host is where the gateway wires the two
  * together.
  */
 export interface CustomToolHostDeps {
-  /** Absolute ToolBox config directory (parent of `tools/`). */
+  /** Absolute Toolbx config directory (parent of `tools/`). */
   readonly configDir: string;
   readonly logger: Logger;
   /**
@@ -181,14 +181,14 @@ export function createCustomToolHost(deps: CustomToolHostDeps): CustomToolHost {
       );
       return false;
     }
-    // The `toolbox` namespace is reserved for ToolBox's own bootstrap tools
-    // (`toolbox__search_tools`, …). A custom tool under it would be shadowed by
+    // The `toolbx` namespace is reserved for Toolbx's own bootstrap tools
+    // (`toolbx__search_tools`, …). A custom tool under it would be shadowed by
     // the bootstrap dispatch in `tools/call` and filtered from `tools/list`,
     // i.e. unreachable, so skip it rather than publish an uncallable entry.
     if (entry.namespace === RESERVED_NAMESPACE) {
       log.warn(
         { tool: entry.exposedName },
-        'custom tool uses the reserved "toolbox" namespace; skipping',
+        'custom tool uses the reserved "toolbx" namespace; skipping',
       );
       return false;
     }

@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-import { createNoopLogger, type StdioServerConfig } from '@toolbox/core';
+import { createNoopLogger, type StdioServerConfig } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -51,16 +51,16 @@ describe('createStdioUpstreamClient — connect', () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(['echo', 'emit_log', 'slow']);
 
-    const result = await client.callTool('echo', { message: 'hi from toolbox' });
+    const result = await client.callTool('echo', { message: 'hi from toolbx' });
     expect(result).toMatchObject({
-      content: [{ type: 'text', text: 'hi from toolbox' }],
+      content: [{ type: 'text', text: 'hi from toolbx' }],
     });
   });
 
   it('rejects with UpstreamConnectError when the command does not exist', async () => {
     const client = track(
       createStdioUpstreamClient(
-        echoConfig({ command: '/definitely/not/a/real/command/toolbox-test' }),
+        echoConfig({ command: '/definitely/not/a/real/command/toolbx-test' }),
         { logger: createNoopLogger() },
       ),
     );
@@ -82,7 +82,7 @@ describe('createStdioUpstreamClient — connect', () => {
 
   it('throws UpstreamMissingEnvVarError when a required ${env:VAR} placeholder is unset', async () => {
     const client = track(
-      createStdioUpstreamClient(echoConfig({ env: { TOKEN: '${env:TOOLBOX_TEST_MISSING_VAR}' } }), {
+      createStdioUpstreamClient(echoConfig({ env: { TOKEN: '${env:TOOLBX_TEST_MISSING_VAR}' } }), {
         logger: createNoopLogger(),
         processEnv: {},
         serverName: 'fake',
@@ -187,7 +187,7 @@ describe('createStdioUpstreamClient — stderr forwarding', () => {
   it('forwards stderr lines to the log event at debug level', async () => {
     const client = track(
       createStdioUpstreamClient(
-        echoConfig({ env: { TOOLBOX_FIXTURE_STARTUP_STDERR: 'ready: hello' } }),
+        echoConfig({ env: { TOOLBX_FIXTURE_STARTUP_STDERR: 'ready: hello' } }),
         { logger: createNoopLogger() },
       ),
     );

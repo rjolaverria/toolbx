@@ -8,8 +8,8 @@ import {
   ToolCacheError,
   ToolCacheMissingError,
   withConfigLock,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -79,7 +79,7 @@ async function applyToolToggle(
       return 0;
     }
 
-    const nextTools: ToolBoxConfig['tools'] = { ...config.tools };
+    const nextTools: ToolbxConfig['tools'] = { ...config.tools };
     if (desired) {
       // Default state is "enabled"; clear the override rather than persist a
       // tautology so the config stays minimal.
@@ -87,7 +87,7 @@ async function applyToolToggle(
     } else {
       nextTools[parsed.exposedName] = { enabled: false };
     }
-    const candidate: ToolBoxConfig = { ...config, tools: nextTools };
+    const candidate: ToolbxConfig = { ...config, tools: nextTools };
     const validated = validateNextConfig(candidate, target, deps);
     if (!validated.ok) {
       return 1;
@@ -149,7 +149,7 @@ function defaultDeps(): ToolsCommandDeps {
 
 export function toolsEnableCommand(): CommandUnknownOpts {
   return new Command('enable')
-    .description('Enable an upstream tool exposed through ToolBox.')
+    .description('Enable an upstream tool exposed through Toolbx.')
     .argument('<tool>', 'namespace/tool or namespace__tool reference')
     .option('-c, --config <path>', 'override the resolved config path')
     .action(async (reference, opts) => {
@@ -162,7 +162,7 @@ export function toolsEnableCommand(): CommandUnknownOpts {
 
 export function toolsDisableCommand(): CommandUnknownOpts {
   return new Command('disable')
-    .description('Disable an upstream tool from being exposed through ToolBox.')
+    .description('Disable an upstream tool from being exposed through Toolbx.')
     .argument('<tool>', 'namespace/tool or namespace__tool reference')
     .option('-c, --config <path>', 'override the resolved config path')
     .action(async (reference, opts) => {

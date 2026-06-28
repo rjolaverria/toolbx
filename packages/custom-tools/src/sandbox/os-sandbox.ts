@@ -26,7 +26,7 @@ import {
   SandboxManager,
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
-import { createNoopLogger, type Logger } from '@toolbox/core';
+import { createNoopLogger, type Logger } from '@toolbx/core';
 
 import type { ToolPermissions } from '../manifest/import.js';
 
@@ -137,7 +137,7 @@ export interface WrapSpawnInput {
   /**
    * Extra directories the child must be able to read when `filesystem` is denied
    * — typically the tool entry's directory. The Node runtime root and the
-   * ToolBox install root are derived automatically from `argv`; this covers
+   * Toolbx install root are derived automatically from `argv`; this covers
    * read roots only the caller knows (e.g. a tool stored under the config dir).
    */
   readonly readRoots?: readonly string[];
@@ -203,7 +203,7 @@ function outermostInstallRoot(fromPath: string): string {
 
 /**
  * The directories a denied-filesystem child must still read to start and run:
- * the Node runtime root (covers a home-installed Node, e.g. nvm), the ToolBox
+ * the Node runtime root (covers a home-installed Node, e.g. nvm), the Toolbx
  * install root (the harness, its sibling modules, and bundled deps), the OS temp
  * dir (srt writes its profile there), plus any caller-supplied roots (the tool
  * entry's directory, which lives under the config dir). System paths outside the

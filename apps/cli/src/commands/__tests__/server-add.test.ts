@@ -14,9 +14,9 @@ import {
   type RunOAuthLoginInput,
   type RunOAuthLoginResult,
   type StoredOAuthRecord,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
-import { writeToolManifest, type ToolManifest } from '@toolbox/custom-tools';
+import { writeToolManifest, type ToolManifest } from '@toolbx/custom-tools';
 
 import {
   runAddHttp,
@@ -46,7 +46,7 @@ async function seedToolNamespace(target: string, namespace: string): Promise<voi
 }
 
 async function makeTempConfig(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-server-add-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cli-server-add-'));
   tempDirs.push(dir);
   const target = path.join(dir, 'config.json');
   await saveConfig(DEFAULT_CONFIG, target);
@@ -252,12 +252,12 @@ describe('runAddStdio', () => {
     const code = await runAddStdio('Bad Name!', ['mybin'], stdioOpts(), h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('Invalid ToolBox config');
+    expect(h.stderr.value).toContain('Invalid Toolbx config');
     expect(await fs.readFile(target, 'utf8')).toBe(before);
   });
 
   it('errors when the config file is missing', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-server-add-missing-'));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cli-server-add-missing-'));
     tempDirs.push(dir);
     const target = path.join(dir, 'config.json');
     const h = makeHarness(target);

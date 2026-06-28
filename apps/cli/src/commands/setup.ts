@@ -17,7 +17,7 @@ import {
   type ClientName,
   type DetectedClient,
   type InstallResult,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import { createConfigIfMissing } from './init.js';
 import { runAddStdio } from './server-add.js';
@@ -45,7 +45,7 @@ export interface SetupOptions {
   readonly noServer: boolean;
   /**
    * Pass-through for `install({ force })`. Needed when a previous setup
-   * wrote the toolbox client entry without `--config` and the current run
+   * wrote the toolbx client entry without `--config` and the current run
    * wants to replace it with a `--config <path>`-bearing version, since
    * the adapters refuse to overwrite a conflicting entry without this.
    */
@@ -57,7 +57,7 @@ export interface SetupOptions {
 
 export interface ResolveAdapterOptions {
   /**
-   * Extra args to append to the wired toolbox entry's `serve` invocation —
+   * Extra args to append to the wired toolbx entry's `serve` invocation —
    * threaded through so `tlbx setup --config <path>` can produce client
    * entries that launch the gateway against the same config the user
    * just initialized.
@@ -172,7 +172,7 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
 
   // Always pin the wired client entries to the same absolute config path
   // setup just operated on. `target` can come from three different inputs
-  // — `--config <path>`, `TOOLBOX_CONFIG`, `XDG_CONFIG_HOME`, or the
+  // — `--config <path>`, `TOOLBX_CONFIG`, `XDG_CONFIG_HOME`, or the
   // platform default — and only the last one can be re-derived by the
   // gateway at client-spawn time. Sending `--config <abs target>` makes
   // the wired entry self-describing in every case, even when the user's
@@ -353,7 +353,7 @@ async function applyClientInstalls(
   let proceed = options.yes;
   if (!proceed) {
     const names = pending.map((p) => DISPLAY_NAMES[p.client.name]).join(', ');
-    proceed = await deps.prompter.confirm(`\nWire ToolBox into ${names}? [Y/n] `);
+    proceed = await deps.prompter.confirm(`\nWire Toolbx into ${names}? [Y/n] `);
   }
   if (!proceed) {
     deps.write(
@@ -632,7 +632,7 @@ function collectClient(value: string, previous: readonly string[] | undefined): 
 export function setupCommand(): Command {
   return new Command('setup')
     .description(
-      'One-shot first-run setup: create the ToolBox config, optionally add an upstream server, and wire detected MCP clients (Claude Code, Codex, OpenCode).',
+      'One-shot first-run setup: create the Toolbx config, optionally add an upstream server, and wire detected MCP clients (Claude Code, Codex, OpenCode).',
     )
     .option('-y, --yes', 'skip all confirmation prompts', false)
     .option(
@@ -645,7 +645,7 @@ export function setupCommand(): Command {
     .option('-c, --config <path>', 'override the resolved config path')
     .option(
       '--force',
-      'overwrite an existing toolbox entry in a client config (e.g. to switch to --config <path>)',
+      'overwrite an existing toolbx entry in a client config (e.g. to switch to --config <path>)',
       false,
     )
     .action(async (opts) => {

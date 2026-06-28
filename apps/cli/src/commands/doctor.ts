@@ -15,14 +15,14 @@ import {
   resolveCredentialLockRoot,
   resolveToolCachePath,
   saveConfig,
-  ToolBoxConfigSchema,
+  ToolbxConfigSchema,
   ToolCacheMissingError,
   withCredentialLock,
   type CachedTool,
   type TokenStorage,
   type TokenStore,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import { CREDENTIAL_CONTENTION_LOCK_TIMEOUT_MS, isOAuthServer } from './auth/shared.js';
 import {
@@ -210,7 +210,7 @@ function pointerServerName(pointer: string): string | null {
   return raw === undefined ? null : decodePointerSegment(raw);
 }
 
-function isFromEnabledServer(issue: ValidationIssue, config: ToolBoxConfig): boolean {
+function isFromEnabledServer(issue: ValidationIssue, config: ToolbxConfig): boolean {
   const name = pointerServerName(issue.pointer);
   if (name === null) {
     return false;
@@ -227,7 +227,7 @@ export function checkConfigValidate(
     return {
       id: 'config',
       severity: 'FAIL',
-      message: `No ToolBox config found at ${target}`,
+      message: `No Toolbx config found at ${target}`,
       fixHint: 'Run `tlbx init` to create a default config',
     };
   }
@@ -251,7 +251,7 @@ export function checkConfigValidate(
 }
 
 export function checkServerTargets(
-  config: ToolBoxConfig | null,
+  config: ToolbxConfig | null,
   issues: readonly ValidationIssue[],
 ): CheckResult {
   if (config === null) {
@@ -291,7 +291,7 @@ export function checkServerTargets(
 }
 
 export function checkEnvPlaceholders(
-  config: ToolBoxConfig | null,
+  config: ToolbxConfig | null,
   issues: readonly ValidationIssue[],
 ): CheckResult {
   if (config === null) {
@@ -321,7 +321,7 @@ export function checkEnvPlaceholders(
 }
 
 export function checkNamespaceCollisions(
-  config: ToolBoxConfig | null,
+  config: ToolbxConfig | null,
   issues: readonly ValidationIssue[],
   cache: readonly CachedTool[] | 'missing',
 ): CheckResult {
@@ -429,7 +429,7 @@ export function extractBindHost(parsed: unknown): string | null {
 }
 
 /** Sorted names of HTTP servers configured with `auth.type === 'oauth'`. */
-function oauthServerNames(config: ToolBoxConfig): string[] {
+function oauthServerNames(config: ToolbxConfig): string[] {
   return Object.entries(config.servers)
     .filter(([, entry]) => isOAuthServer(entry))
     .map(([name]) => name)
@@ -519,7 +519,7 @@ function authRows(storageType: string, input: AuthRowsInput): CheckResult[] {
  * there is anything (orphan tokens) worth reporting.
  */
 export async function checkAuth(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   tokenStore: TokenStore,
   storageType: string,
   platform: NodeJS.Platform,
@@ -612,7 +612,7 @@ function tryParseJson(source: string): unknown {
   }
 }
 
-function loadValidatedConfig(parsed: unknown): ToolBoxConfig | null {
+function loadValidatedConfig(parsed: unknown): ToolbxConfig | null {
   // The downstream checks (server-targets, env-placeholders,
   // namespace-collisions) need a fully-validated config because the schema
   // applies defaults — most importantly `namespacing.separator: '__'`,
@@ -621,7 +621,7 @@ function loadValidatedConfig(parsed: unknown): ToolBoxConfig | null {
   if (parsed === null) {
     return null;
   }
-  const result = ToolBoxConfigSchema.safeParse(parsed);
+  const result = ToolbxConfigSchema.safeParse(parsed);
   if (!result.success) {
     return null;
   }
@@ -641,7 +641,7 @@ export interface FixOutcome {
 interface FixContext {
   target: string;
   source: string | null;
-  config: ToolBoxConfig | null;
+  config: ToolbxConfig | null;
   issues: readonly ValidationIssue[];
   options: DoctorOptions;
   deps: DoctorDeps;
@@ -653,7 +653,7 @@ const DECLINED: FixOutcome = { status: 'SKIPPED_DECLINED', summary: 'declined' }
 const ENV_VAR_FROM_ISSUE_RE = /^environment variable "([A-Za-z_][A-Za-z0-9_]*)"/;
 
 function missingEnvVarNames(
-  config: ToolBoxConfig,
+  config: ToolbxConfig,
   issues: readonly ValidationIssue[],
 ): readonly string[] {
   const names = new Set<string>();
@@ -701,13 +701,13 @@ async function fixMissingConfig(ctx: FixContext): Promise<FixOutcome> {
   if (dirState === 'not-a-directory') {
     return {
       status: 'SKIPPED_NO_FIX',
-      summary: `${dir} exists but is not a directory — resolve it manually or point TOOLBOX_CONFIG elsewhere`,
+      summary: `${dir} exists but is not a directory — resolve it manually or point TOOLBX_CONFIG elsewhere`,
     };
   }
   const dirExisted = dirState === 'directory';
   const action = dirExisted
-    ? `Write a default ToolBox config to ${ctx.target}`
-    : `Create ${dir} and write a default ToolBox config to ${ctx.target}`;
+    ? `Write a default Toolbx config to ${ctx.target}`
+    : `Create ${dir} and write a default Toolbx config to ${ctx.target}`;
   if (!(await confirmAction(ctx, action))) {
     return DECLINED;
   }
@@ -1046,7 +1046,7 @@ export async function runDoctor(options: DoctorOptions, deps: DoctorDeps): Promi
 
 export function doctorCommand(): CommandUnknownOpts {
   return new Command('doctor')
-    .description('Run a self-check that diagnoses common ToolBox configuration problems.')
+    .description('Run a self-check that diagnoses common Toolbx configuration problems.')
     .option('--json', 'emit machine-readable JSON instead of human output')
     .option('--fix', 'apply safe automatic fixes (prompts for confirmation unless --yes is given)')
     .option('-y, --yes', 'apply fixes without prompting (only meaningful with --fix)')

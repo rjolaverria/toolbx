@@ -1,6 +1,6 @@
 import http from 'node:http';
 
-import { createNoopLogger, type HttpServerConfig } from '@toolbox/core';
+import { createNoopLogger, type HttpServerConfig } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -138,7 +138,7 @@ describe('createHttpUpstreamClient — connect', () => {
       createHttpUpstreamClient(
         httpConfig({
           url: 'http://127.0.0.1:1/mcp',
-          auth: { type: 'bearer', tokenEnv: 'TOOLBOX_TEST_MISSING_BEARER' },
+          auth: { type: 'bearer', tokenEnv: 'TOOLBX_TEST_MISSING_BEARER' },
         }),
         {
           logger: createNoopLogger(),
@@ -156,7 +156,7 @@ describe('createHttpUpstreamClient — connect', () => {
     }
     expect(caught).toBeInstanceOf(UpstreamAuthRequiredError);
     if (caught instanceof UpstreamAuthRequiredError) {
-      expect(caught.tokenEnv).toBe('TOOLBOX_TEST_MISSING_BEARER');
+      expect(caught.tokenEnv).toBe('TOOLBX_TEST_MISSING_BEARER');
       expect(caught.serverName).toBe('fake');
     }
   });
@@ -200,11 +200,11 @@ describe('createHttpUpstreamClient — connect', () => {
       createHttpUpstreamClient(
         httpConfig({
           url: server.url,
-          auth: { type: 'bearer', tokenEnv: 'TOOLBOX_TEST_BEARER' },
+          auth: { type: 'bearer', tokenEnv: 'TOOLBX_TEST_BEARER' },
         }),
         {
           logger: createNoopLogger(),
-          processEnv: { TOOLBOX_TEST_BEARER: 's3cret' },
+          processEnv: { TOOLBX_TEST_BEARER: 's3cret' },
         },
       ),
     );
@@ -238,17 +238,17 @@ describe('createHttpUpstreamClient — connect', () => {
   });
 
   it('resolves ${env:VAR} placeholders in headers', async () => {
-    const server = await startTrackedServer({ requireHeaders: { 'x-toolbox-test': 'resolved' } });
+    const server = await startTrackedServer({ requireHeaders: { 'x-toolbx-test': 'resolved' } });
 
     const client = track(
       createHttpUpstreamClient(
         httpConfig({
           url: server.url,
-          headers: { 'X-ToolBox-Test': '${env:TOOLBOX_TEST_HEADER}' },
+          headers: { 'X-Toolbx-Test': '${env:TOOLBX_TEST_HEADER}' },
         }),
         {
           logger: createNoopLogger(),
-          processEnv: { TOOLBOX_TEST_HEADER: 'resolved' },
+          processEnv: { TOOLBX_TEST_HEADER: 'resolved' },
         },
       ),
     );
@@ -261,7 +261,7 @@ describe('createHttpUpstreamClient — connect', () => {
       createHttpUpstreamClient(
         httpConfig({
           url: 'http://127.0.0.1:1/mcp',
-          headers: { 'X-ToolBox-Test': '${env:TOOLBOX_TEST_MISSING_HEADER}' },
+          headers: { 'X-Toolbx-Test': '${env:TOOLBX_TEST_MISSING_HEADER}' },
         }),
         {
           logger: createNoopLogger(),

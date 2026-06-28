@@ -17,7 +17,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { isProcessAlive, type ToolBoxConfig } from '@toolbox/core';
+import { isProcessAlive, type ToolbxConfig } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -101,7 +101,7 @@ async function waitForToolListed(
 }
 
 /** A config wired to the stdio echo fixture, disclosure off, on an ephemeral port. */
-function stdioEchoConfig(): Promise<ToolBoxConfig> {
+function stdioEchoConfig(): Promise<ToolbxConfig> {
   return makeConfig({
     progressiveDisclosure: { enabled: false, bootstrapTools: false },
     servers: {
@@ -204,7 +204,7 @@ describe('tlbx run — stdio daemon lifecycle', () => {
 
   it('runs when server.http.enabled is false (the daemon forces loopback HTTP)', async () => {
     const base = await stdioEchoConfig();
-    const config: ToolBoxConfig = {
+    const config: ToolbxConfig = {
       ...base,
       server: { ...base.server, http: { ...base.server.http, enabled: false } },
     };
@@ -291,7 +291,7 @@ describe('tlbx run — stdio daemon lifecycle', () => {
     // daemons. Once A holds the port, B's cold start cannot bind it and must
     // report a clear collision rather than reuse A's foreign daemon.
     const configA = await stdioEchoConfig();
-    const configB: ToolBoxConfig = {
+    const configB: ToolbxConfig = {
       ...configA,
       server: { ...configA.server, http: { ...configA.server.http } },
       servers: {
@@ -395,7 +395,7 @@ describe('tlbx run — stdio daemon lifecycle', () => {
     // Disable a single namespaced tool. The gateway hides it and refuses a call
     // as MethodNotFound; `tlbx run` consults the config to name the exact
     // re-enable command (SPECS §5.5).
-    const config: ToolBoxConfig = { ...base, tools: { echo__echo: { enabled: false } } };
+    const config: ToolbxConfig = { ...base, tools: { echo__echo: { enabled: false } } };
     const handle = await makeTempConfig(config);
     tempConfigs.push(handle);
 

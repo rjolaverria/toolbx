@@ -2,7 +2,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_CONFIG, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, type ServerConfig, type ToolbxConfig } from '@toolbx/core';
 
 import { probeServer, type ProbeResult } from '../server-probe.js';
 import { runStatus, type StatusDeps } from '../status.js';
@@ -73,7 +73,7 @@ function makeRealProbeHarness(target: string): {
   return { deps, stdout, stderr };
 }
 
-function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
+function configWith(servers: Record<string, ServerConfig>): ToolbxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 
@@ -277,12 +277,12 @@ describe('runStatus', () => {
   });
 
   it('exits 1 with a clear message when the config is missing', async () => {
-    const h = makeHarness('/nonexistent/toolbox/config.json', {});
+    const h = makeHarness('/nonexistent/toolbx/config.json', {});
 
     const code = await runStatus({}, h.deps);
 
     expect(code).toBe(1);
-    expect(h.stderr.value).toContain('No ToolBox config found');
+    expect(h.stderr.value).toContain('No Toolbx config found');
   });
 
   it('renders an empty-config message when no servers are configured', async () => {

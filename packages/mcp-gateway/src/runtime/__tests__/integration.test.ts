@@ -1,5 +1,5 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { createNoopLogger } from '@toolbox/core';
+import { createNoopLogger } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { BOOTSTRAP_TOOL_NAMES } from '../../bootstrap-tools/index.js';
@@ -27,9 +27,9 @@ describe('gateway runtime + downstream HTTP integration', () => {
       harness,
     });
 
-    const client = await connectHttpClient(downstream.url, 'toolbox-serve-it-test', harness);
+    const client = await connectHttpClient(downstream.url, 'toolbx-serve-it-test', harness);
 
-    expect(client.getServerVersion()).toMatchObject({ name: 'toolbox' });
+    expect(client.getServerVersion()).toMatchObject({ name: 'toolbx' });
 
     const list = await client.listTools();
     const exposed = list.tools.map((t) => t.name).sort();
@@ -65,7 +65,7 @@ describe('gateway runtime + downstream HTTP integration', () => {
 
     const client = await connectHttpClient(
       downstream.url,
-      'toolbox-disclosure-toggle-test',
+      'toolbx-disclosure-toggle-test',
       harness,
     );
 
@@ -82,12 +82,12 @@ describe('gateway runtime + downstream HTTP integration', () => {
       client.callTool({ name: 'echo__echo', arguments: { message: 'no' } }),
     ).rejects.toMatchObject({
       code: ErrorCode.InvalidRequest,
-      message: expect.stringContaining('toolbox__reveal_tools') as unknown,
+      message: expect.stringContaining('toolbx__reveal_tools') as unknown,
     });
 
     // Reveal one tool — it now appears in the listing and is callable.
     await client.callTool({
-      name: 'toolbox__reveal_tools',
+      name: 'toolbx__reveal_tools',
       arguments: { tools: ['echo__echo'] },
     });
     {

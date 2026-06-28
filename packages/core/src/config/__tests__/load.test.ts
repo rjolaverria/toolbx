@@ -29,7 +29,7 @@ const VALID_CONFIG_JSON = `{
 const tempDirs: string[] = [];
 
 async function makeTempDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-config-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-config-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -44,7 +44,7 @@ afterEach(async () => {
 });
 
 describe('parseConfig', () => {
-  it('returns a typed ToolBoxConfig for valid input', () => {
+  it('returns a typed ToolbxConfig for valid input', () => {
     const config = parseConfig(VALID_CONFIG_JSON);
     expect(config.version).toBe(1);
     expect(config.namespacing.separator).toBe('__'); // default applied

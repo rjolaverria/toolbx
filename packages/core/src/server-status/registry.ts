@@ -1,4 +1,4 @@
-import type { ServerConfig, ToolBoxConfig } from '../config/schema.js';
+import type { ServerConfig, ToolbxConfig } from '../config/schema.js';
 
 import { assertValidTransition } from './state-machine.js';
 import type { ServerStatus } from './types.js';
@@ -96,7 +96,7 @@ function makeInitialEntry(name: string, server: ServerConfig): ServerStatusEntry
 }
 
 export function createStatusRegistry(
-  initialConfig: ToolBoxConfig,
+  initialConfig: ToolbxConfig,
   options: CreateStatusRegistryOptions = {},
 ): StatusRegistry {
   const recentLogsLimit = options.recentLogsLimit ?? DEFAULT_RECENT_LOGS_LIMIT;

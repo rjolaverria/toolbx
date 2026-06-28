@@ -154,7 +154,7 @@ export async function runToolsList(
 
 export function toolsListCommand(): CommandUnknownOpts {
   return new Command('list')
-    .description('List tools known to ToolBox.')
+    .description('List tools known to Toolbx.')
     .option('--json', 'emit machine-readable JSON instead of a table')
     .option('--from-config', 'list only the configured servers when no cache is available')
     .option('--server <name>', 'filter by upstream server name')

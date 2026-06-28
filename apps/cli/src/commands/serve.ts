@@ -17,9 +17,9 @@ import {
   type LogFormat,
   type LogLevel,
   type ServeDaemonState,
-  type ToolBoxConfig,
+  type ToolbxConfig,
   type WriteToolCacheInput,
-} from '@toolbox/core';
+} from '@toolbx/core';
 import { defaultServeDetachDeps, runServeDetached } from './serve-detach.js';
 import {
   createDownstreamHttpServer,
@@ -30,7 +30,7 @@ import {
   type DownstreamHttpServer,
   type DownstreamStdioServer,
   type GatewayRuntime,
-} from '@toolbox/mcp-gateway';
+} from '@toolbx/mcp-gateway';
 
 const LOG_LEVELS = [
   'trace',
@@ -47,16 +47,16 @@ const LOG_FORMATS = ['pretty', 'json'] as const satisfies readonly LogFormat[];
  * descriptor cannot), but is honored only when the {@link MANAGED_CHILD_FD}
  * handshake also proves this process was spawned by the daemon manager.
  */
-export const SERVE_STATE_PATH_ENV = 'TOOLBOX_SERVE_STATE_PATH';
+export const SERVE_STATE_PATH_ENV = 'TOOLBX_SERVE_STATE_PATH';
 /** Companion marker recording the log path inside the published state. */
-export const SERVE_LOG_PATH_ENV = 'TOOLBOX_SERVE_LOG_PATH';
+export const SERVE_LOG_PATH_ENV = 'TOOLBX_SERVE_LOG_PATH';
 /**
  * Marker the `tlbx run` spawner sets so the managed child binds HTTP even when
  * `server.http.enabled` is `false`. Honored only alongside the
  * {@link MANAGED_CHILD_FD} handshake — env alone is user-forgeable, so it never
  * grants the override on a plain `tlbx serve`.
  */
-export const SERVE_FORCE_HTTP_ENV = 'TOOLBOX_SERVE_FORCE_HTTP';
+export const SERVE_FORCE_HTTP_ENV = 'TOOLBX_SERVE_FORCE_HTTP';
 
 /**
  * File descriptor the spawner wires to an inherited pipe when it launches a
@@ -149,7 +149,7 @@ export interface ServeStartedInfo {
 
 export interface ServeDeps {
   resolvePath: () => string;
-  loadConfig: (path: string) => Promise<ToolBoxConfig>;
+  loadConfig: (path: string) => Promise<ToolbxConfig>;
   createLogger: (options: CreateLoggerOptions) => ReturnType<typeof createLogger>;
   createRuntime: typeof createGatewayRuntime;
   createStdio: (deps: CreateDownstreamStdioServerDeps) => DownstreamStdioServer;
@@ -222,7 +222,7 @@ export function defaultServeDeps(): ServeDeps {
     signalProcess: process,
     writeToolCache: (input, filePath) => writeToolCache(input, filePath),
     resolveToolCachePath: (configPath) =>
-      // Honour `TOOLBOX_CONFIG`-style explicit overrides: when the config path
+      // Honour `TOOLBX_CONFIG`-style explicit overrides: when the config path
       // is explicit, drop the cache next to it instead of in the default XDG
       // location resolved from the ambient environment.
       path.join(path.dirname(configPath), path.basename(resolveToolCachePath())),
@@ -288,7 +288,7 @@ export async function runServe(options: ServeOptions, deps: ServeDeps): Promise<
   const configPath =
     options.config !== undefined && options.config.length > 0 ? options.config : deps.resolvePath();
 
-  let config: ToolBoxConfig;
+  let config: ToolbxConfig;
   try {
     config = await deps.loadConfig(configPath);
   } catch (error) {
@@ -520,7 +520,7 @@ function errorMessage(error: unknown): string {
 
 export function serveCommand(): Command {
   const cmd = new Command('serve')
-    .description('Start the ToolBox MCP gateway in stdio or HTTP mode.')
+    .description('Start the Toolbx MCP gateway in stdio or HTTP mode.')
     .option('-s, --stdio', 'serve over stdio')
     .option('-H, --http', 'serve over Streamable HTTP using config.server.http (default)')
     .option('-d, --detach', 'fork an HTTP gateway into the background and return to the shell')
@@ -559,7 +559,7 @@ export function serveCommand(): Command {
  */
 export function serveManagedCommand(): Command {
   return new Command('serve-managed')
-    .description('(internal) run a managed ToolBox daemon spawned by tlbx run / serve --detach')
+    .description('(internal) run a managed Toolbx daemon spawned by tlbx run / serve --detach')
     .option('-H, --http', 'serve over Streamable HTTP using config.server.http')
     .option('-c, --config <path>', 'override the resolved config path for this run')
     .addOption(new Option('-l, --log-level <level>', 'logger verbosity').choices(LOG_LEVELS))

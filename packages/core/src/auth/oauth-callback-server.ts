@@ -200,13 +200,13 @@ export async function startCallbackServer(opts: StartCallbackServerOpts): Promis
 }
 
 function renderSuccessPage(): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>ToolBox — authenticated</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Toolbx — authenticated</title>
       <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:6rem auto;text-align:center}</style>
       </head><body><h1>✓ Authenticated</h1><p>You can close this tab and return to your terminal.</p></body></html>`;
 }
 
 function renderErrorPage(error: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>ToolBox — auth failed</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Toolbx — auth failed</title>
       <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:6rem auto;text-align:center}</style>
       </head><body><h1>Authentication failed</h1><pre>${escapeHtml(error)}</pre>
       <p>Return to your terminal for next steps.</p></body></html>`;

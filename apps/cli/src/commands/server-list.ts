@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import type { ServerConfig, ToolBoxConfig } from '@toolbox/core';
+import type { ServerConfig, ToolbxConfig } from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -50,7 +50,7 @@ function targetForServer(entry: ServerConfig): string {
   return entry.url;
 }
 
-function buildRows(config: ToolBoxConfig): ListRow[] {
+function buildRows(config: ToolbxConfig): ListRow[] {
   return Object.entries(config.servers)
     .map(([name, entry]) => ({
       name,
@@ -62,7 +62,7 @@ function buildRows(config: ToolBoxConfig): ListRow[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function buildJsonRows(config: ToolBoxConfig): JsonRow[] {
+function buildJsonRows(config: ToolbxConfig): JsonRow[] {
   return Object.entries(config.servers)
     .map(([name, entry]): JsonRow => {
       if (entry.type === 'stdio') {

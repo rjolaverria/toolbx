@@ -10,11 +10,12 @@ import {
 import {
   CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
-  ToolBoxOAuthProvider,
+  ToolbxOAuthProvider,
+  getToolbxVersion,
   type HttpServerConfig,
   type Logger,
   type TokenStore,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import { resolveEnvPlaceholders } from './env.js';
 import {
@@ -33,10 +34,7 @@ import type {
   UpstreamClientEvents,
 } from './types.js';
 
-const TOOLBOX_CLIENT_INFO = {
-  name: 'toolbox-upstream-client',
-  version: '0.0.0',
-} as const;
+const TOOLBX_UPSTREAM_CLIENT_NAME = 'toolbx-upstream-client';
 
 const DEFAULT_CALL_TOOL_TIMEOUT_MS = 60_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 30_000;
@@ -59,7 +57,7 @@ export interface CreateHttpUpstreamClientDeps {
   connectTimeoutMs?: number;
   /**
    * Token store backing OAuth credentials. Required when `config.auth.type ===
-   * 'oauth'`; the client builds a `ToolBoxOAuthProvider` over it and hands it to
+   * 'oauth'`; the client builds a `ToolbxOAuthProvider` over it and hands it to
    * the SDK transport so the SDK can attach the access token, refresh it on a
    * 401, and persist the refreshed pair back through the store.
    */
@@ -92,9 +90,9 @@ export function createHttpUpstreamClient(
   // and — when refresh is exhausted — calls `redirectToAuthorization`, which
   // the provider answers with `SuppressedRedirectError` instead of opening a
   // browser. We classify that signal in `classifyOAuthFailure` below.
-  let authProvider: ToolBoxOAuthProvider | undefined;
+  let authProvider: ToolbxOAuthProvider | undefined;
   if (isOAuth && serverName !== undefined && deps.tokenStore !== undefined) {
-    authProvider = new ToolBoxOAuthProvider({
+    authProvider = new ToolbxOAuthProvider({
       serverName,
       // Placeholder redirect URL: the gateway never completes a browser flow,
       // so this never reaches a user-visible authorization request. The SDK's
@@ -110,7 +108,7 @@ export function createHttpUpstreamClient(
 
   /**
    * Map an SDK auth failure surfaced from `connect()`/`callTool()`/`listTools()`
-   * to a ToolBox auth error. The SDK reaches `redirectToAuthorization` (→
+   * to a Toolbx auth error. The SDK reaches `redirectToAuthorization` (→
    * `SuppressedRedirectError`) whenever it cannot mint a usable access token —
    * either there is no stored token, or refresh failed. We disambiguate by
    * reading the store: an absent record is `auth_required` (never authenticated
@@ -256,7 +254,10 @@ export function createHttpUpstreamClient(
       ...(authProvider !== undefined ? { authProvider } : {}),
     });
 
-    const localClient = new Client(TOOLBOX_CLIENT_INFO, { capabilities: {} });
+    const localClient = new Client(
+      { name: TOOLBX_UPSTREAM_CLIENT_NAME, version: getToolbxVersion() },
+      { capabilities: {} },
+    );
 
     localClient.setNotificationHandler(ToolListChangedNotificationSchema, () => {
       emit('tools_list_changed');

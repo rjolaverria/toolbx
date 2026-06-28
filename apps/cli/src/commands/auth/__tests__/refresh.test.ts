@@ -4,8 +4,8 @@ import {
   type RunOAuthRefreshInput,
   type StoredOAuthRecord,
   type TokenStore,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeAuthHarness, makeTempConfig, type ConfigHarness } from '../../__tests__/harness.js';
@@ -19,7 +19,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-function oauthConfig(): ToolBoxConfig {
+function oauthConfig(): ToolbxConfig {
   return {
     ...DEFAULT_CONFIG,
     servers: {

@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import type { SessionVisibility } from '@toolbox/core';
+import type { SessionVisibility } from '@toolbx/core';
 import { z } from 'zod';
 
 import type { ToolRegistry } from '../registry/index.js';
@@ -11,7 +11,7 @@ import type { BootstrapTool } from './registry.js';
 export { REVEAL_TOOLS_NAME };
 
 /**
- * `toolbox__reveal_tools` (M4-04) — adds exposed names to the session's
+ * `toolbx__reveal_tools` (M4-04) — adds exposed names to the session's
  * revealed set so they appear in the next `tools/list` (once M4-07 wires
  * `tools/list` through `SessionVisibility`).
  *
@@ -28,11 +28,11 @@ const ArgsSchema = z
 
 const REVEAL_TOOLS_DESCRIPTOR: Tool = {
   name: REVEAL_TOOLS_NAME,
-  title: 'Reveal ToolBox tools',
+  title: 'Reveal Toolbx tools',
   description:
     'Add one or more exposed (namespaced) tools to the current session so they appear in ' +
     'subsequent tools/list responses and become callable via tools/call. Use ' +
-    'toolbox__search_tools to discover candidate names. Bootstrap tools cannot be revealed ' +
+    'toolbx__search_tools to discover candidate names. Bootstrap tools cannot be revealed ' +
     '(they are always visible) and unknown names are rejected without mutating state.',
   inputSchema: {
     type: 'object',

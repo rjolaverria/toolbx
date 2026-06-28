@@ -1,5 +1,5 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { NamespaceOptions, ServerStatus } from '@toolbox/core';
+import type { NamespaceOptions, ServerStatus } from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createToolRegistry } from '../tool-registry.js';

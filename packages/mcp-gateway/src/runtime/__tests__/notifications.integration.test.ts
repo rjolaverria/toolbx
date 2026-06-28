@@ -55,7 +55,7 @@ describe('M4-06 tools/list_changed notification wiring', () => {
     const counter = await connectCountingClient(downstream.url, 'reveal-test');
 
     await counter.client.callTool({
-      name: 'toolbox__reveal_tools',
+      name: 'toolbx__reveal_tools',
       arguments: { tools: ['echo__echo', 'echo__slow'] },
     });
 
@@ -144,7 +144,7 @@ describe('M4-06 tools/list_changed notification wiring', () => {
     const counter = await connectCountingClient(downstream.url, 'hide-noop-test');
 
     await counter.client.callTool({
-      name: 'toolbox__hide_tools',
+      name: 'toolbx__hide_tools',
       arguments: { tools: ['echo__echo'] },
     });
 

@@ -16,39 +16,39 @@ import type {
   InstallOpts,
   InstallResult,
 } from './types.js';
-import { TOOLBOX_LEGACY_STDIO_COMMAND, TOOLBOX_STDIO_COMMAND } from './toolbox-command.js';
+import { TOOLBX_LEGACY_STDIO_COMMAND, TOOLBX_STDIO_COMMAND } from './toolbx-command.js';
 
 const OPENCODE_CONFIG_REL = path.join('.config', 'opencode', 'opencode.json');
 const OPENCODE_CONFIG_ENV = 'OPENCODE_CONFIG';
 const MCP_KEY = 'mcp';
-const TOOLBOX_KEY = 'toolbox';
+const TOOLBX_KEY = 'toolbx';
 
-interface ToolboxEntry {
+interface ToolbxEntry {
   type: 'local';
   command: string[];
   enabled: boolean;
 }
 
-function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+function buildToolbxEntry(extraArgs: readonly string[]): ToolbxEntry {
   return {
     type: 'local',
-    command: [...TOOLBOX_STDIO_COMMAND, ...extraArgs],
+    command: [...TOOLBX_STDIO_COMMAND, ...extraArgs],
     enabled: true,
   };
 }
 
-function buildLegacyToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+function buildLegacyToolbxEntry(extraArgs: readonly string[]): ToolbxEntry {
   return {
     type: 'local',
-    command: [...TOOLBOX_LEGACY_STDIO_COMMAND, ...extraArgs],
+    command: [...TOOLBX_LEGACY_STDIO_COMMAND, ...extraArgs],
     enabled: true,
   };
 }
 
 export interface CreateOpencodeAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y @toolbox/cli serve --stdio` in the wired
-   * `mcp.toolbox.command` array. `tlbx setup --config <path>` uses this to
+   * Extra args to append after `npx -y @toolbx/cli serve --stdio` in the wired
+   * `mcp.toolbx.command` array. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.
    */
@@ -68,8 +68,8 @@ export function createOpencodeAdapterInternal(
   const env = options.env ?? process.env;
   const configPath = resolveConfigPath(homedir, env);
   const extraServeArgs = options.extraServeArgs ?? [];
-  const toolboxEntry = buildToolboxEntry(extraServeArgs);
-  const legacyToolboxEntry = buildLegacyToolboxEntry(extraServeArgs);
+  const toolbxEntry = buildToolbxEntry(extraServeArgs);
+  const legacyToolbxEntry = buildLegacyToolbxEntry(extraServeArgs);
 
   return {
     name: 'opencode',
@@ -96,8 +96,8 @@ export function createOpencodeAdapterInternal(
             exists,
             configPath: resolvedPath,
             opts,
-            toolboxEntry,
-            legacyToolboxEntry,
+            toolbxEntry,
+            legacyToolbxEntry,
           }),
       });
     },
@@ -119,12 +119,12 @@ interface MergeInput {
   readonly exists: boolean;
   readonly configPath: string;
   readonly opts: InstallOpts;
-  readonly toolboxEntry: ToolboxEntry;
-  readonly legacyToolboxEntry: ToolboxEntry;
+  readonly toolbxEntry: ToolbxEntry;
+  readonly legacyToolbxEntry: ToolbxEntry;
 }
 
 function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts, toolboxEntry, legacyToolboxEntry } = input;
+  const { currentText, exists, configPath, opts, toolbxEntry, legacyToolbxEntry } = input;
   if (!exists) {
     const dir = path.dirname(configPath);
     return {
@@ -171,17 +171,17 @@ function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
     };
   }
   const existingMcp = mcpAbsent ? undefined : (mcpRaw as Record<string, unknown>);
-  const existingToolbox = existingMcp?.[TOOLBOX_KEY];
+  const existingToolbx = existingMcp?.[TOOLBX_KEY];
 
-  if (existingToolbox !== undefined) {
-    if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
+  if (existingToolbx !== undefined) {
+    if (toolbxEntryMatches(existingToolbx, toolbxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
-    const legacyEntryNeedsMigration = toolboxEntryMatches(existingToolbox, legacyToolboxEntry);
+    const legacyEntryNeedsMigration = toolbxEntryMatches(existingToolbx, legacyToolbxEntry);
     if (!legacyEntryNeedsMigration && !opts.force) {
       return {
         ok: false,
-        reason: 'mcp.toolbox already present with different command/args',
+        reason: 'mcp.toolbx already present with different command/args',
         hint: 're-run with --force to overwrite (use --dry-run --force to preview)',
       };
     }
@@ -190,17 +190,17 @@ function mergeOpencodeConfig(input: MergeInput): InstallFlowMergeResult {
   // Use jsonc-parser's edit API so user comments and trailing commas survive
   // the rewrite. `modify()` returns a set of text edits that `applyEdits()`
   // applies in place; the result is byte-for-byte equivalent to the original
-  // file except for the targeted `mcp.toolbox` slot.
+  // file except for the targeted `mcp.toolbx` slot.
   const nextEntry = {
-    type: toolboxEntry.type,
-    command: [...toolboxEntry.command],
-    enabled: toolboxEntry.enabled,
+    type: toolbxEntry.type,
+    command: [...toolbxEntry.command],
+    enabled: toolbxEntry.enabled,
   };
-  const edits = modify(currentText, [MCP_KEY, TOOLBOX_KEY], nextEntry, {
+  const edits = modify(currentText, [MCP_KEY, TOOLBX_KEY], nextEntry, {
     formattingOptions: { tabSize: 2, insertSpaces: true, eol: detectEol(currentText) },
   });
   const nextContent = applyEdits(currentText, edits);
-  const diff = formatDiff(existingToolbox, nextEntry);
+  const diff = formatDiff(existingToolbx, nextEntry);
   return { ok: true, status: 'installed', nextContent, diff };
 }
 
@@ -208,7 +208,7 @@ function detectEol(text: string): string {
   return text.includes('\r\n') ? '\r\n' : '\n';
 }
 
-function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
+function toolbxEntryMatches(value: unknown, expected: ToolbxEntry): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   if (candidate.type !== expected.type) return false;
@@ -224,8 +224,8 @@ function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
 function formatDiff(previous: unknown, next: unknown): string {
   const lines: string[] = [];
   if (previous !== undefined) {
-    lines.push('- mcp.toolbox = ' + JSON.stringify(previous));
+    lines.push('- mcp.toolbx = ' + JSON.stringify(previous));
   }
-  lines.push('+ mcp.toolbox = ' + JSON.stringify(next));
+  lines.push('+ mcp.toolbx = ' + JSON.stringify(next));
   return lines.join('\n');
 }

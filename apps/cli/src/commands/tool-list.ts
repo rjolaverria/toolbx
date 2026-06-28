@@ -1,5 +1,5 @@
 import { Command, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { readToolManifest, ToolManifestError, type ToolManifest } from '@toolbox/custom-tools';
+import { readToolManifest, ToolManifestError, type ToolManifest } from '@toolbx/custom-tools';
 
 import {
   defaultToolCommandDeps,

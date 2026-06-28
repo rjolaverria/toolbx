@@ -5,7 +5,7 @@ import {
   type SearchMatchedField,
   type SessionVisibility,
   type ToolSearchResult,
-} from '@toolbox/core';
+} from '@toolbx/core';
 import { z } from 'zod';
 
 import type { ToolRegistry } from '../registry/index.js';
@@ -16,7 +16,7 @@ import type { BootstrapTool, BootstrapToolRegistry } from './registry.js';
 export { SEARCH_TOOLS_NAME };
 
 /**
- * `toolbox__search_tools` (M4-03) — the first progressive-disclosure
+ * `toolbx__search_tools` (M4-03) — the first progressive-disclosure
  * bootstrap tool. Surfaces ranked candidate tools across every enabled
  * upstream server.
  *
@@ -25,7 +25,7 @@ export { SEARCH_TOOLS_NAME };
  * name (case-insensitive, post-trim), every tool exposed by that server is
  * added to the session's revealed set before the search response is built.
  * The response summary names which exposed tools were auto-revealed so the
- * caller doesn't have to follow up with `toolbox__reveal_tools`. The
+ * caller doesn't have to follow up with `toolbx__reveal_tools`. The
  * `SessionVisibility.reveal()` call emits a single `change` event, which the
  * downstream-session debouncer in `notify-tools-changed.ts` collapses into
  * one `notifications/tools/list_changed`.
@@ -47,10 +47,10 @@ const ArgsSchema = z
 
 const SEARCH_TOOLS_DESCRIPTOR: Tool = {
   name: SEARCH_TOOLS_NAME,
-  title: 'Search ToolBox tools',
+  title: 'Search Toolbx tools',
   description:
     'Search across every enabled upstream MCP server for tools matching a query. ' +
-    'Returns ranked candidate tools; use toolbox__reveal_tools to expose any candidate ' +
+    'Returns ranked candidate tools; use toolbx__reveal_tools to expose any candidate ' +
     'for direct invocation. When progressiveDisclosure.autoRevealExactServerMatches is ' +
     'enabled (the shipped default) and the query exactly matches an enabled server name ' +
     '(case-insensitive, trimmed), every tool exposed by that server is revealed for the ' +
@@ -74,7 +74,7 @@ const SEARCH_TOOLS_DESCRIPTOR: Tool = {
       },
       includeRevealed: {
         type: 'boolean',
-        description: 'Reserved for use by toolbox__reveal_tools (M4-04). Currently has no effect.',
+        description: 'Reserved for use by toolbx__reveal_tools (M4-04). Currently has no effect.',
       },
     },
     required: ['query'],
@@ -106,7 +106,7 @@ export interface RegisterSearchToolsBootstrapDeps {
 }
 
 /**
- * Register `toolbox__search_tools` with the given bootstrap registry. Caller
+ * Register `toolbx__search_tools` with the given bootstrap registry. Caller
  * gates this on `progressiveDisclosure.bootstrapTools` from config.
  */
 export function registerSearchToolsBootstrap(deps: RegisterSearchToolsBootstrapDeps): void {

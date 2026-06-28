@@ -43,7 +43,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
       env,
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
     });
-    const target = path.join(os.homedir(), `.toolbox-os-escape-${String(process.pid)}.txt`);
+    const target = path.join(os.homedir(), `.toolbx-os-escape-${String(process.pid)}.txt`);
 
     const message = await new Promise<{ write: string }>((resolve, reject) => {
       child.on('message', (m) => resolve(m as { write: string }));
@@ -62,7 +62,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     // parent creates the dir so the failure is the sandbox (EPERM), not ENOENT.
     const dir = '/tmp/claude';
     fs.mkdirSync(dir, { recursive: true });
-    const target = path.join(dir, `toolbox-escape-${String(process.pid)}.txt`);
+    const target = path.join(dir, `toolbx-escape-${String(process.pid)}.txt`);
     fs.rmSync(target, { force: true });
     try {
       const fixture = path.join(FIXTURES, 'os-escape-write.mjs');
@@ -90,7 +90,7 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
   });
 
   maybe('contains a filesystem read of a home secret that bypasses the harness seal', async () => {
-    const secret = path.join(os.homedir(), `.toolbox-os-escape-read-${String(process.pid)}.txt`);
+    const secret = path.join(os.homedir(), `.toolbx-os-escape-read-${String(process.pid)}.txt`);
     fs.writeFileSync(secret, 'top-secret');
     try {
       const fixture = path.join(FIXTURES, 'os-escape-read.mjs');
@@ -180,14 +180,14 @@ describe('OS sandbox boundary (skipped on unsupported hosts)', () => {
     // A stored .js tool loads as ESM via tools/package.json one level above its
     // namespace dir. With the config dir under $HOME, denyRead(home) must still
     // let Node read that marker, or the tool fails to load.
-    const configDir = fs.mkdtempSync(path.join(os.homedir(), '.toolbox-os-test-'));
-    const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolbox-os-src-'));
+    const configDir = fs.mkdtempSync(path.join(os.homedir(), '.toolbx-os-test-'));
+    const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolbx-os-src-'));
     try {
       const source = `/**
- * @toolbox-tool name jsgreet
- * @toolbox-tool title JsGreet
- * @toolbox-tool description ESM JS tool.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name jsgreet
+ * @toolbx-tool title JsGreet
+ * @toolbx-tool description ESM JS tool.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = {
   type: 'object',
@@ -222,8 +222,8 @@ export default function jsgreet(input) {
     // BASH_ENV makes non-interactive bash source a file at startup. If the tool's
     // allowlisted env reached the wrapper shell, this would run *outside* the OS
     // sandbox. The marker must never be created.
-    const marker = path.join(os.tmpdir(), `toolbox-bashenv-pwned-${String(process.pid)}.txt`);
-    const evil = path.join(os.tmpdir(), `toolbox-evil-${String(process.pid)}.sh`);
+    const marker = path.join(os.tmpdir(), `toolbx-bashenv-pwned-${String(process.pid)}.txt`);
+    const evil = path.join(os.tmpdir(), `toolbx-evil-${String(process.pid)}.sh`);
     fs.writeFileSync(evil, `touch ${marker}\n`);
     fs.rmSync(marker, { force: true });
     const previous = process.env.BASH_ENV;

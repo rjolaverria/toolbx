@@ -11,7 +11,7 @@ import {
   type RouteResult,
   type SessionLookup,
   type SessionVisibility,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import {
   REVEAL_TOOLS_NAME,
@@ -27,7 +27,7 @@ function buildNotRevealedMessage(name: string, bootstrap: BootstrapToolRegistry)
   // Only mention bootstrap tools that are actually registered. The config
   // schema permits `progressiveDisclosure.enabled=true` while
   // `bootstrapTools=false` (a CLI-driven reveal flow via M5-02 / M5-03), so
-  // hard-coding `toolbox__reveal_tools` / `toolbox__search_tools` would point
+  // hard-coding `toolbx__reveal_tools` / `toolbx__search_tools` would point
   // the client at methods that don't exist for that configuration.
   const hasReveal = bootstrap.find(REVEAL_TOOLS_NAME) !== undefined;
   const hasSearch = bootstrap.find(SEARCH_TOOLS_NAME) !== undefined;
@@ -50,7 +50,7 @@ function buildNotRevealedMessage(name: string, bootstrap: BootstrapToolRegistry)
  * the connection manager. Tests inject a `Map`-backed stub.
  *
  * Re-exported as the gateway's local alias for the shared `SessionLookup`
- * interface from `@toolbox/core`.
+ * interface from `@toolbx/core`.
  */
 export type UpstreamSessionLookup = SessionLookup;
 
@@ -75,7 +75,7 @@ export interface RegisterToolsCallHandlerOptions {
    * Per-session revealed-tool tracker (M4-07). When `isDisclosureEnabled`
    * returns `true`, calls whose target is not currently visible are refused
    * with an MCP `InvalidRequest` error pointing the agent at
-   * `toolbox__reveal_tools`. Bootstrap tools are always callable because
+   * `toolbx__reveal_tools`. Bootstrap tools are always callable because
    * `visibility.isVisible` reports their reserved names visible.
    */
   visibility?: SessionVisibility;
@@ -121,7 +121,7 @@ function buildAuthExpiredResult(serverName: string): CallToolResult {
         text:
           `Authentication for "${serverName}" has expired.\n\n` +
           `Run \`tlbx auth login ${serverName}\` in a terminal to re-authenticate.\n` +
-          `ToolBox will pick up the new token automatically on the next call.`,
+          `Toolbx will pick up the new token automatically on the next call.`,
       },
     ],
   };
@@ -206,10 +206,10 @@ function toMcpError(
 
 /**
  * Registers the `tools/call` handler. The handler is a thin adapter that
- * delegates routing decisions to `routeToolCall` in `@toolbox/core` and
+ * delegates routing decisions to `routeToolCall` in `@toolbx/core` and
  * converts the discriminated `RouteResult` into MCP-protocol responses.
  *
- * Argument validation is delegated to the upstream server — ToolBox does not
+ * Argument validation is delegated to the upstream server — Toolbx does not
  * second-guess JSON Schema enforcement. The router enforces a structural
  * guard (arguments must be an object) for callers that bypass the SDK's
  * request schema.
@@ -246,7 +246,7 @@ export function registerToolsCallHandler(
     if (bootstrapTool !== undefined) {
       // Bootstrap tools reserve their exposed names — if an upstream server
       // happens to namespace a tool to the same name (e.g. an upstream named
-      // `toolbox` exposing `search_tools`), the bootstrap version wins and
+      // `toolbx` exposing `search_tools`), the bootstrap version wins and
       // the upstream tool is unreachable through this dispatch. The matching
       // `tools/list` filter keeps the listing consistent. Warn once per call
       // so operators can spot the collision in logs.
@@ -271,7 +271,7 @@ export function registerToolsCallHandler(
       const isError = result.isError === true;
       logger?.[isError ? 'warn' : 'info'](
         {
-          server: 'toolbox',
+          server: 'toolbx',
           tool: name,
           durationMs,
           outcome: isError ? 'bootstrap_error' : 'ok',

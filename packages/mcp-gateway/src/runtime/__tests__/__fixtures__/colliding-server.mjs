@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Stdio MCP server used by the namespace-collision integration test.
-// The upstream tool name is read from `TOOLBOX_FIXTURE_TOOL_NAME` so a single
+// The upstream tool name is read from `TOOLBX_FIXTURE_TOOL_NAME` so a single
 // fixture can be spawned twice with different names — one returning e.g.
 // `tool__foo` and another configured under server name `tool` with tool
 // `foo`, both producing the exposed name `tool__foo`.
@@ -9,9 +9,9 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const toolName = process.env['TOOLBOX_FIXTURE_TOOL_NAME'];
+const toolName = process.env['TOOLBX_FIXTURE_TOOL_NAME'];
 if (!toolName) {
-  process.stderr.write('TOOLBOX_FIXTURE_TOOL_NAME is required\n');
+  process.stderr.write('TOOLBX_FIXTURE_TOOL_NAME is required\n');
   process.exit(2);
 }
 

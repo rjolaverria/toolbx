@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 async function makeTempDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-serve-daemon-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-serve-daemon-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }

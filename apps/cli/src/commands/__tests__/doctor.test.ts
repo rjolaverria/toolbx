@@ -12,8 +12,8 @@ import {
   type StoredOAuthRecord,
   type TokenStore,
   type TokenStoreHealth,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import {
   checkBindAddress,
@@ -37,7 +37,7 @@ const harnesses: ConfigHarness[] = [];
 // the suite never creates or contends on it.
 let lockBase: string;
 beforeEach(async () => {
-  lockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-doctor-cred-lock-'));
+  lockBase = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-doctor-cred-lock-'));
   vi.stubEnv(CREDENTIAL_LOCK_DIR_ENV, lockBase);
 });
 
@@ -188,7 +188,7 @@ function makeHarness(target: string, stub: Stub = {}): Harness {
   return { deps, stdout, stderr, confirmPrompts, store };
 }
 
-function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
+function configWith(servers: Record<string, ServerConfig>): ToolbxConfig {
   return { ...DEFAULT_CONFIG, servers };
 }
 
@@ -968,7 +968,7 @@ describe('runDoctor --fix fixers', () => {
 });
 
 describe('runDoctor auth section', () => {
-  function oauthConfig(names: readonly string[]): ToolBoxConfig {
+  function oauthConfig(names: readonly string[]): ToolbxConfig {
     const servers: Record<string, ServerConfig> = {};
     for (const name of names) {
       servers[name] = {
@@ -1130,7 +1130,7 @@ describe('runDoctor auth section', () => {
     // No browser flow and no config mutation: the entry survives and nothing is deleted.
     expect(store.deleted).toEqual([]);
     const fs = await import('node:fs/promises');
-    const onDisk = JSON.parse(await fs.readFile(cfg.target, 'utf8')) as ToolBoxConfig;
+    const onDisk = JSON.parse(await fs.readFile(cfg.target, 'utf8')) as ToolbxConfig;
     expect(onDisk.servers.acme).toBeDefined();
 
     const rerun = makeHarness(cfg.target, { ...healthy, tokenStore: store });

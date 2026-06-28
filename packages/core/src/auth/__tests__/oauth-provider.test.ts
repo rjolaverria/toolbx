@@ -10,8 +10,8 @@ import { createNoopLogger } from '../../logging/logger.js';
 import {
   CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
-  ToolBoxOAuthProvider,
-  type ToolBoxOAuthProviderOpts,
+  ToolbxOAuthProvider,
+  type ToolbxOAuthProviderOpts,
 } from '../oauth-provider.js';
 import { InMemoryTokenStore, type StoredOAuthRecord, type TokenStore } from '../token-store.js';
 
@@ -35,15 +35,15 @@ function makeRecord(overrides: Partial<StoredOAuthRecord> = {}): StoredOAuthReco
   };
 }
 
-function makeProvider(overrides: Partial<ToolBoxOAuthProviderOpts> = {}): {
-  provider: ToolBoxOAuthProvider;
+function makeProvider(overrides: Partial<ToolbxOAuthProviderOpts> = {}): {
+  provider: ToolbxOAuthProvider;
   store: InMemoryTokenStore;
 } {
   const store =
     overrides.tokenStore instanceof InMemoryTokenStore
       ? overrides.tokenStore
       : new InMemoryTokenStore();
-  const provider = new ToolBoxOAuthProvider({
+  const provider = new ToolbxOAuthProvider({
     serverName: 'jira',
     redirectUrl: new URL('http://127.0.0.1:8976/callback'),
     tokenStore: store,
@@ -59,19 +59,19 @@ function makeProvider(overrides: Partial<ToolBoxOAuthProviderOpts> = {}): {
  * a save on a store with no existing record only happens on this path — a
  * refresh-grant save with no record aborts instead of resurrecting it (P3-09).
  */
-async function simulateCodeExchange(provider: ToolBoxOAuthProvider): Promise<void> {
+async function simulateCodeExchange(provider: ToolbxOAuthProvider): Promise<void> {
   await provider.saveCodeVerifier('verifier');
   await provider.codeVerifier();
 }
 
-describe('ToolBoxOAuthProvider.clientMetadata', () => {
+describe('ToolbxOAuthProvider.clientMetadata', () => {
   it('builds public-client metadata with the configured redirect and name', () => {
     const { provider } = makeProvider({
       serverName: 'jira',
       redirectUrl: new URL('http://127.0.0.1:8976/callback'),
     });
     const meta = provider.clientMetadata;
-    expect(meta.client_name).toBe('ToolBox (jira)');
+    expect(meta.client_name).toBe('Toolbx (jira)');
     expect(meta.redirect_uris).toEqual(['http://127.0.0.1:8976/callback']);
     expect(meta.grant_types).toEqual(['authorization_code', 'refresh_token']);
     expect(meta.response_types).toEqual(['code']);
@@ -81,11 +81,11 @@ describe('ToolBoxOAuthProvider.clientMetadata', () => {
 
   it('uses a custom client name and joins scopes when configured', () => {
     const { provider } = makeProvider({
-      clientName: 'My ToolBox',
+      clientName: 'My Toolbx',
       scopes: ['read', 'write'],
     });
     const meta = provider.clientMetadata;
-    expect(meta.client_name).toBe('My ToolBox');
+    expect(meta.client_name).toBe('My Toolbx');
     expect(meta.scope).toBe('read write');
   });
 
@@ -98,7 +98,7 @@ describe('ToolBoxOAuthProvider.clientMetadata', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.redirectUrl', () => {
+describe('ToolbxOAuthProvider.redirectUrl', () => {
   it('returns the configured redirect URL', () => {
     const url = new URL('http://127.0.0.1:9999/cb');
     const { provider } = makeProvider({ redirectUrl: url });
@@ -106,7 +106,7 @@ describe('ToolBoxOAuthProvider.redirectUrl', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.clientInformation', () => {
+describe('ToolbxOAuthProvider.clientInformation', () => {
   it('returns undefined for an unknown server', async () => {
     const { provider } = makeProvider();
     expect(await provider.clientInformation()).toBeUndefined();
@@ -129,7 +129,7 @@ describe('ToolBoxOAuthProvider.clientInformation', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.saveClientInformation (atomicity)', () => {
+describe('ToolbxOAuthProvider.saveClientInformation (atomicity)', () => {
   it('does not touch the TokenStore', async () => {
     const { provider, store } = makeProvider();
     await provider.saveClientInformation(makeClientInfo());
@@ -137,7 +137,7 @@ describe('ToolBoxOAuthProvider.saveClientInformation (atomicity)', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.saveTokens', () => {
+describe('ToolbxOAuthProvider.saveTokens', () => {
   it('writes a complete record with staged client info and clears the staged copy', async () => {
     const { provider, store } = makeProvider({ scopes: ['read'] });
     await provider.saveClientInformation(makeClientInfo({ client_id: 'staged-1' }));
@@ -271,7 +271,7 @@ describe('ToolBoxOAuthProvider.saveTokens', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.tokens (no cache)', () => {
+describe('ToolbxOAuthProvider.tokens (no cache)', () => {
   it('returns undefined for an unknown server', async () => {
     const { provider } = makeProvider();
     expect(await provider.tokens()).toBeUndefined();
@@ -285,7 +285,7 @@ describe('ToolBoxOAuthProvider.tokens (no cache)', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.suppressStoredTokensForReauth', () => {
+describe('ToolbxOAuthProvider.suppressStoredTokensForReauth', () => {
   it('hides stored tokens without deleting them, then surfaces new tokens after saveTokens', async () => {
     const { provider, store } = makeProvider();
     await store.write('jira', makeRecord());
@@ -326,7 +326,7 @@ describe('ToolBoxOAuthProvider.suppressStoredTokensForReauth', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.invalidateCredentials', () => {
+describe('ToolbxOAuthProvider.invalidateCredentials', () => {
   it("scope 'tokens' hides stored tokens in-memory without deleting the record", async () => {
     const { provider, store } = makeProvider();
     await store.write('jira', makeRecord());
@@ -383,7 +383,7 @@ describe('ToolBoxOAuthProvider.invalidateCredentials', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider discovery state', () => {
+describe('ToolbxOAuthProvider discovery state', () => {
   it('round-trips saveDiscoveryState and persists the discovered authorization server', async () => {
     const { provider, store } = makeProvider();
     provider.saveDiscoveryState({ authorizationServerUrl: 'https://issuer.example/auth/' });
@@ -569,7 +569,7 @@ describe('ToolBoxOAuthProvider discovery state', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.validateResourceURL', () => {
+describe('ToolbxOAuthProvider.validateResourceURL', () => {
   it('returns the discovered protected-resource resource when present', async () => {
     const { provider } = makeProvider();
     const result = await provider.validateResourceURL(
@@ -689,7 +689,7 @@ describe('ToolBoxOAuthProvider.validateResourceURL', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.state', () => {
+describe('ToolbxOAuthProvider.state', () => {
   it('returns distinct UUID-shaped values', async () => {
     const { provider } = makeProvider();
     const a = await provider.state();
@@ -699,7 +699,7 @@ describe('ToolBoxOAuthProvider.state', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider PKCE code verifier', () => {
+describe('ToolbxOAuthProvider PKCE code verifier', () => {
   it('round-trips saveCodeVerifier then codeVerifier', async () => {
     const { provider } = makeProvider();
     await provider.saveCodeVerifier('verifier-xyz');
@@ -712,7 +712,7 @@ describe('ToolBoxOAuthProvider PKCE code verifier', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
+describe('ToolbxOAuthProvider credential-lock serialization (P3-09)', () => {
   const tempDirs: string[] = [];
   afterEach(async () => {
     while (tempDirs.length > 0) {
@@ -1184,7 +1184,7 @@ describe('ToolBoxOAuthProvider credential-lock serialization (P3-09)', () => {
   });
 });
 
-describe('ToolBoxOAuthProvider.redirectToAuthorization', () => {
+describe('ToolbxOAuthProvider.redirectToAuthorization', () => {
   it('throws SuppressedRedirectError carrying the authorization URL', async () => {
     const { provider } = makeProvider();
     const url = new URL('https://auth.example.com/authorize?client_id=abc');

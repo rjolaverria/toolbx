@@ -11,7 +11,7 @@ import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/typ
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BOOTSTRAP_TOOL_NAMES } from '@toolbox/mcp-gateway';
+import { BOOTSTRAP_TOOL_NAMES } from '@toolbx/mcp-gateway';
 
 import {
   STDIO_ECHO_FIXTURE,
@@ -89,7 +89,7 @@ describe('progressive disclosure end-to-end', () => {
     );
 
     const client = new Client(
-      { name: 'toolbox-disclosure-it', version: '0.0.0' },
+      { name: 'toolbx-disclosure-it', version: '0.0.0' },
       { capabilities: {} },
     );
     activeClients.add(client);
@@ -115,7 +115,7 @@ describe('progressive disclosure end-to-end', () => {
     // 3. Search surfaces the matching upstream tool by name (acceptance
     //    criterion #10).
     const searchResult = await client.callTool({
-      name: 'toolbox__search_tools',
+      name: 'toolbx__search_tools',
       arguments: { query: 'echo' },
     });
     expect(searchResult.content).toBeDefined();
@@ -126,7 +126,7 @@ describe('progressive disclosure end-to-end', () => {
     //    `notifications/tools/list_changed` to this session (M4-06).
     const beforeReveal = counter.count();
     await client.callTool({
-      name: 'toolbox__reveal_tools',
+      name: 'toolbx__reveal_tools',
       arguments: { tools: ['echo__echo'] },
     });
     // Allow the 50 ms debounce + scheduling slack from
@@ -153,7 +153,7 @@ describe('progressive disclosure end-to-end', () => {
     //    fires.
     const beforeHide = counter.count();
     await client.callTool({
-      name: 'toolbox__hide_tools',
+      name: 'toolbx__hide_tools',
       arguments: { tools: ['echo__echo'] },
     });
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -203,7 +203,7 @@ describe('progressive disclosure end-to-end', () => {
     );
 
     const client = new Client(
-      { name: 'toolbox-disclosure-toggle-it', version: '0.0.0' },
+      { name: 'toolbx-disclosure-toggle-it', version: '0.0.0' },
       { capabilities: {} },
     );
     activeClients.add(client);

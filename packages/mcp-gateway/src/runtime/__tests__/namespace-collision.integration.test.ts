@@ -1,4 +1,4 @@
-import { detectCollisions, type NamespaceOptions } from '@toolbox/core';
+import { detectCollisions, type NamespaceOptions } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -25,7 +25,7 @@ describe('gateway namespace collision reporting', () => {
     // Server names can't themselves contain `__` (schema-rejected), so the
     // realistic collision shape is an upstream that returns a tool name
     // containing the separator. The fixture lets us pick that name per
-    // spawn via TOOLBOX_FIXTURE_TOOL_NAME.
+    // spawn via TOOLBX_FIXTURE_TOOL_NAME.
     const config = makeIntegrationConfig({
       servers: {
         parent_: {
@@ -33,14 +33,14 @@ describe('gateway namespace collision reporting', () => {
           enabled: true,
           command: process.execPath,
           args: [COLLIDING_FIXTURE],
-          env: { TOOLBOX_FIXTURE_TOOL_NAME: '_do' },
+          env: { TOOLBX_FIXTURE_TOOL_NAME: '_do' },
         },
         parent: {
           type: 'stdio',
           enabled: true,
           command: process.execPath,
           args: [COLLIDING_FIXTURE],
-          env: { TOOLBOX_FIXTURE_TOOL_NAME: '__do' },
+          env: { TOOLBX_FIXTURE_TOOL_NAME: '__do' },
         },
       },
     });

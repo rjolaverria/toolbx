@@ -9,7 +9,7 @@ import { atomicWriteFile } from '../atomic-write.js';
 let dir: string;
 
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-atomic-'));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-atomic-'));
 });
 
 afterEach(async () => {

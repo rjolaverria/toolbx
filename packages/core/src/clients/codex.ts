@@ -17,38 +17,38 @@ import type {
   InstallResult,
 } from './types.js';
 import {
-  TOOLBOX_LEGACY_STDIO_ARGS,
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_STDIO_ARGS,
-} from './toolbox-command.js';
+  TOOLBX_LEGACY_STDIO_ARGS,
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_STDIO_ARGS,
+} from './toolbx-command.js';
 
 const CODEX_CONFIG_REL = path.join('.codex', 'config.toml');
 const MCP_SERVERS_KEY = 'mcp_servers';
-const TOOLBOX_KEY = 'toolbox';
+const TOOLBX_KEY = 'toolbx';
 
-interface ToolboxEntry {
+interface ToolbxEntry {
   command: string;
   args: string[];
 }
 
-function buildToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+function buildToolbxEntry(extraArgs: readonly string[]): ToolbxEntry {
   return {
-    command: TOOLBOX_NPX_COMMAND,
-    args: [...TOOLBOX_STDIO_ARGS, ...extraArgs],
+    command: TOOLBX_NPX_COMMAND,
+    args: [...TOOLBX_STDIO_ARGS, ...extraArgs],
   };
 }
 
-function buildLegacyToolboxEntry(extraArgs: readonly string[]): ToolboxEntry {
+function buildLegacyToolbxEntry(extraArgs: readonly string[]): ToolbxEntry {
   return {
-    command: TOOLBOX_NPX_COMMAND,
-    args: [...TOOLBOX_LEGACY_STDIO_ARGS, ...extraArgs],
+    command: TOOLBX_NPX_COMMAND,
+    args: [...TOOLBX_LEGACY_STDIO_ARGS, ...extraArgs],
   };
 }
 
 export interface CreateCodexAdapterOptions extends ClientAdapterEnv {
   /**
-   * Extra args to append after `npx -y @toolbox/cli serve --stdio` in the wired
-   * `[mcp_servers.toolbox]` table. `tlbx setup --config <path>` uses this to
+   * Extra args to append after `npx -y @toolbx/cli serve --stdio` in the wired
+   * `[mcp_servers.toolbx]` table. `tlbx setup --config <path>` uses this to
    * propagate `['--config', '<absolute path>']` so the gateway opens the
    * same config the user just initialized.
    */
@@ -67,8 +67,8 @@ export function createCodexAdapterInternal(
   const homedir = options.homedir ?? osHomedir;
   const configPath = path.join(homedir(), CODEX_CONFIG_REL);
   const extraServeArgs = options.extraServeArgs ?? [];
-  const toolboxEntry = buildToolboxEntry(extraServeArgs);
-  const legacyToolboxEntry = buildLegacyToolboxEntry(extraServeArgs);
+  const toolbxEntry = buildToolbxEntry(extraServeArgs);
+  const legacyToolbxEntry = buildLegacyToolbxEntry(extraServeArgs);
 
   return {
     name: 'codex',
@@ -95,8 +95,8 @@ export function createCodexAdapterInternal(
             exists,
             configPath: resolvedPath,
             opts,
-            toolboxEntry,
-            legacyToolboxEntry,
+            toolbxEntry,
+            legacyToolbxEntry,
           }),
       });
     },
@@ -110,12 +110,12 @@ interface MergeInput {
   readonly exists: boolean;
   readonly configPath: string;
   readonly opts: InstallOpts;
-  readonly toolboxEntry: ToolboxEntry;
-  readonly legacyToolboxEntry: ToolboxEntry;
+  readonly toolbxEntry: ToolbxEntry;
+  readonly legacyToolbxEntry: ToolbxEntry;
 }
 
 function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
-  const { currentText, exists, configPath, opts, toolboxEntry, legacyToolboxEntry } = input;
+  const { currentText, exists, configPath, opts, toolbxEntry, legacyToolbxEntry } = input;
   if (!exists) {
     const dir = path.dirname(configPath);
     return {
@@ -150,32 +150,32 @@ function mergeCodexConfig(input: MergeInput): InstallFlowMergeResult {
     };
   }
   const existingServers = serversAbsent ? undefined : (serversRaw as Record<string, unknown>);
-  const existingToolbox = existingServers?.[TOOLBOX_KEY];
+  const existingToolbx = existingServers?.[TOOLBX_KEY];
 
-  if (existingToolbox !== undefined) {
-    if (toolboxEntryMatches(existingToolbox, toolboxEntry)) {
+  if (existingToolbx !== undefined) {
+    if (toolbxEntryMatches(existingToolbx, toolbxEntry)) {
       return { ok: true, status: 'already-installed', diff: '' };
     }
-    const legacyEntryNeedsMigration = toolboxEntryMatches(existingToolbox, legacyToolboxEntry);
+    const legacyEntryNeedsMigration = toolbxEntryMatches(existingToolbx, legacyToolbxEntry);
     if (!legacyEntryNeedsMigration && !opts.force) {
       return {
         ok: false,
-        reason: 'mcp_servers.toolbox already present with different command/args',
+        reason: 'mcp_servers.toolbx already present with different command/args',
         hint: 're-run with --force to overwrite (use --dry-run --force to preview)',
       };
     }
   }
 
   const mergedServers: Record<string, unknown> = { ...(existingServers ?? {}) };
-  mergedServers[TOOLBOX_KEY] = { ...toolboxEntry, args: [...toolboxEntry.args] };
+  mergedServers[TOOLBX_KEY] = { ...toolbxEntry, args: [...toolbxEntry.args] };
   const merged: Record<string, unknown> = { ...parsed, [MCP_SERVERS_KEY]: mergedServers };
 
   const nextContent = stringifyToml(merged) + '\n';
-  const diff = formatDiff(existingToolbox, mergedServers[TOOLBOX_KEY]);
+  const diff = formatDiff(existingToolbx, mergedServers[TOOLBX_KEY]);
   return { ok: true, status: 'installed', nextContent, diff };
 }
 
-function toolboxEntryMatches(value: unknown, expected: ToolboxEntry): boolean {
+function toolbxEntryMatches(value: unknown, expected: ToolbxEntry): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   if (candidate.command !== expected.command) return false;
@@ -203,7 +203,7 @@ function formatDiff(previous: unknown, next: unknown): string {
  * was misleading for copy/paste.
  */
 function appendTomlTable(lines: string[], prefix: '-' | '+', value: unknown): void {
-  lines.push(`${prefix} [${MCP_SERVERS_KEY}.${TOOLBOX_KEY}]`);
+  lines.push(`${prefix} [${MCP_SERVERS_KEY}.${TOOLBX_KEY}]`);
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     lines.push(`${prefix}   <invalid entry: ${JSON.stringify(value)}>`);
     return;

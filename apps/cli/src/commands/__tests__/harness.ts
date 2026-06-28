@@ -9,8 +9,8 @@ import {
   saveConfig,
   writeToolCache,
   type CachedToolInput,
-  type ToolBoxConfig,
-} from '@toolbox/core';
+  type ToolbxConfig,
+} from '@toolbx/core';
 
 import type { AuthCommandDeps } from '../auth/shared.js';
 import type { ServerCommandDeps } from '../server-shared.js';
@@ -23,9 +23,9 @@ export interface ConfigHarness {
 }
 
 export async function makeTempConfig(
-  initial: ToolBoxConfig = DEFAULT_CONFIG,
+  initial: ToolbxConfig = DEFAULT_CONFIG,
 ): Promise<ConfigHarness> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-cli-server-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-cli-server-'));
   const target = path.join(dir, 'config.json');
   await saveConfig(initial, target);
   return {

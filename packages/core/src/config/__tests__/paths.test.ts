@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { describeConfigPath, resolveConfigPath } from '../paths.js';
 
 describe('resolveConfigPath', () => {
-  it('honors TOOLBOX_CONFIG over every other rule', () => {
+  it('honors TOOLBX_CONFIG over every other rule', () => {
     const result = resolveConfigPath({
       env: {
-        TOOLBOX_CONFIG: '/custom/path/config.json',
+        TOOLBX_CONFIG: '/custom/path/config.json',
         XDG_CONFIG_HOME: '/should/be/ignored',
         APPDATA: 'C:\\should\\be\\ignored',
       },
@@ -17,58 +17,58 @@ describe('resolveConfigPath', () => {
     expect(result).toBe(path.resolve('/custom/path/config.json'));
   });
 
-  it('honors XDG_CONFIG_HOME when TOOLBOX_CONFIG is not set', () => {
+  it('honors XDG_CONFIG_HOME when TOOLBX_CONFIG is not set', () => {
     const result = resolveConfigPath({
       env: { XDG_CONFIG_HOME: '/xdg' },
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(result).toBe(path.join('/xdg', 'toolbox', 'config.json'));
+    expect(result).toBe(path.join('/xdg', 'toolbx', 'config.json'));
   });
 
-  it('falls back to ~/.config/toolbox/config.json on linux', () => {
+  it('falls back to ~/.config/toolbx/config.json on linux', () => {
     const result = resolveConfigPath({
       env: {},
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(result).toBe(path.join('/home/u', '.config', 'toolbox', 'config.json'));
+    expect(result).toBe(path.join('/home/u', '.config', 'toolbx', 'config.json'));
   });
 
-  it('falls back to ~/.config/toolbox/config.json on darwin', () => {
+  it('falls back to ~/.config/toolbx/config.json on darwin', () => {
     const result = resolveConfigPath({
       env: {},
       platform: 'darwin',
       homedir: () => '/Users/u',
     });
-    expect(result).toBe(path.join('/Users/u', '.config', 'toolbox', 'config.json'));
+    expect(result).toBe(path.join('/Users/u', '.config', 'toolbx', 'config.json'));
   });
 
-  it('uses %APPDATA%\\ToolBox\\config.json on win32 when APPDATA is set', () => {
+  it('uses %APPDATA%\\Toolbx\\config.json on win32 when APPDATA is set', () => {
     const result = resolveConfigPath({
       env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' },
       platform: 'win32',
       homedir: () => 'C:\\Users\\u',
     });
-    expect(result).toBe(path.join('C:\\Users\\u\\AppData\\Roaming', 'ToolBox', 'config.json'));
+    expect(result).toBe(path.join('C:\\Users\\u\\AppData\\Roaming', 'Toolbx', 'config.json'));
   });
 
-  it('falls back to <home>/AppData/Roaming/ToolBox/config.json on win32 when APPDATA is unset', () => {
+  it('falls back to <home>/AppData/Roaming/Toolbx/config.json on win32 when APPDATA is unset', () => {
     const result = resolveConfigPath({
       env: {},
       platform: 'win32',
       homedir: () => 'C:\\Users\\u',
     });
-    expect(result).toBe(path.join('C:\\Users\\u', 'AppData', 'Roaming', 'ToolBox', 'config.json'));
+    expect(result).toBe(path.join('C:\\Users\\u', 'AppData', 'Roaming', 'Toolbx', 'config.json'));
   });
 
-  it('treats an empty TOOLBOX_CONFIG as unset', () => {
+  it('treats an empty TOOLBX_CONFIG as unset', () => {
     const result = resolveConfigPath({
-      env: { TOOLBOX_CONFIG: '', XDG_CONFIG_HOME: '/xdg' },
+      env: { TOOLBX_CONFIG: '', XDG_CONFIG_HOME: '/xdg' },
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(result).toBe(path.join('/xdg', 'toolbox', 'config.json'));
+    expect(result).toBe(path.join('/xdg', 'toolbx', 'config.json'));
   });
 
   it('treats an empty XDG_CONFIG_HOME as unset', () => {
@@ -77,18 +77,18 @@ describe('resolveConfigPath', () => {
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(result).toBe(path.join('/home/u', '.config', 'toolbox', 'config.json'));
+    expect(result).toBe(path.join('/home/u', '.config', 'toolbx', 'config.json'));
   });
 });
 
 describe('describeConfigPath', () => {
-  it('reports `env-toolbox-config` when TOOLBOX_CONFIG wins', () => {
+  it('reports `env-toolbx-config` when TOOLBX_CONFIG wins', () => {
     const result = describeConfigPath({
-      env: { TOOLBOX_CONFIG: '/x', XDG_CONFIG_HOME: '/y' },
+      env: { TOOLBX_CONFIG: '/x', XDG_CONFIG_HOME: '/y' },
       platform: 'linux',
       homedir: () => '/home/u',
     });
-    expect(result.source).toBe('env-toolbox-config');
+    expect(result.source).toBe('env-toolbx-config');
     expect(result.path).toBe(path.resolve('/x'));
   });
 

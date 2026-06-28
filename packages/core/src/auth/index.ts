@@ -25,8 +25,8 @@ export {
 export {
   CredentialChangedDuringRefreshError,
   SuppressedRedirectError,
-  ToolBoxOAuthProvider,
-  type ToolBoxOAuthProviderOpts,
+  ToolbxOAuthProvider,
+  type ToolbxOAuthProviderOpts,
 } from './oauth-provider.js';
 
 export { runOAuthLogin, type RunOAuthLoginInput, type RunOAuthLoginResult } from './oauth-login.js';

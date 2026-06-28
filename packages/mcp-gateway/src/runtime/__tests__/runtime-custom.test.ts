@@ -1,4 +1,4 @@
-import { createNoopLogger, type ServerConfig, type ToolBoxConfig } from '@toolbox/core';
+import { createNoopLogger, type ServerConfig, type ToolbxConfig } from '@toolbx/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CustomToolHost, CustomToolHostDeps } from '../custom-tools-host.js';
@@ -6,7 +6,7 @@ import { createGatewayRuntime } from '../runtime.js';
 
 const STDIO_SERVER: ServerConfig = { type: 'stdio', enabled: true, command: 'fake', args: [] };
 
-function makeConfig(servers: Record<string, ServerConfig> = {}): ToolBoxConfig {
+function makeConfig(servers: Record<string, ServerConfig> = {}): ToolbxConfig {
   return {
     version: 1,
     server: {

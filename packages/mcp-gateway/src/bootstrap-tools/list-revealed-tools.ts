@@ -1,6 +1,6 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import type { SessionVisibility } from '@toolbox/core';
+import type { SessionVisibility } from '@toolbx/core';
 import { z } from 'zod';
 
 import { LIST_REVEALED_TOOLS_NAME } from './names.js';
@@ -9,7 +9,7 @@ import type { BootstrapTool } from './registry.js';
 export { LIST_REVEALED_TOOLS_NAME };
 
 /**
- * `toolbox__list_revealed_tools` (M4-05) — read-only inspection of the
+ * `toolbx__list_revealed_tools` (M4-05) — read-only inspection of the
  * current session's visible tool surface. Returns the bootstrap tools (which
  * are always visible) alongside the session-revealed exposed names so the
  * agent can see exactly what `tools/list` would surface today, without
@@ -27,12 +27,12 @@ const ArgsSchema = z.object({}).strict();
 
 const LIST_REVEALED_TOOLS_DESCRIPTOR: Tool = {
   name: LIST_REVEALED_TOOLS_NAME,
-  title: 'List revealed ToolBox tools',
+  title: 'List revealed Toolbx tools',
   description:
-    'List every tool currently visible in the session: the always-on ToolBox bootstrap ' +
-    'tools and any upstream tools that have been revealed via toolbox__reveal_tools. ' +
-    'Read-only — does not change visibility. Use toolbox__search_tools to discover ' +
-    'additional candidates and toolbox__hide_tools to remove names from this list.',
+    'List every tool currently visible in the session: the always-on Toolbx bootstrap ' +
+    'tools and any upstream tools that have been revealed via toolbx__reveal_tools. ' +
+    'Read-only — does not change visibility. Use toolbx__search_tools to discover ' +
+    'additional candidates and toolbx__hide_tools to remove names from this list.',
   inputSchema: {
     type: 'object',
     properties: {},

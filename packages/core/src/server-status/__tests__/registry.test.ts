@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ServerConfig, ToolBoxConfig } from '../../config/schema.js';
+import type { ServerConfig, ToolbxConfig } from '../../config/schema.js';
 import {
   createStatusRegistry,
   UnknownServerError,
@@ -10,8 +10,8 @@ import {
 import { InvalidStatusTransitionError } from '../state-machine.js';
 import type { ServerStatus } from '../types.js';
 
-const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
-  $schema: 'https://toolbox.dev/schema/config.schema.json',
+const baseConfig: Omit<ToolbxConfig, 'servers'> = {
+  $schema: 'https://toolbx.dev/schema/config.schema.json',
   version: 1,
   server: {
     stdio: { enabled: true },
@@ -36,7 +36,7 @@ const baseConfig: Omit<ToolBoxConfig, 'servers'> = {
   customTools: { sandbox: { mode: 'auto', require: false } },
 };
 
-function configWith(servers: Record<string, ServerConfig>): ToolBoxConfig {
+function configWith(servers: Record<string, ServerConfig>): ToolbxConfig {
   return { ...baseConfig, servers };
 }
 

@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { CONTROL_PLANE_HEADER, CONTROL_PLANE_MARKER, createNoopLogger } from '@toolbox/core';
+import { CONTROL_PLANE_HEADER, CONTROL_PLANE_MARKER, createNoopLogger } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDownstreamHttpServer } from '../http.js';
@@ -59,7 +59,7 @@ function makeServer(opts: MakeServerOpts = {}): DownstreamHttpServer {
 
 async function connectClient(url: URL, headers?: Record<string, string>): Promise<Client> {
   const client = trackClient(
-    new Client({ name: 'toolbox-http-test-client', version: '0.0.0' }, { capabilities: {} }),
+    new Client({ name: 'toolbx-http-test-client', version: '0.0.0' }, { capabilities: {} }),
   );
   const transport =
     headers !== undefined
@@ -169,7 +169,7 @@ describe('createDownstreamHttpServer — protocol surface', () => {
     expect(server.url.pathname).toBe('/mcp');
 
     const client = await connectClient(server.url);
-    expect(client.getServerVersion()).toMatchObject({ name: 'toolbox' });
+    expect(client.getServerVersion()).toMatchObject({ name: 'toolbx' });
     expect(client.getServerCapabilities()?.tools).toMatchObject({ listChanged: true });
 
     const result = await client.listTools();

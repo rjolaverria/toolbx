@@ -1,17 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { importTool, readToolManifest, writeToolManifest } from '@toolbox/custom-tools';
+import { importTool, readToolManifest, writeToolManifest } from '@toolbx/custom-tools';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runToolInspect } from '../tool-inspect.js';
 import { makeHarness, makeTempConfig, type ConfigHarness } from './harness.js';
 
 const TOOL_SOURCE = `/**
- * @toolbox-tool name my_tool
- * @toolbox-tool title My Tool
- * @toolbox-tool description Does a thing.
- * @toolbox-tool namespace personal
+ * @toolbx-tool name my_tool
+ * @toolbx-tool title My Tool
+ * @toolbx-tool description Does a thing.
+ * @toolbx-tool namespace personal
  */
 export const inputSchema = { type: 'object', properties: {}, additionalProperties: false };
 export default async function f() {

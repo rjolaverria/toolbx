@@ -19,7 +19,7 @@
  */
 
 /** Header name carrying the control-plane marker. Node lowercases header keys. */
-export const CONTROL_PLANE_HEADER = 'x-toolbox-control-plane';
+export const CONTROL_PLANE_HEADER = 'x-toolbx-control-plane';
 
 /** Sentinel value a `tlbx run` connection sends in {@link CONTROL_PLANE_HEADER}. */
 export const CONTROL_PLANE_MARKER = 'local';

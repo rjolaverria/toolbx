@@ -30,7 +30,7 @@ function daemonPathsForResolvedConfig(absConfigPath: string): ServeDaemonPaths {
 
 /**
  * Resolves the daemon paths for the ambient config (honouring
- * `XDG_CONFIG_HOME` / `TOOLBOX_CONFIG`). Equivalent to
+ * `XDG_CONFIG_HOME` / `TOOLBX_CONFIG`). Equivalent to
  * `serveDaemonPathsForConfig(resolveConfigPath(...))`.
  */
 export function resolveServeDaemonPaths(overrides: ConfigPathEnv = {}): ServeDaemonPaths {

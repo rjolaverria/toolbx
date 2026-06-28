@@ -9,7 +9,7 @@ import {
   createOpencodeAdapterInternal,
   type InternalInstallHooks,
 } from '../opencode.js';
-import { TOOLBOX_LEGACY_STDIO_COMMAND, TOOLBOX_STDIO_COMMAND } from '../toolbox-command.js';
+import { TOOLBX_LEGACY_STDIO_COMMAND, TOOLBX_STDIO_COMMAND } from '../toolbx-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 async function makeFakeHome(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-opencode-adapter-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-opencode-adapter-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -38,14 +38,14 @@ async function ensureOpencodeDir(home: string): Promise<string> {
   return path.join(dir, 'opencode.json');
 }
 
-const TOOLBOX_ENTRY = {
+const TOOLBX_ENTRY = {
   type: 'local',
-  command: [...TOOLBOX_STDIO_COMMAND],
+  command: [...TOOLBX_STDIO_COMMAND],
   enabled: true,
 };
-const LEGACY_TOOLBOX_ENTRY = {
-  ...TOOLBOX_ENTRY,
-  command: [...TOOLBOX_LEGACY_STDIO_COMMAND],
+const LEGACY_TOOLBX_ENTRY = {
+  ...TOOLBX_ENTRY,
+  command: [...TOOLBX_LEGACY_STDIO_COMMAND],
 };
 
 describe('createOpencodeAdapter — detect()', () => {
@@ -79,7 +79,7 @@ describe('createOpencodeAdapter — detect()', () => {
 });
 
 describe('createOpencodeAdapter — install()', () => {
-  it('adds mcp.toolbox to an empty config', async () => {
+  it('adds mcp.toolbx to an empty config', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureOpencodeDir(home);
     await fs.writeFile(configPath, '{}');
@@ -96,7 +96,7 @@ describe('createOpencodeAdapter — install()', () => {
     expect(result.backupPath).toBeDefined();
     const parsed = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const mcp = parsed.mcp as Record<string, unknown>;
-    expect(mcp.toolbox).toEqual(TOOLBOX_ENTRY);
+    expect(mcp.toolbx).toEqual(TOOLBX_ENTRY);
   });
 
   it('preserves unrelated mcp entries and top-level keys', async () => {
@@ -124,13 +124,13 @@ describe('createOpencodeAdapter — install()', () => {
     expect(parsed.theme).toBe('tokyonight');
     const mcp = parsed.mcp as Record<string, unknown>;
     expect(mcp.github).toEqual(initial.mcp.github);
-    expect(mcp.toolbox).toEqual(TOOLBOX_ENTRY);
+    expect(mcp.toolbx).toEqual(TOOLBX_ENTRY);
   });
 
-  it('is a no-op when toolbox already matches', async () => {
+  it('is a no-op when toolbx already matches', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureOpencodeDir(home);
-    await fs.writeFile(configPath, JSON.stringify({ mcp: { toolbox: TOOLBOX_ENTRY } }, null, 2));
+    await fs.writeFile(configPath, JSON.stringify({ mcp: { toolbx: TOOLBX_ENTRY } }, null, 2));
     const before = await fs.readFile(configPath);
 
     const adapter = makeAdapter(home);
@@ -146,12 +146,12 @@ describe('createOpencodeAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(before);
   });
 
-  it('migrates a legacy npx tlbx toolbox entry without requiring --force', async () => {
+  it('migrates a legacy npx tlbx toolbx entry without requiring --force', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureOpencodeDir(home);
     await fs.writeFile(
       configPath,
-      JSON.stringify({ mcp: { toolbox: LEGACY_TOOLBOX_ENTRY } }, null, 2),
+      JSON.stringify({ mcp: { toolbx: LEGACY_TOOLBX_ENTRY } }, null, 2),
     );
 
     const adapter = makeAdapter(home);
@@ -166,14 +166,14 @@ describe('createOpencodeAdapter — install()', () => {
 
     const parsed = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const mcp = parsed.mcp as Record<string, unknown>;
-    expect(mcp.toolbox).toEqual(TOOLBOX_ENTRY);
+    expect(mcp.toolbx).toEqual(TOOLBX_ENTRY);
   });
 
-  it('refuses to overwrite a conflicting toolbox entry without --force', async () => {
+  it('refuses to overwrite a conflicting toolbx entry without --force', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureOpencodeDir(home);
     const conflicting = {
-      mcp: { toolbox: { type: 'local', command: ['old'], enabled: false } },
+      mcp: { toolbx: { type: 'local', command: ['old'], enabled: false } },
     };
     await fs.writeFile(configPath, JSON.stringify(conflicting, null, 2));
     const before = await fs.readFile(configPath);
@@ -190,11 +190,11 @@ describe('createOpencodeAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(before);
   });
 
-  it('overwrites a conflicting toolbox entry with --force', async () => {
+  it('overwrites a conflicting toolbx entry with --force', async () => {
     const home = await makeFakeHome();
     const configPath = await ensureOpencodeDir(home);
     const conflicting = {
-      mcp: { toolbox: { type: 'local', command: ['old'], enabled: false } },
+      mcp: { toolbx: { type: 'local', command: ['old'], enabled: false } },
     };
     await fs.writeFile(configPath, JSON.stringify(conflicting, null, 2));
 
@@ -209,7 +209,7 @@ describe('createOpencodeAdapter — install()', () => {
     expect(result.backupPath).toBeDefined();
     const parsed = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
     const mcp = parsed.mcp as Record<string, unknown>;
-    expect(mcp.toolbox).toEqual(TOOLBOX_ENTRY);
+    expect(mcp.toolbx).toEqual(TOOLBX_ENTRY);
   });
 
   it('returns ok:false when the file is malformed JSON', async () => {
@@ -283,8 +283,8 @@ describe('createOpencodeAdapter — install()', () => {
     const written = await fs.readFile(configPath, 'utf8');
     expect(written).toContain('// user theme preference');
     expect(written).toContain('/* existing entries */');
-    // toolbox entry is present
-    expect(written).toContain('"toolbox"');
+    // toolbx entry is present
+    expect(written).toContain('"toolbx"');
     expect(written).toMatch(/"type":\s*"local"/);
     // github entry is preserved
     expect(written).toContain('"github"');

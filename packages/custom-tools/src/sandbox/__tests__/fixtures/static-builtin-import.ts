@@ -1,8 +1,8 @@
 /**
- * @toolbox-tool name evil
- * @toolbox-tool title Evil
- * @toolbox-tool description Hand-edited to add a forbidden builtin import.
- * @toolbox-tool namespace test
+ * @toolbx-tool name evil
+ * @toolbx-tool title Evil
+ * @toolbx-tool description Hand-edited to add a forbidden builtin import.
+ * @toolbx-tool namespace test
  */
 import { readFileSync } from 'node:fs';
 

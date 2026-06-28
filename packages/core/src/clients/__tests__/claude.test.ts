@@ -10,10 +10,10 @@ import {
   type InternalInstallHooks,
 } from '../claude.js';
 import {
-  TOOLBOX_LEGACY_STDIO_ARGS,
-  TOOLBOX_NPX_COMMAND,
-  TOOLBOX_STDIO_ARGS,
-} from '../toolbox-command.js';
+  TOOLBX_LEGACY_STDIO_ARGS,
+  TOOLBX_NPX_COMMAND,
+  TOOLBX_STDIO_ARGS,
+} from '../toolbx-command.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 async function makeFakeHome(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbox-claude-adapter-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-claude-adapter-'));
   cleanups.push(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -36,22 +36,22 @@ function makeAdapter(home: string, hooks: InternalInstallHooks = {}) {
   return createClaudeAdapterInternal({ homedir: () => home, platform: 'darwin' }, hooks);
 }
 
-async function readToolboxEntry(home: string): Promise<unknown> {
+async function readToolbxEntry(home: string): Promise<unknown> {
   const raw = await fs.readFile(path.join(home, '.claude.json'), 'utf8');
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   const mcpServers = parsed.mcpServers as Record<string, unknown> | undefined;
-  return mcpServers?.toolbox;
+  return mcpServers?.toolbx;
 }
 
-const TOOLBOX_ENTRY = {
+const TOOLBX_ENTRY = {
   type: 'stdio',
-  command: TOOLBOX_NPX_COMMAND,
-  args: [...TOOLBOX_STDIO_ARGS],
+  command: TOOLBX_NPX_COMMAND,
+  args: [...TOOLBX_STDIO_ARGS],
   env: {},
 };
-const LEGACY_TOOLBOX_ENTRY = {
-  ...TOOLBOX_ENTRY,
-  args: [...TOOLBOX_LEGACY_STDIO_ARGS],
+const LEGACY_TOOLBX_ENTRY = {
+  ...TOOLBX_ENTRY,
+  args: [...TOOLBX_LEGACY_STDIO_ARGS],
 };
 
 describe('createClaudeAdapter — detect()', () => {
@@ -79,7 +79,7 @@ describe('createClaudeAdapter — detect()', () => {
 });
 
 describe('createClaudeAdapter — install()', () => {
-  it('adds mcpServers.toolbox to an empty config and writes a backup', async () => {
+  it('adds mcpServers.toolbx to an empty config and writes a backup', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     await fs.writeFile(configPath, '{}');
@@ -96,14 +96,14 @@ describe('createClaudeAdapter — install()', () => {
     expect(result.backupPath).toBeDefined();
     expect(result.diff).not.toBe('');
 
-    expect(await readToolboxEntry(home)).toEqual(TOOLBOX_ENTRY);
+    expect(await readToolbxEntry(home)).toEqual(TOOLBX_ENTRY);
     if (result.backupPath) {
       const backupContent = await fs.readFile(result.backupPath, 'utf8');
       expect(backupContent).toBe('{}');
     }
   });
 
-  it('preserves existing mcpServers entries when adding toolbox', async () => {
+  it('preserves existing mcpServers entries when adding toolbx', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     const initial = {
@@ -127,14 +127,14 @@ describe('createClaudeAdapter — install()', () => {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const mcpServers = parsed.mcpServers as Record<string, unknown>;
     expect(mcpServers.github).toEqual(initial.mcpServers.github);
-    expect(mcpServers.toolbox).toEqual(TOOLBOX_ENTRY);
+    expect(mcpServers.toolbx).toEqual(TOOLBX_ENTRY);
     expect(parsed.otherSetting).toBe('preserved');
   });
 
-  it('is a no-op when toolbox is already installed with matching values', async () => {
+  it('is a no-op when toolbx is already installed with matching values', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
-    const initial = { mcpServers: { toolbox: TOOLBOX_ENTRY } };
+    const initial = { mcpServers: { toolbx: TOOLBX_ENTRY } };
     await fs.writeFile(configPath, JSON.stringify(initial, null, 2));
     const originalBytes = await fs.readFile(configPath);
 
@@ -154,10 +154,10 @@ describe('createClaudeAdapter — install()', () => {
     expect(entries.filter((name) => name.includes('.bak.'))).toEqual([]);
   });
 
-  it('migrates a legacy npx tlbx toolbox entry without requiring --force', async () => {
+  it('migrates a legacy npx tlbx toolbx entry without requiring --force', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
-    const initial = { mcpServers: { toolbox: LEGACY_TOOLBOX_ENTRY } };
+    const initial = { mcpServers: { toolbx: LEGACY_TOOLBX_ENTRY } };
     await fs.writeFile(configPath, JSON.stringify(initial, null, 2));
 
     const adapter = makeAdapter(home);
@@ -169,22 +169,22 @@ describe('createClaudeAdapter — install()', () => {
     }
     expect(result.status).toBe('installed');
     expect(result.backupPath).toBeDefined();
-    expect(await readToolboxEntry(home)).toEqual(TOOLBOX_ENTRY);
+    expect(await readToolbxEntry(home)).toEqual(TOOLBX_ENTRY);
 
     if (result.backupPath) {
       const backupRaw = await fs.readFile(result.backupPath, 'utf8');
       const backupParsed = JSON.parse(backupRaw) as Record<string, unknown>;
       const mcpServers = backupParsed.mcpServers as Record<string, unknown>;
-      expect(mcpServers.toolbox).toEqual(LEGACY_TOOLBOX_ENTRY);
+      expect(mcpServers.toolbx).toEqual(LEGACY_TOOLBX_ENTRY);
     }
   });
 
-  it('refuses to overwrite a conflicting toolbox entry without --force', async () => {
+  it('refuses to overwrite a conflicting toolbx entry without --force', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     const conflicting = {
       mcpServers: {
-        toolbox: { type: 'stdio', command: 'old-binary', args: [], env: {} },
+        toolbx: { type: 'stdio', command: 'old-binary', args: [], env: {} },
       },
     };
     await fs.writeFile(configPath, JSON.stringify(conflicting, null, 2));
@@ -202,12 +202,12 @@ describe('createClaudeAdapter — install()', () => {
     expect(await fs.readFile(configPath)).toEqual(originalBytes);
   });
 
-  it('overwrites a conflicting toolbox entry with --force and writes a backup', async () => {
+  it('overwrites a conflicting toolbx entry with --force and writes a backup', async () => {
     const home = await makeFakeHome();
     const configPath = path.join(home, '.claude.json');
     const conflicting = {
       mcpServers: {
-        toolbox: { type: 'stdio', command: 'old-binary', args: [], env: {} },
+        toolbx: { type: 'stdio', command: 'old-binary', args: [], env: {} },
       },
     };
     await fs.writeFile(configPath, JSON.stringify(conflicting, null, 2));
@@ -222,12 +222,12 @@ describe('createClaudeAdapter — install()', () => {
     expect(result.status).toBe('installed');
     expect(result.backupPath).toBeDefined();
 
-    expect(await readToolboxEntry(home)).toEqual(TOOLBOX_ENTRY);
+    expect(await readToolbxEntry(home)).toEqual(TOOLBX_ENTRY);
     if (result.backupPath) {
       const backupRaw = await fs.readFile(result.backupPath, 'utf8');
       const backupParsed = JSON.parse(backupRaw) as Record<string, unknown>;
       const mcpServers = backupParsed.mcpServers as Record<string, unknown>;
-      expect(mcpServers.toolbox).toEqual(conflicting.mcpServers.toolbox);
+      expect(mcpServers.toolbx).toEqual(conflicting.mcpServers.toolbx);
     }
   });
 

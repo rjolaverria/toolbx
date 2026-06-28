@@ -2,13 +2,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { createNoopLogger, createSessionVisibility, ToolBoxConfigSchema } from '@toolbox/core';
-import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbox/core';
+import { createNoopLogger, createSessionVisibility, ToolbxConfigSchema } from '@toolbx/core';
+import type { NamespaceOptions, ServerStatus, SessionVisibility } from '@toolbx/core';
 import { describe, expect, it } from 'vitest';
 
 import { registerToolsCallHandler } from '../../downstream-server/handlers/tools-call.js';
 import { registerToolsListHandler } from '../../downstream-server/handlers/tools-list.js';
-import { buildToolBoxMcpServer } from '../../downstream-server/server.js';
+import { buildToolbxMcpServer } from '../../downstream-server/server.js';
 import { createToolRegistry, type ToolRegistry } from '../../registry/index.js';
 import type { UpstreamSessionLookup } from '../../downstream-server/handlers/index.js';
 import { createBootstrapToolRegistry, type BootstrapToolRegistry } from '../registry.js';
@@ -87,7 +87,7 @@ async function connect(
   opts: ConnectOpts,
 ): Promise<{ client: Client; closeAll: () => Promise<void> }> {
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  const built = buildToolBoxMcpServer({
+  const built = buildToolbxMcpServer({
     logger: createNoopLogger(),
     sessionId: 'search-tools-test',
     registerHandlers: (server, session) => {
@@ -108,7 +108,7 @@ async function connect(
   await built.server.connect(serverTransport);
 
   const client = new Client(
-    { name: 'toolbox-search-tools-test-client', version: '0.0.0' },
+    { name: 'toolbx-search-tools-test-client', version: '0.0.0' },
     { capabilities: {} },
   );
   await client.connect(clientTransport);
@@ -136,7 +136,7 @@ function parseLines(result: CallToolResult): {
   return { candidates, summary };
 }
 
-describe('toolbox__search_tools (M4-03)', () => {
+describe('toolbx__search_tools (M4-03)', () => {
   it('appears in tools/list when registered', async () => {
     const registry = createToolRegistry({ namespacing: NS });
     const bootstrap = createBootstrapToolRegistry();
@@ -438,7 +438,7 @@ describe('toolbox__search_tools (M4-03)', () => {
   });
 });
 
-describe('toolbox__search_tools auto-reveal (F1-02)', () => {
+describe('toolbx__search_tools auto-reveal (F1-02)', () => {
   function populatedRegistry(): ToolRegistry {
     const registry = createToolRegistry({ namespacing: NS });
     registry.setServerEntry({
@@ -605,7 +605,7 @@ describe('toolbox__search_tools auto-reveal (F1-02)', () => {
     // Round-trips through the config schema to prove the "unset in user
     // config" cell of the matrix resolves to auto-reveal on. Building the
     // full config inline keeps the test self-contained.
-    const parsed = ToolBoxConfigSchema.parse({
+    const parsed = ToolbxConfigSchema.parse({
       version: 1,
       server: {
         stdio: { enabled: true },

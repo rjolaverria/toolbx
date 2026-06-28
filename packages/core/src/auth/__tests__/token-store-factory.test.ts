@@ -51,13 +51,13 @@ describe('resolveCredentialLockRoot', () => {
     // home (not a temp dir, which would vary by TMPDIR across processes).
     const root = resolveCredentialLockRoot(keychain, {});
     expect(root).toBe(
-      path.join(userInfo().homedir, '.toolbox', 'credential-locks', KEYCHAIN_SERVICE_NAME),
+      path.join(userInfo().homedir, '.toolbx', 'credential-locks', KEYCHAIN_SERVICE_NAME),
     );
     expect(resolveCredentialLockRoot(keychain, {})).toBe(root);
   });
 
   it('honors the lock-dir env override as a test seam', () => {
-    const base = '/tmp/toolbox-lock-test';
+    const base = '/tmp/toolbx-lock-test';
     expect(resolveCredentialLockRoot(keychain, { [CREDENTIAL_LOCK_DIR_ENV]: base })).toBe(
       path.join(base, 'credential-locks', KEYCHAIN_SERVICE_NAME),
     );

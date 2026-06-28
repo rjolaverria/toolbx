@@ -11,7 +11,7 @@ import {
   ToolCacheMissingError,
   type RegisteredToolView,
   type SearchMatchedField,
-} from '@toolbox/core';
+} from '@toolbx/core';
 
 import {
   defaultServerCommandDeps,
@@ -92,7 +92,7 @@ export async function runToolsSearch(
   } catch (error) {
     if (error instanceof ToolCacheMissingError) {
       deps.stderr(
-        `${error.message} Run \`tlbx serve\` once so ToolBox can populate the registry.\n`,
+        `${error.message} Run \`tlbx serve\` once so Toolbx can populate the registry.\n`,
       );
       return 1;
     }
@@ -151,7 +151,7 @@ export async function runToolsSearch(
 
 export function toolsSearchCommand(): CommandUnknownOpts {
   return new Command('search')
-    .description('Search tools known to ToolBox using the bootstrap-tool ranking.')
+    .description('Search tools known to Toolbx using the bootstrap-tool ranking.')
     .argument('<query>', 'free-text query')
     .option('--json', 'emit machine-readable JSON instead of a table')
     .option('--limit <n>', 'cap the result count', (v) => {

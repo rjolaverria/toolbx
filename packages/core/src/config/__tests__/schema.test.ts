@@ -8,17 +8,17 @@ import {
   HttpServerConfigSchema,
   HttpServerSettingsSchema,
   StdioServerConfigSchema,
-  ToolBoxConfigSchema,
+  ToolbxConfigSchema,
   type HttpServerConfig,
   type ServerConfig,
   type StdioServerConfig,
-  type ToolBoxConfig,
+  type ToolbxConfig,
 } from '../schema.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const SPECS_EXAMPLE = {
-  $schema: 'https://toolbox.dev/schema/config.schema.json',
+  $schema: 'https://toolbx.dev/schema/config.schema.json',
   version: 1,
   server: {
     stdio: { enabled: true },
@@ -75,9 +75,9 @@ const SPECS_EXAMPLE = {
   },
 };
 
-describe('ToolBoxConfigSchema', () => {
+describe('ToolbxConfigSchema', () => {
   it('accepts the SPECS §4.4 example verbatim', () => {
-    const result = ToolBoxConfigSchema.safeParse(SPECS_EXAMPLE);
+    const result = ToolbxConfigSchema.safeParse(SPECS_EXAMPLE);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.servers.jira?.type).toBe('http');
@@ -87,7 +87,7 @@ describe('ToolBoxConfigSchema', () => {
 
   it('rejects unknown top-level keys', () => {
     const bad = { ...SPECS_EXAMPLE, extraneous: true };
-    const result = ToolBoxConfigSchema.safeParse(bad);
+    const result = ToolbxConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
@@ -99,7 +99,7 @@ describe('ToolBoxConfigSchema', () => {
         ghost: 'no',
       },
     };
-    const result = ToolBoxConfigSchema.safeParse(bad);
+    const result = ToolbxConfigSchema.safeParse(bad);
     expect(result.success).toBe(false);
   });
 
@@ -109,7 +109,7 @@ describe('ToolBoxConfigSchema', () => {
       format: 'server__tool',
       collisionStrategy: 'error',
     };
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       namespacing,
     });
@@ -120,7 +120,7 @@ describe('ToolBoxConfigSchema', () => {
   });
 
   it('rejects an explicit non-`__` namespacing.separator override (Phase 1 constraint)', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       namespacing: {
         ...SPECS_EXAMPLE.namespacing,
@@ -133,7 +133,7 @@ describe('ToolBoxConfigSchema', () => {
 
 describe('ServerConfig discriminated union', () => {
   it('rejects an unknown server type', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       servers: {
         weird: {
@@ -189,12 +189,12 @@ describe('ServerConfig discriminated union', () => {
   });
 
   it('narrows the union by `type` at the type level', () => {
-    const result = ToolBoxConfigSchema.safeParse(SPECS_EXAMPLE);
+    const result = ToolbxConfigSchema.safeParse(SPECS_EXAMPLE);
     expect(result.success).toBe(true);
     if (!result.success) {
       return;
     }
-    const config: ToolBoxConfig = result.data;
+    const config: ToolbxConfig = result.data;
     const jira: ServerConfig | undefined = config.servers.jira;
     if (jira !== undefined && jira.type === 'http') {
       const http: HttpServerConfig = jira;
@@ -245,7 +245,7 @@ describe('ServerConfig discriminated union', () => {
 
 describe('Server name validation', () => {
   it('rejects a server name containing the namespacing separator `__`', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       servers: {
         jira__bad: {
@@ -259,7 +259,7 @@ describe('Server name validation', () => {
   });
 
   it('accepts a server name with single underscores', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       servers: {
         my_server: {
@@ -275,7 +275,7 @@ describe('Server name validation', () => {
 
 describe('Tool overrides map', () => {
   it('defaults `tools` to an empty record when omitted', () => {
-    const result = ToolBoxConfigSchema.safeParse(SPECS_EXAMPLE);
+    const result = ToolbxConfigSchema.safeParse(SPECS_EXAMPLE);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.tools).toEqual({});
@@ -283,7 +283,7 @@ describe('Tool overrides map', () => {
   });
 
   it('accepts a per-tool enabled override keyed on the namespaced name', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       tools: {
         github__create_issue: { enabled: false },
@@ -296,7 +296,7 @@ describe('Tool overrides map', () => {
   });
 
   it('rejects tool override keys that are not namespaced', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       tools: {
         not_namespaced: { enabled: false },
@@ -306,7 +306,7 @@ describe('Tool overrides map', () => {
   });
 
   it('rejects unknown fields inside a tool override', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       tools: {
         github__create_issue: { enabled: false, ghost: 'no' },
@@ -348,7 +348,7 @@ describe('Top-level auth + token storage', () => {
   it('resolves `auth.storage` to `{ type: "keychain" }` when the whole auth block is omitted', () => {
     const { auth: _omitted, ...withoutAuth } = SPECS_EXAMPLE;
     void _omitted;
-    const result = ToolBoxConfigSchema.safeParse(withoutAuth);
+    const result = ToolbxConfigSchema.safeParse(withoutAuth);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.auth.storage).toEqual({ type: 'keychain' });
@@ -356,7 +356,7 @@ describe('Top-level auth + token storage', () => {
   });
 
   it('resolves `auth.storage` to `{ type: "keychain" }` when only the storage field is omitted', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       auth: {},
     });
@@ -367,7 +367,7 @@ describe('Top-level auth + token storage', () => {
   });
 
   it('accepts an explicit `auth.storage.type: "keychain"`', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       auth: { storage: { type: 'keychain' } },
     });
@@ -378,7 +378,7 @@ describe('Top-level auth + token storage', () => {
   });
 
   it('rejects an unknown `auth.storage.type` with a clear error path', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       auth: { storage: { type: 'unknown' } },
     });
@@ -392,7 +392,7 @@ describe('Top-level auth + token storage', () => {
   });
 
   it('rejects unknown keys inside the top-level `auth` block', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       auth: { storage: { type: 'keychain' }, ghost: 'no' },
     });
@@ -414,7 +414,7 @@ describe('Auth round-trip', () => {
         },
       },
     };
-    const first = ToolBoxConfigSchema.safeParse(allVariants);
+    const first = ToolbxConfigSchema.safeParse(allVariants);
     expect(first.success).toBe(true);
     if (!first.success) {
       return;
@@ -425,7 +425,7 @@ describe('Auth round-trip', () => {
     // .transform() or .default() turns the value into something that no
     // longer round-trips.
     const serialized = JSON.parse(JSON.stringify(first.data)) as unknown;
-    const second = ToolBoxConfigSchema.safeParse(serialized);
+    const second = ToolbxConfigSchema.safeParse(serialized);
     expect(second.success).toBe(true);
     if (second.success) {
       expect(second.data).toEqual(first.data);
@@ -433,7 +433,7 @@ describe('Auth round-trip', () => {
   });
 });
 
-describe('SPECS §4.4 example parses through ToolBoxConfigSchema', () => {
+describe('SPECS §4.4 example parses through ToolbxConfigSchema', () => {
   it('extracts the first JSON block under "## 4.4 Example Config File" and parses it cleanly', () => {
     // Read the canonical spec at test time so the schema and the documented
     // example stay in lockstep — drift in either direction fails the build.
@@ -445,7 +445,7 @@ describe('SPECS §4.4 example parses through ToolBoxConfigSchema', () => {
     const fenceMatch = /```json\n([\s\S]*?)\n```/.exec(afterHeading);
     expect(fenceMatch).not.toBeNull();
     const example: unknown = JSON.parse(fenceMatch?.[1] ?? '');
-    const result = ToolBoxConfigSchema.safeParse(example);
+    const result = ToolbxConfigSchema.safeParse(example);
     expect(result.success).toBe(true);
     if (result.success) {
       // Belt-and-suspenders: the OAuth server defined in the spec example
@@ -462,12 +462,12 @@ describe('SPECS §4.4 example parses through ToolBoxConfigSchema', () => {
 
 describe('customTools.sandbox config', () => {
   it('defaults customTools.sandbox to auto/non-required when omitted', () => {
-    const parsed = ToolBoxConfigSchema.parse(SPECS_EXAMPLE);
+    const parsed = ToolbxConfigSchema.parse(SPECS_EXAMPLE);
     expect(parsed.customTools.sandbox).toEqual({ mode: 'auto', require: false });
   });
 
   it('accepts mode "off" and require true', () => {
-    const parsed = ToolBoxConfigSchema.parse({
+    const parsed = ToolbxConfigSchema.parse({
       ...SPECS_EXAMPLE,
       customTools: { sandbox: { mode: 'off', require: true } },
     });
@@ -475,7 +475,7 @@ describe('customTools.sandbox config', () => {
   });
 
   it('rejects an unknown sandbox mode', () => {
-    const result = ToolBoxConfigSchema.safeParse({
+    const result = ToolbxConfigSchema.safeParse({
       ...SPECS_EXAMPLE,
       customTools: { sandbox: { mode: 'container' } },
     });

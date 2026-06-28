@@ -1,7 +1,7 @@
 /**
  * Pure JSDoc metadata parser for custom tool files (SPECS §6.2).
  *
- * Extracts the `@toolbox-tool` directives from a user-provided `.ts` / `.js`
+ * Extracts the `@toolbx-tool` directives from a user-provided `.ts` / `.js`
  * source string. This module never evaluates the file — it reads the JSDoc
  * comment block and uses the TypeScript parser to note whether an `inputSchema`
  * binding and a callable default export are present, so the importer (P3-02)
@@ -12,7 +12,7 @@ import { posix as posixPath, win32 as win32Path } from 'node:path';
 
 import ts from 'typescript';
 
-/** The four required `@toolbox-tool` directives, in canonical order. */
+/** The four required `@toolbx-tool` directives, in canonical order. */
 const REQUIRED_DIRECTIVES = ['name', 'title', 'description', 'namespace'] as const;
 
 type RequiredDirective = (typeof REQUIRED_DIRECTIVES)[number];
@@ -74,7 +74,7 @@ export interface ParsedToolMetadata {
 }
 
 /**
- * Raised when a tool file's `@toolbox-tool` metadata cannot be parsed. Carries
+ * Raised when a tool file's `@toolbx-tool` metadata cannot be parsed. Carries
  * every problem found so the importer can show them all at once, and renders a
  * friendly message that names the source path and each offending line.
  */
@@ -103,7 +103,7 @@ interface RawDirective {
   readonly line: number;
 }
 
-const DIRECTIVE = /@toolbox-tool[ \t]+(\S+)[ \t]*(.*)$/;
+const DIRECTIVE = /@toolbx-tool[ \t]+(\S+)[ \t]*(.*)$/;
 
 /**
  * In-memory program file name + script kind for a tool source. A `.js` / `.cjs`
@@ -266,7 +266,7 @@ export interface StaticAnalysis {
 
 /**
  * Import lists and syntax errors for a tool source file, without requiring
- * `@toolbox-tool` metadata directives. Used by the runner to re-validate
+ * `@toolbx-tool` metadata directives. Used by the runner to re-validate
  * stored-tool purity at execution time — the on-disk file may have been edited
  * after import to add a static `import 'node:fs'` that would bypass the child
  * permission gates.
@@ -280,7 +280,7 @@ export interface ToolImportAnalysis {
 
 /**
  * Parses a tool source file for runtime imports and syntax errors without
- * requiring the `@toolbox-tool` JSDoc metadata directives. Works on any tool
+ * requiring the `@toolbx-tool` JSDoc metadata directives. Works on any tool
  * fixture or stored tool file regardless of whether metadata is present.
  */
 export function analyzeToolImports(source: string, filename: string): ToolImportAnalysis {
@@ -538,7 +538,7 @@ function lineAt(source: string, index: number): number {
   return line;
 }
 
-/** Extracts the `@toolbox-tool` directives found in a single comment's text. */
+/** Extracts the `@toolbx-tool` directives found in a single comment's text. */
 function directivesInComment(
   commentText: string,
   commentStart: number,
@@ -595,7 +595,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     throw new ToolMetadataParseError(filename, [
       {
         message:
-          'no @toolbox-tool directives found; expected a JSDoc block with @toolbox-tool name/title/description/namespace',
+          'no @toolbx-tool directives found; expected a JSDoc block with @toolbx-tool name/title/description/namespace',
       },
     ]);
   }
@@ -605,7 +605,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
       const line = block[0]?.line;
       return {
         ...(typeof line === 'number' ? { line } : {}),
-        message: 'multiple @toolbox-tool blocks found; only one is allowed',
+        message: 'multiple @toolbx-tool blocks found; only one is allowed',
       };
     });
     throw new ToolMetadataParseError(filename, duplicates);
@@ -622,7 +622,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
     } else {
       warnings.push({
         line: directive.line,
-        message: `unknown @toolbox-tool directive: ${directive.key}`,
+        message: `unknown @toolbx-tool directive: ${directive.key}`,
       });
     }
   }
@@ -635,7 +635,7 @@ export function parseToolMetadata(source: string, filename: string): ParsedToolM
   if (missing.length > 0) {
     throw new ToolMetadataParseError(
       filename,
-      missing.map((key) => ({ message: `missing required @toolbox-tool directive: ${key}` })),
+      missing.map((key) => ({ message: `missing required @toolbx-tool directive: ${key}` })),
     );
   }
 

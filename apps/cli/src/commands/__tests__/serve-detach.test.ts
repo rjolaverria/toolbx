@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { SpawnOptions } from 'node:child_process';
 
-import { DEFAULT_CONFIG, type ServeDaemonState, type ToolBoxConfig } from '@toolbox/core';
+import { DEFAULT_CONFIG, type ServeDaemonState, type ToolbxConfig } from '@toolbx/core';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -52,7 +52,7 @@ function makeState(overrides: Partial<ServeDaemonState> = {}): ServeDaemonState 
 }
 
 interface Stub {
-  config?: ToolBoxConfig;
+  config?: ToolbxConfig;
   loadConfigError?: Error;
   /** Sequence of readState responses, consumed in order (defaults to null). */
   readStateResponses?: Array<ServeDaemonState | null>;
@@ -93,7 +93,7 @@ function makeHarness(stub: Stub = {}): Harness {
   const killCalls: Array<{ pid: number; signal: NodeJS.Signals }> = [];
   const closedFds: number[] = [];
   const childHandle = stub.spawnHandle ?? makeFakeChild();
-  const config: ToolBoxConfig = stub.config ?? DEFAULT_CONFIG;
+  const config: ToolbxConfig = stub.config ?? DEFAULT_CONFIG;
   const readStateResponses = stub.readStateResponses ?? [];
   let readStateCalls = 0;
   let clock = 0;
@@ -145,7 +145,7 @@ function makeHarness(stub: Stub = {}): Harness {
     },
     resolveEntryScript: () => stub.entryScript ?? '/path/to/cli/dist/index.js',
     nodeExecPath: () => '/path/to/node',
-    processEnv: { TOOLBOX_TEST: '1' },
+    processEnv: { TOOLBX_TEST: '1' },
     readinessTimeoutMs: stub.readinessTimeoutMs ?? 1_000,
     pollIntervalMs: 100,
     sleep: (ms) => {
@@ -176,7 +176,7 @@ function makeHarness(stub: Stub = {}): Harness {
   };
 }
 
-function httpDisabledConfig(): ToolBoxConfig {
+function httpDisabledConfig(): ToolbxConfig {
   return {
     ...DEFAULT_CONFIG,
     server: {
@@ -218,7 +218,7 @@ describe('runServeDetached', () => {
     expect(code).toBe(0);
     expect(h.spawnCalls).toHaveLength(1);
     expect(h.spawnCalls[0]?.args).not.toContain('--force-http');
-    expect(h.spawnCalls[0]?.options.env).toMatchObject({ TOOLBOX_SERVE_FORCE_HTTP: '1' });
+    expect(h.spawnCalls[0]?.options.env).toMatchObject({ TOOLBX_SERVE_FORCE_HTTP: '1' });
   });
 
   it('does not set the force-http env marker on the explicit serve --detach path', async () => {
@@ -226,7 +226,7 @@ describe('runServeDetached', () => {
 
     await runServeDetached({}, h.deps);
 
-    expect(h.spawnCalls[0]?.options.env).not.toHaveProperty('TOOLBOX_SERVE_FORCE_HTTP');
+    expect(h.spawnCalls[0]?.options.env).not.toHaveProperty('TOOLBX_SERVE_FORCE_HTTP');
   });
 
   it('refuses when an alive daemon is already recorded', async () => {
@@ -291,8 +291,8 @@ describe('runServeDetached', () => {
     expect(call?.options.detached).toBe(true);
     expect(call?.options.stdio).toEqual(['ignore', 42, 42, 'pipe']);
     expect(call?.options.env).toMatchObject({
-      TOOLBOX_SERVE_STATE_PATH: '/resolved/config.json.state',
-      TOOLBOX_SERVE_LOG_PATH: '/resolved/config.json.log',
+      TOOLBX_SERVE_STATE_PATH: '/resolved/config.json.state',
+      TOOLBX_SERVE_LOG_PATH: '/resolved/config.json.log',
     });
   });
 

@@ -34,7 +34,7 @@ describe('gateway upstream reconnect on unexpected upstream exit', () => {
     const { runtime, downstream } = await startHarness({ config, harness });
 
     const client = new Client(
-      { name: 'toolbox-reconnect-it', version: '0.0.0' },
+      { name: 'toolbx-reconnect-it', version: '0.0.0' },
       { capabilities: {} },
     );
     harness.clients.add(client);
