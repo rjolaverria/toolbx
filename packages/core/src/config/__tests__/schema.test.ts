@@ -1,7 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -14,8 +10,6 @@ import {
   type StdioServerConfig,
   type ToolbxConfig,
 } from '../schema.js';
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const SPECS_EXAMPLE = {
   $schema: 'https://toolbx.dev/schema/config.schema.json',
@@ -429,33 +423,6 @@ describe('Auth round-trip', () => {
     expect(second.success).toBe(true);
     if (second.success) {
       expect(second.data).toEqual(first.data);
-    }
-  });
-});
-
-describe('SPECS §4.4 example parses through ToolbxConfigSchema', () => {
-  it('extracts the first JSON block under "## 4.4 Example Config File" and parses it cleanly', () => {
-    // Read the canonical spec at test time so the schema and the documented
-    // example stay in lockstep — drift in either direction fails the build.
-    const specsPath = resolve(__dirname, '../../../../../.agents/SPECS.md');
-    const specs = readFileSync(specsPath, 'utf8');
-    const headingIndex = specs.indexOf('## 4.4 Example Config File');
-    expect(headingIndex).toBeGreaterThanOrEqual(0);
-    const afterHeading = specs.slice(headingIndex);
-    const fenceMatch = /```json\n([\s\S]*?)\n```/.exec(afterHeading);
-    expect(fenceMatch).not.toBeNull();
-    const example: unknown = JSON.parse(fenceMatch?.[1] ?? '');
-    const result = ToolbxConfigSchema.safeParse(example);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      // Belt-and-suspenders: the OAuth server defined in the spec example
-      // must round-trip through the new union variant.
-      const copilot = result.data.servers['github-copilot'];
-      expect(copilot?.type).toBe('http');
-      if (copilot?.type === 'http') {
-        expect(copilot.auth).toEqual({ type: 'oauth' });
-      }
-      expect(result.data.auth.storage).toEqual({ type: 'keychain' });
     }
   });
 });

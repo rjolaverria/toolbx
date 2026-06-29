@@ -49,8 +49,7 @@ packages/custom-tools     — custom-tool importer + on-disk child-process sandb
 
 `@toolbx/core` is the shared heart and must not depend on CLI-specific concerns.
 See [`CLAUDE.md`](./CLAUDE.md) for conventions (TypeScript config, code style,
-namespacing, the task workflow) and [`.agents/SPECS.md`](./.agents/SPECS.md) for
-the full product spec.
+namespacing).
 
 ## Packaging note
 
