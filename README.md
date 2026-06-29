@@ -132,8 +132,6 @@ A minimal config looks like:
 }
 ```
 
-See [`.agents/SPECS.md`](./.agents/SPECS.md) §4.4 for the full schema.
-
 ## Repository Layout
 
 This is a pnpm + Turborepo monorepo.
@@ -176,8 +174,6 @@ pnpm test:run      # one-shot test run
 
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — how to set up, build, and test Toolbx.
 - [`RELEASING.md`](./RELEASING.md) — how releases are cut and published to npm.
-- [`.agents/SPECS.md`](./.agents/SPECS.md) — full product and engineering spec (goals, requirements, milestones, acceptance criteria).
-- [`.agents/TASKS.md`](./.agents/TASKS.md) — master task list, with one detail file per task in [`.agents/tasks/`](./.agents/tasks/).
 - [`CLAUDE.md`](./CLAUDE.md) — guidance for AI coding agents working on this repo.
 
 ## License
