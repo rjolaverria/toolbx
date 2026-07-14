@@ -41,6 +41,24 @@ npm i -g @toolbx/cli
 tlbx setup
 ```
 
+## Adding upstream servers
+
+Add a stdio server by passing its launch command after `--`:
+
+```bash
+tlbx server add-stdio github -- npx -y @modelcontextprotocol/server-github
+```
+
+Add a Streamable HTTP server by URL. For servers that use OAuth — like
+Atlassian's remote MCP server for Jira, Confluence, and Bitbucket — `add-http`
+opens your browser to authenticate and stores the tokens in your OS keychain:
+
+```bash
+tlbx server add-http atlassian --url https://mcp.atlassian.com/v1/mcp/authv2
+```
+
+Re-authenticate anytime with `tlbx auth login atlassian`.
+
 ## Common commands
 
 | Command                                   | What it does                                                    |
