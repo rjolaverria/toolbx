@@ -32,7 +32,7 @@ Requires **Node ≥ 22.7.0**. No global install needed — `npx` runs the publis
 npx -y @toolbx/cli setup
 ```
 
-`tlbx setup` is the happy path. It creates `~/.config/toolbx/config.json` if it's missing, optionally walks you through adding one upstream MCP server, detects each supported MCP client that already has a config file (Claude Code, Codex, OpenCode — so the client must have been launched at least once), and writes a `toolbx` entry into each detected client's config — previewing the diff and taking a timestamped backup before any write. Re-running it is idempotent.
+`tlbx setup` is the happy path. It creates your config file if it's missing (see [Configuration](#configuration) for the per-platform location, or run `tlbx config path`), optionally walks you through adding one upstream MCP server, detects each supported MCP client that already has a config file (Claude Code, Codex, OpenCode — so the client must have been launched at least once), and writes a `toolbx` entry into each detected client's config — previewing the diff and taking a timestamped backup before any write. Re-running it is idempotent.
 
 To install the binary persistently instead:
 
