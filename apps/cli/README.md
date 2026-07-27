@@ -32,7 +32,7 @@ Requires **Node ≥ 22.7.0**. No global install needed — `npx` runs the publis
 npx -y @toolbx/cli setup
 ```
 
-`tlbx setup` is the happy path. It creates `~/.config/toolbx/config.json` if it's missing, optionally walks you through adding one upstream MCP server, detects every installed MCP client on your machine (Claude Code, Codex, OpenCode), and writes a `toolbx` entry into each client's config — previewing the diff and taking a timestamped backup before any write. Re-running it is idempotent.
+`tlbx setup` is the happy path. It creates `~/.config/toolbx/config.json` if it's missing, optionally walks you through adding one upstream MCP server, detects each supported MCP client that already has a config file (Claude Code, Codex, OpenCode — so the client must have been launched at least once), and writes a `toolbx` entry into each detected client's config — previewing the diff and taking a timestamped backup before any write. Re-running it is idempotent.
 
 To install the binary persistently instead:
 
@@ -72,7 +72,7 @@ Re-authenticate anytime with `tlbx auth login atlassian`.
 | `tlbx server add-http <name> --url <url>` | Add a Streamable HTTP upstream server.                                        |
 | `tlbx server list`                        | List configured upstream servers.                                             |
 | `tlbx auth login <server>`                | Authenticate (or re-authenticate) an OAuth server.                            |
-| `tlbx auth status`                        | Show stored credentials and expiry.                                           |
+| `tlbx auth status`                        | Show stored OAuth credentials (token presence, status, scopes).               |
 | `tlbx tool import <path>`                 | Import a local TS/JS tool (added disabled; run `tlbx tool enable` to expose). |
 | `tlbx client install <client>`            | Write the Toolbx entry into a client's config.                                |
 | `tlbx config path`                        | Print the active config file location.                                        |
