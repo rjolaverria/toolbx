@@ -61,28 +61,28 @@ Re-authenticate anytime with `tlbx auth login atlassian`.
 
 ## Common commands
 
-| Command                                   | What it does                                                    |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| `tlbx setup`                              | Guided first-run: create config, add a server, wire up clients. |
-| `tlbx serve`                              | Run Toolbx as an MCP server in the foreground.                  |
-| `tlbx serve --detach`                     | Fork the HTTP gateway into the background.                      |
-| `tlbx stop`                               | Stop a background gateway.                                      |
-| `tlbx status`                             | Show gateway and per-server status.                             |
-| `tlbx server add-stdio <name> -- <cmd>`   | Add a stdio upstream server.                                    |
-| `tlbx server add-http <name> --url <url>` | Add a Streamable HTTP upstream server.                          |
-| `tlbx server list`                        | List configured upstream servers.                               |
-| `tlbx auth login <server>`                | Authenticate (or re-authenticate) an OAuth server.              |
-| `tlbx auth status`                        | Show stored credentials and expiry.                             |
-| `tlbx tool import <path>`                 | Expose a local TypeScript/JavaScript tool through Toolbx.       |
-| `tlbx client install <client>`            | Write the Toolbx entry into a client's config.                  |
-| `tlbx config path`                        | Print the active config file location.                          |
-| `tlbx doctor`                             | Report environment and per-server health.                       |
+| Command                                   | What it does                                                                  |
+| ----------------------------------------- | ----------------------------------------------------------------------------- |
+| `tlbx setup`                              | Guided first-run: create config, add a server, wire up clients.               |
+| `tlbx serve`                              | Run Toolbx as an MCP server in the foreground.                                |
+| `tlbx serve --detach`                     | Fork the HTTP gateway into the background.                                    |
+| `tlbx stop`                               | Stop a background gateway.                                                    |
+| `tlbx status`                             | Show the status of each configured upstream server.                           |
+| `tlbx server add-stdio <name> -- <cmd>`   | Add a stdio upstream server.                                                  |
+| `tlbx server add-http <name> --url <url>` | Add a Streamable HTTP upstream server.                                        |
+| `tlbx server list`                        | List configured upstream servers.                                             |
+| `tlbx auth login <server>`                | Authenticate (or re-authenticate) an OAuth server.                            |
+| `tlbx auth status`                        | Show stored credentials and expiry.                                           |
+| `tlbx tool import <path>`                 | Import a local TS/JS tool (added disabled; run `tlbx tool enable` to expose). |
+| `tlbx client install <client>`            | Write the Toolbx entry into a client's config.                                |
+| `tlbx config path`                        | Print the active config file location.                                        |
+| `tlbx doctor`                             | Check config, environment, and local server targets (no upstream connection). |
 
 Run `tlbx <command> --help` for the full flag list on any command.
 
 ## Configuration
 
-Config lives at `~/.config/toolbx/config.json` by default. The location respects `XDG_CONFIG_HOME` and can be overridden with the `TOOLBX_CONFIG` environment variable.
+Config lives at `~/.config/toolbx/config.json` on macOS and Linux, and at `%APPDATA%\Toolbx\config.json` on Windows. The location respects `XDG_CONFIG_HOME` and can be overridden with the `TOOLBX_CONFIG` environment variable. Run `tlbx config path` to print the active location.
 
 `tlbx init` (and `tlbx setup`) write a complete, valid config file for you — including the required top-level `server`, `progressiveDisclosure`, and `namespacing` sections — so you normally don't hand-write it. You mostly edit the `servers` map; a single stdio entry looks like:
 
