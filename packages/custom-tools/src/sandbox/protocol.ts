@@ -48,6 +48,23 @@ export type SandboxResponse =
 /** Child → parent IPC message: a response authenticated with the per-call nonce. */
 export type SandboxEnvelope = SandboxResponse & { readonly nonce: string };
 
+/**
+ * Child → parent control message sent once, right before the harness does any
+ * tool work (module import, schema compile, handler call). The parent uses it to
+ * switch from the fixed startup guard to the per-tool operation timeout, so
+ * sandbox + Node cold-start latency is never charged against `timeoutMs`. Carries
+ * the per-call nonce like every other child→parent message, so a tool that forges
+ * an IPC message cannot supply it — the harness sends the real `ready` before any
+ * tool code runs, so a forged one can only ever arrive later and is ignored.
+ */
+export interface SandboxReady {
+  readonly nonce: string;
+  readonly ready: true;
+}
+
+/** Any message the child harness can send the parent over IPC. */
+export type SandboxMessage = SandboxReady | SandboxEnvelope;
+
 /** Final outcome `runTool` resolves to. `message` is already secret-redacted. */
 export type RunOutcome =
   | { readonly outcome: 'ok'; readonly result: unknown }

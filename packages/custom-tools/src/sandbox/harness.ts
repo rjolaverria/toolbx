@@ -27,7 +27,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Validator } from '@cfworker/json-schema';
 
 import type { ToolImportAnalysis } from '../manifest/parse.js';
-import type { RunErrorCode, SandboxEnvelope, SandboxRequest, SandboxResponse } from './protocol.js';
+import type {
+  RunErrorCode,
+  SandboxEnvelope,
+  SandboxReady,
+  SandboxRequest,
+  SandboxResponse,
+} from './protocol.js';
 
 /**
  * Dynamically imports `analyzeToolImports` from parse, resolving the correct extension
@@ -84,6 +90,26 @@ function sendWithNonce(nonce: string, response: SandboxResponse): Promise<void> 
     }
     const envelope: SandboxEnvelope = { ...response, nonce };
     realSend(envelope, undefined, undefined, () => {
+      resolve();
+    });
+  });
+}
+
+/**
+ * Signals the parent that the sandbox is up and the harness is about to start the
+ * tool work, so the parent can begin the per-tool operation timeout here instead
+ * of at spawn — keeping Node/sandbox cold-start latency out of that budget. Sent
+ * over the captured IPC reference and stamped with the nonce, exactly like a
+ * response, so a forged `ready` is ignored. Resolves once flushed.
+ */
+function sendReady(nonce: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (realSend === undefined) {
+      resolve();
+      return;
+    }
+    const message: SandboxReady = { nonce, ready: true };
+    realSend(message, undefined, undefined, () => {
       resolve();
     });
   });
@@ -197,6 +223,14 @@ async function run(request: SandboxRequest): Promise<void> {
   const send = (response: SandboxResponse): Promise<void> => sendWithNonce(nonce, response);
   const fail = (code: RunErrorCode, message: string): Promise<void> =>
     send({ ok: false, code, message });
+
+  // Tell the parent the sandbox is up before doing any tool work, so the per-tool
+  // operation timeout runs from here rather than from spawn. Everything above this
+  // point (process spawn, Node boot, this module's own load) is startup latency the
+  // parent bounds with a separate, generous guard. Sent before `sealEscapeHatches`
+  // deletes the tool-visible senders; the harness's own send uses the captured
+  // low-level reference and is unaffected either way.
+  await sendReady(nonce);
 
   sealEscapeHatches();
   applyNetworkGate(request.permissions.network);
