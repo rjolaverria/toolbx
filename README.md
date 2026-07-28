@@ -111,26 +111,23 @@ npx -y @toolbx/cli auth login github
 
 ## Configuration
 
-Config lives at `~/.config/toolbx/config.json` by default. The location respects `XDG_CONFIG_HOME` and can be overridden with the `TOOLBX_CONFIG` environment variable.
+Config lives at `~/.config/toolbx/config.json` on macOS and Linux, and at `%APPDATA%\Toolbx\config.json` on Windows. The location respects `XDG_CONFIG_HOME` and can be overridden with the `TOOLBX_CONFIG` environment variable. Run `tlbx config path` to print the active location.
 
-A minimal config looks like:
+`tlbx init` (and `tlbx setup`) write a complete, valid config file for you — including the required top-level `server`, `progressiveDisclosure`, and `namespacing` sections — so you normally don't hand-write it. You mostly edit the `servers` map; a single stdio entry looks like:
 
 ```json
-{
-  "version": 1,
-  "servers": {
-    "github": {
-      "type": "stdio",
-      "enabled": true,
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
-      }
-    }
+"github": {
+  "type": "stdio",
+  "enabled": true,
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
   }
 }
 ```
+
+Prefer `tlbx server add-stdio` / `add-http` to add entries — they validate the whole file with `tlbx config validate` before writing.
 
 ## Repository Layout
 
