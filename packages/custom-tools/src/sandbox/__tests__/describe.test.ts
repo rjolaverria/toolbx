@@ -41,10 +41,10 @@ describe('describeTool', () => {
   it('returns the schema without invoking the handler (a hanging handler still describes)', async () => {
     // hangs.ts has a valid schema but a handler that never resolves. If describe
     // invoked the handler it would hit the timeout; instead it resolves the schema.
-    // timeoutMs gives the describe cap headroom over OS-sandbox spawn startup
-    // (bash → sandbox-exec → node) under parallel test load; the point is that a
-    // hanging handler is never invoked, not a tight latency bound.
-    const outcome = await describeTool(manifest('hangs.ts', { timeoutMs: 3000 }));
+    // The per-tool timeout runs from the harness `ready` signal, so it bounds only
+    // the (fast) module import + schema compile — OS-sandbox spawn and Node boot are
+    // covered by the separate startup guard, not this budget.
+    const outcome = await describeTool(manifest('hangs.ts'));
     expect(outcome).toEqual({
       outcome: 'ok',
       inputSchema: { type: 'object', additionalProperties: true },

@@ -34,7 +34,7 @@ import {
   type WrapSpawnResult,
 } from './os-sandbox.js';
 import { redactSecrets } from './redact.js';
-import type { DescribeOutcome, RunOutcome, SandboxEnvelope, SandboxRequest } from './protocol.js';
+import type { DescribeOutcome, RunOutcome, SandboxMessage, SandboxRequest } from './protocol.js';
 
 /**
  * Node runtime-control variables that must never reach the sandboxed child, even when a
@@ -53,6 +53,17 @@ const FORBIDDEN_CHILD_ENV = new Set(['NODE_OPTIONS', 'NODE_REPL_EXTERNAL_MODULE'
  * timeout for a tool that hangs at module top level (P3-05).
  */
 const DESCRIBE_TIMEOUT_CAP_MS = 6000;
+
+/**
+ * Upper bound on sandbox + Node cold-start: the window from spawn until the child
+ * harness signals `ready` (right before it does any tool work). This is separate
+ * from the per-tool operation timeout so a slow, loaded host does not charge its
+ * startup latency against `timeoutMs` and spuriously report a timeout. Generous
+ * because it must cover the OS-sandbox wrapper shell, Node boot, and the harness's
+ * own module load under parallel load; a child that never becomes ready (a wedged
+ * spawn) is still bounded here rather than hanging the caller.
+ */
+const STARTUP_GRACE_MS = 15000;
 
 export interface RunToolOptions {
   /** Logger for the audit entry. Defaults to a no-op logger. */
@@ -235,6 +246,11 @@ async function executeSandbox(
 
     let settled = false;
     let detachAbort: (() => void) | undefined;
+    // The currently-armed timeout. Starts as the startup guard (spawn → ready) and
+    // is swapped for the per-tool operation timeout when the child signals `ready`.
+    // `finish` clears whichever one is active.
+    let activeTimer: ReturnType<typeof setTimeout>;
+    let readyReceived = false;
 
     // srt's per-command cleanup must run exactly once (it decrements the Linux
     // active-sandbox counter). Idempotent so neither a missed nor a duplicate
@@ -253,7 +269,7 @@ async function executeSandbox(
         return;
       }
       settled = true;
-      clearTimeout(timer);
+      clearTimeout(activeTimer);
       detachAbort?.();
       child.removeAllListeners();
       child.on('error', () => {
@@ -283,9 +299,15 @@ async function executeSandbox(
     const operationTimeoutMs = describe
       ? Math.min(manifest.timeoutMs, DESCRIBE_TIMEOUT_CAP_MS)
       : manifest.timeoutMs;
-    const timer = setTimeout(() => {
+
+    // Two-phase timeout. Until the child signals `ready`, only the generous startup
+    // guard is armed — sandbox and Node cold-start must not be charged against the
+    // tool's `timeoutMs`, or a slow/loaded host spuriously reports a timeout. The
+    // per-tool operation timeout (`operationTimeoutMs`) starts on `ready`, so it
+    // bounds only the actual tool work (module import, schema compile, handler).
+    activeTimer = setTimeout(() => {
       finish({ outcome: 'timeout' });
-    }, operationTimeoutMs);
+    }, STARTUP_GRACE_MS);
 
     // Caller abort mid-run (e.g. a cancelled downstream `tools/call`): kill the
     // child and resolve immediately rather than waiting out the per-tool timeout.
@@ -305,9 +327,24 @@ async function executeSandbox(
       }
     }
 
-    child.on('message', (message: SandboxEnvelope) => {
+    child.on('message', (message: SandboxMessage) => {
       if (message.nonce !== nonce) {
         // Forged or stale message (a tool cannot know the nonce) — ignore it.
+        return;
+      }
+      if ('ready' in message) {
+        // Sandbox is up and the harness is about to run the tool. Swap the startup
+        // guard for the per-tool operation timeout so only the tool work is bounded.
+        // Guard against a duplicate/late `ready` (the real one always arrives first,
+        // before any tool code) so a forged extra `ready` cannot re-arm the timer.
+        if (readyReceived || settled) {
+          return;
+        }
+        readyReceived = true;
+        clearTimeout(activeTimer);
+        activeTimer = setTimeout(() => {
+          finish({ outcome: 'timeout' });
+        }, operationTimeoutMs);
         return;
       }
       if (message.ok) {
