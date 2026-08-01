@@ -5,6 +5,15 @@ description: >
   on `pnpm-lock.yaml`, and installs workspace dependencies with a frozen
   lockfile.
 
+inputs:
+  ignore-scripts:
+    description: >
+      Install without running dependency lifecycle scripts. Set by the
+      privileged publish job so third-party install hooks never execute in a
+      context that can mint an npm OIDC publishing credential.
+    required: false
+    default: 'false'
+
 runs:
   using: composite
   steps:
@@ -19,4 +28,4 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      run: pnpm install --frozen-lockfile
+      run: pnpm install --frozen-lockfile ${{ inputs.ignore-scripts == 'true' && '--ignore-scripts' || '' }}

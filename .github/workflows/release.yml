@@ -3,35 +3,74 @@ name: Release
 # Changesets-driven release. On every push to main:
 #   - with pending changesets: open/update the "Version Packages" PR, which bumps
 #     all four @toolbx/* packages in lockstep and writes their CHANGELOGs;
-#   - after that PR merges (no pending changesets): build, publish to npm, and
-#     create a GitHub Release per package tag.
+#   - after that PR merges (no pending changesets): publish to npm and create a
+#     single aggregated vX.Y.Z GitHub Release.
 # Publishing is tokenless via npm OIDC "trusted publishing" — there is no
 # NPM_TOKEN. Each package must have this repository + this workflow registered as
 # a trusted publisher on npmjs.com (see RELEASING.md). Provenance is automatic.
+#
+# The work is split across two jobs on purpose. Actions permissions are
+# job-scoped, so any code running in a job that holds `id-token: write` can mint
+# the OIDC credential npm trusts to publish @toolbx/*. Dependency lifecycle
+# scripts and the build/test toolchain are third-party code, so they run in the
+# unprivileged `build` job; the privileged `publish` job installs with
+# `--ignore-scripts` and consumes the built artifacts.
 on:
   push:
     branches: [main]
 
 concurrency: release-${{ github.ref }}
 
-permissions:
-  contents: write # push the Version Packages branch, create tags + GitHub Releases
-  pull-requests: write # open/update the Version Packages PR
-  id-token: write # OIDC trusted publishing + provenance attestation
+permissions: {}
 
 jobs:
-  release:
-    name: Release
+  build:
+    name: Build and test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+
+      - run: pnpm build
+      - run: pnpm test:run
+      - run: pnpm test:integration
+
+      # Handed to the publish job so it never has to run the build itself.
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            apps/cli/dist
+            packages/*/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Version or publish
+    runs-on: ubuntu-latest
+    # Gates publication on a green build and full test suite: this job cannot
+    # start unless `build` succeeded.
+    needs: build
+    permissions:
+      contents: write # push the Version Packages branch, create the tag + Release
+      pull-requests: write # open/update the Version Packages PR
+      id-token: write # OIDC trusted publishing + provenance attestation
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Changesets needs full history to compute releases
 
-      # pnpm 10.x (OIDC works on 10, regressed on 11.0.8) + Node (.nvmrc; >= 22.14
-      # for OIDC) + deps. Deliberately no registry-url: an empty _authToken line
-      # would make npm think auth is configured and skip the OIDC token exchange.
+      # `--ignore-scripts`: no third-party install hook runs in this privileged
+      # job. Only the Changesets CLI is executed here; the build already happened
+      # in the unprivileged job above. None of the four packages define
+      # prepublish/prepack scripts, so publishing runs no package code either.
       - uses: ./.github/actions/setup
+        with:
+          ignore-scripts: 'true'
 
       # OIDC trusted publishing requires npm >= 11.5.1, and the publish is
       # delegated down to the runner's npm executable — Node 22 ships npm 10.x,
@@ -39,6 +78,24 @@ jobs:
       # exact npm 11 (npm@latest is 12.x and needs a newer Node than .nvmrc's 22).
       - name: Pin npm to an OIDC-capable release
         run: npm install -g npm@11.18.0
+
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: .
+
+      # The artifact handoff is a failure mode the single-job pipeline did not
+      # have: an empty or partial download would otherwise publish packages whose
+      # `files: ["dist"]` resolves to nothing. Fail loudly instead.
+      - name: Verify build output is present
+        run: |
+          for pkg in apps/cli packages/core packages/mcp-gateway packages/custom-tools; do
+            if [ ! -d "$pkg/dist" ] || [ -z "$(ls -A "$pkg/dist")" ]; then
+              echo "::error::$pkg/dist is missing or empty — refusing to publish"
+              exit 1
+            fi
+          done
 
       - name: Create Version Packages PR or publish
         id: changesets
