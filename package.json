@@ -21,7 +21,7 @@
     "format:check": "prettier --check .",
     "changeset": "changeset",
     "version:packages": "changeset version",
-    "release": "pnpm build && changeset publish",
+    "release": "pnpm build && pnpm test:run && pnpm test:integration && changeset publish",
     "prepare": "husky"
   },
   "devDependencies": {

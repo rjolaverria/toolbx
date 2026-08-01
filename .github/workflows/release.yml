@@ -33,6 +33,13 @@ jobs:
       # would make npm think auth is configured and skip the OIDC token exchange.
       - uses: ./.github/actions/setup
 
+      # OIDC trusted publishing requires npm >= 11.5.1, and the publish is
+      # delegated down to the runner's npm executable — Node 22 ships npm 10.x,
+      # which would reach the registry without an OIDC exchange and fail. Pin an
+      # exact npm 11 (npm@latest is 12.x and needs a newer Node than .nvmrc's 22).
+      - name: Pin npm to an OIDC-capable release
+        run: npm install -g npm@11.18.0
+
       - name: Create Version Packages PR or publish
         id: changesets
         uses: changesets/action@v1
