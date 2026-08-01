@@ -1,44 +1,45 @@
 name: Release
 
-# Publishes all four @toolbx/* packages to npm when a vX.Y.Z tag is pushed.
-# The first release (0.1.0) is published manually (see RELEASING.md), so its
-# tag is excluded here — otherwise pushing v0.1.0 would re-trigger a publish of
-# versions that already exist on npm and fail the workflow. Every tagged
-# release after 0.1.0 is published by this workflow.
+# Changesets-driven release. On every push to main:
+#   - with pending changesets: open/update the "Version Packages" PR, which bumps
+#     all four @toolbx/* packages in lockstep and writes their CHANGELOGs;
+#   - after that PR merges (no pending changesets): build, publish to npm, and
+#     create a GitHub Release per package tag.
+# Publishing is tokenless via npm OIDC "trusted publishing" — there is no
+# NPM_TOKEN. Each package must have this repository + this workflow registered as
+# a trusted publisher on npmjs.com (see RELEASING.md). Provenance is automatic.
 on:
   push:
-    tags:
-      - 'v*'
-      - '!v0.1.0'
+    branches: [main]
+
+concurrency: release-${{ github.ref }}
+
+permissions:
+  contents: write # push the Version Packages branch, create tags + GitHub Releases
+  pull-requests: write # open/update the Version Packages PR
+  id-token: write # OIDC trusted publishing + provenance attestation
 
 jobs:
-  publish:
-    name: Publish to npm
+  release:
+    name: Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write # npm provenance
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Changesets needs full history to compute releases
 
-      # Installs pnpm + Node (.nvmrc) + workspace deps (frozen lockfile).
+      # pnpm 10.x (OIDC works on 10, regressed on 11.0.8) + Node (.nvmrc; >= 22.14
+      # for OIDC) + deps. Deliberately no registry-url: an empty _authToken line
+      # would make npm think auth is configured and skip the OIDC token exchange.
       - uses: ./.github/actions/setup
 
-      # Re-point Node at the public registry so NODE_AUTH_TOKEN authenticates
-      # the publish. (The composite setup above does not set registry-url.)
-      - uses: actions/setup-node@v4
+      - name: Create Version Packages PR or publish
+        uses: changesets/action@v1
         with:
-          node-version-file: '.nvmrc'
-          registry-url: 'https://registry.npmjs.org'
-
-      - run: pnpm build
-      - run: pnpm test:run
-      - run: pnpm test:integration
-
-      # pnpm walks the workspace in dependency order and rewrites the internal
-      # workspace:^ refs to real version ranges. --provenance attaches the npm
-      # supply-chain attestation (requires id-token: write above).
-      - name: Publish
-        run: pnpm -r publish --access public --no-git-checks --provenance
+          version: pnpm version:packages
+          publish: pnpm release
+          title: 'release: version packages'
+          commit: 'release: version packages'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
