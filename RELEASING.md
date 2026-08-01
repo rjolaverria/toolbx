@@ -102,13 +102,39 @@ gh release create vX.Y.Z --generate-notes
 
 ## Subsequent releases (automated)
 
-`0.1.0` is published by hand to confirm the flow. After that, a tagged release is
-published by CI: pushing a `vX.Y.Z` tag triggers
+After the initial hand-published releases, cutting a release is a single action:
+**publish a GitHub Release** for the new `vX.Y.Z` tag. That triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds,
-tests, and runs `pnpm -r publish --access public --no-git-checks` using the
-`NPM_TOKEN` repository secret (an npm **automation** token with publish rights to
-the `@toolbx` scope). Add that secret under
-_Settings → Secrets and variables → Actions_ before the first automated release.
+tests, and runs `pnpm -r publish --access public --no-git-checks --provenance`.
+
+```bash
+# after the version-bump PR is merged to main
+gh release create vX.Y.Z --generate-notes
+```
+
+Publishing is **tokenless** via npm OIDC "trusted publishing" — there is no
+`NPM_TOKEN` secret. GitHub's OIDC identity authenticates the workflow directly to
+npm, and `--provenance` attaches a signed supply-chain attestation. This requires
+pnpm 10.x (OIDC works on 10; it regressed on 11.0.8) and Node ≥ 22.14 (the
+`.nvmrc` `22` resolves to a current 22.x on the runner).
+
+### One-time trusted-publisher setup
+
+Each of the four packages must have this repository registered as a trusted
+publisher on npmjs.com **before** the first OIDC release (the package must already
+exist on npm, which all four do):
+
+For `@toolbx/cli`, `@toolbx/core`, `@toolbx/mcp-gateway`, and `@toolbx/custom-tools`:
+
+1. npmjs.com → the package → **Settings → Trusted Publisher**.
+2. Add a **GitHub Actions** publisher:
+   - Repository owner / name: `rjolaverria/toolbx`
+   - Workflow filename: `release.yml`
+3. Save.
+
+Once all four are configured, any published GitHub Release publishes all four
+packages with provenance and no stored credential. The old `NPM_TOKEN` repository
+secret is no longer used and can be deleted.
 
 ## Renaming the packages
 
