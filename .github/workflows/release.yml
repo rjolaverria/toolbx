@@ -34,12 +34,30 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Create Version Packages PR or publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm version:packages
           publish: pnpm release
           title: 'release: version packages'
           commit: 'release: version packages'
+          # All four packages are always in lockstep (one fixed group, identical
+          # version), so per-package Releases would be four duplicates of the same
+          # changelog. Create a single aggregated vX.Y.Z Release instead (below).
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: Create aggregated GitHub Release
+        # Runs only on an actual publish (not when the step only opened/updated the
+        # Version Packages PR). publishedPackages is a JSON array of
+        # {name, version} for every published package; lockstep guarantees they
+        # share one version, so the first entry's version names the release.
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          version=$(echo "$PUBLISHED_PACKAGES" | jq -r '.[0].version')
+          gh release create "v$version" --title "v$version" --generate-notes

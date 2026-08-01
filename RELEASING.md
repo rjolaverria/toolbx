@@ -42,7 +42,9 @@ Fully automated by [`.github/workflows/release.yml`](.github/workflows/release.y
    the pending changesets: bumps every package to the next version and updates each
    CHANGELOG.
 3. Review and merge that PR. On merge, the workflow builds, publishes all four to
-   npm, and creates a GitHub Release per package tag.
+   npm, and creates a single aggregated `vX.Y.Z` GitHub Release (all four packages
+   always share one version, so one tag/Release represents the whole release
+   rather than four identical per-package ones).
 
 There is no local publishing step.
 
