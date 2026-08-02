@@ -203,6 +203,36 @@ jobs:
         with:
           ignore-scripts: 'true'
 
+      # `needs: publish` only orders jobs inside this run. A publish started by an
+      # earlier run can still be in flight, or have failed partway, while this job
+      # prepares the next bump — and merging that PR would advance the manifests
+      # past a half-published version, stranding whatever never made it. Re-read
+      # the registry here, as late as possible, and refuse in that case.
+      #
+      # This narrows the window rather than closing it: nothing prevents a publish
+      # from failing immediately after this check. Closing it entirely needs a lock
+      # across workflow runs, which Actions does not provide.
+      - name: Refuse to version past a partial publish
+        run: |
+          version=$(node -p "require('./apps/cli/package.json').version")
+          present=0
+          missing=0
+          for pkg in cli core mcp-gateway custom-tools; do
+            if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
+              present=$((present + 1))
+            elif printf '%s' "$out" | grep -q 'E404'; then
+              missing=$((missing + 1))
+            else
+              echo "::error::could not determine whether @toolbx/$pkg@$version is published"
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          done
+          if [ "$missing" -gt 0 ] && [ "$present" -gt 0 ]; then
+            echo "::error::$version is partly published ($present of 4); refusing to prepare the next version until it is finished — see RELEASING.md."
+            exit 1
+          fi
+
       # Pinned to a commit SHA, not the mutable `v1` branch: this job can push
       # branches and open PRs, so a moved tag would inherit those rights.
       # a45c4d5 is release v1.9.0.
