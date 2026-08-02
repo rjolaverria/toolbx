@@ -125,19 +125,35 @@ jobs:
         with:
           fetch-depth: 0 # Changesets needs full history to compute releases
 
+      # Deliberately not the shared composite setup: that uses pnpm/action-setup,
+      # a third-party action, and this is the only job that can mint the npm
+      # publishing credential. Node comes from a GitHub-owned action and pnpm from
+      # Corepack, which ships with Node — so no third-party action runs here.
+      #
+      # Corepack takes the pnpm version from the root `packageManager` field, which
+      # also pins the client that performs the OIDC exchange: in a pnpm workspace
+      # `changeset publish` shells out to `pnpm publish`, and pnpm implements
+      # trusted publishing itself rather than delegating to the npm CLI (10.x
+      # works; it regressed on 11.0.8).
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Activate pnpm via Corepack
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          corepack enable
+          pnpm --version
+
       # `--ignore-scripts`: no third-party install hook runs in this privileged
       # job. Only the Changesets CLI is executed here; the build already happened
       # in the unprivileged job above. None of the four packages define
       # prepublish/prepack scripts, so publishing runs no package code either.
-      #
-      # This also pins the client that performs the OIDC exchange. In a pnpm
-      # workspace `changeset publish` shells out to `pnpm publish`, and pnpm
-      # implements trusted publishing itself rather than delegating to the npm
-      # CLI — so the OIDC-capable version that matters is pnpm's, taken from the
-      # root `packageManager` field (10.x works; it regressed on 11.0.8).
-      - uses: ./.github/actions/setup
-        with:
-          ignore-scripts: 'true'
+      - name: Install dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Download build output
         uses: actions/download-artifact@v4
