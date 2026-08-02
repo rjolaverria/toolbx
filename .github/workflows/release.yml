@@ -23,8 +23,14 @@ on:
   push:
     branches: [main]
 
-concurrency: release-${{ github.ref }}
-
+# No workflow-level concurrency group on purpose. GitHub replaces a *pending* run
+# when a newer one joins the group — `cancel-in-progress: false` only protects
+# runs already executing. A Version Packages merge is the run that publishes, so
+# discarding it while pending would skip that version on npm entirely: a later
+# push carrying a changeset takes the version path instead, and the consumed
+# version is never published. Publish runs are therefore never grouped; only the
+# version path is (see that job), where being replaced is harmless because the
+# surviving run regenerates the version PR from the full current state.
 permissions: {}
 
 jobs:
@@ -82,6 +88,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: needs.build.outputs.has-changesets == 'true'
+    # Grouped so concurrent pushes don't race to update the Version Packages
+    # branch. Safe to group precisely because losing a queued run here costs
+    # nothing: the run that survives recomputes the PR from every pending
+    # changeset. The publish job is deliberately left ungrouped.
+    concurrency:
+      group: release-version-${{ github.ref }}
+      cancel-in-progress: false
     # No `id-token`: opening the version PR never publishes, so this path is
     # never granted the npm credential. No publish script is passed either, so
     # changesets/action has nothing to publish with even if it wanted to.
