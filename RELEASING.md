@@ -82,6 +82,21 @@ the package's **Settings → Trusted Publisher → GitHub Actions**, repository
 works on 10, regressed on 11.0.8) and Node ≥ 22.14 — both already pinned via
 `packageManager` and `.nvmrc`, and the repo must be public.
 
+### Recovering a missed GitHub Release
+
+The `release` job self-heals only for the version in the current manifests. If a
+Release fails to be created and a later Version Packages PR merges before any
+other push, that older version keeps its packages on npm but never gets a tag or
+Release, and no automated run will revisit it — the workflow only ever inspects
+the current version.
+
+Recover it by hand, tagging the commit that set that version:
+
+```bash
+git log --first-parent --oneline -- apps/cli/package.json   # find the bump commit
+gh release create vX.Y.Z --target <commit> --title vX.Y.Z --generate-notes
+```
+
 ## Manual publish (break-glass)
 
 If OIDC is ever unavailable, publish from a trusted machine after a green
