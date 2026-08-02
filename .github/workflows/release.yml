@@ -74,20 +74,27 @@ jobs:
           echo "pending changesets: $count"
 
           # Publishing is driven by what is actually on the registry, not by the
-          # absence of changesets. A registry error is never treated as "missing":
-          # that would silently skip a release, so fail the run instead.
+          # absence of changesets. All four packages are checked, not just the
+          # CLI: `changeset publish` decides per package, so a partial publish
+          # must still register as work to do — otherwise a run that published
+          # some packages and failed on others would never be retried. A registry
+          # error is never treated as "missing": that would silently skip a
+          # release, so fail the run instead.
           version=$(node -p "require('./apps/cli/package.json').version")
-          if out=$(npm view "@toolbx/cli@$version" version 2>&1); then
-            echo "needs-publish=false" >> "$GITHUB_OUTPUT"
-            echo "@toolbx/cli@$version is already published"
-          elif printf '%s' "$out" | grep -q 'E404'; then
-            echo "needs-publish=true" >> "$GITHUB_OUTPUT"
-            echo "@toolbx/cli@$version is not published yet"
-          else
-            echo "::error::could not determine whether @toolbx/cli@$version is published"
-            printf '%s\n' "$out"
-            exit 1
-          fi
+          needs_publish=false
+          for pkg in cli core mcp-gateway custom-tools; do
+            if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
+              continue
+            elif printf '%s' "$out" | grep -q 'E404'; then
+              needs_publish=true
+              echo "@toolbx/$pkg@$version is not published yet"
+            else
+              echo "::error::could not determine whether @toolbx/$pkg@$version is published"
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          done
+          echo "needs-publish=$needs_publish" >> "$GITHUB_OUTPUT"
 
       - run: pnpm build
       - run: pnpm test:run
@@ -163,7 +170,7 @@ jobs:
     # reaches npm without a green build and full test suite.
     if: needs.build.outputs.needs-publish == 'true'
     permissions:
-      contents: write # create the tag + aggregated Release
+      contents: read # only reads the tree; the Release is cut by a separate job
       id-token: write # OIDC trusted publishing + provenance attestation
     steps:
       - uses: actions/checkout@v4
@@ -230,14 +237,35 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: 'true'
 
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, publish]
+    # Runs whether or not this commit published, so a Release that failed to be
+    # created after a successful publish is still recovered by a later push —
+    # gating this on `needs-publish` would make the idempotent logic below
+    # unreachable once the version is on the registry. Skipped only when the
+    # publish attempt itself failed, since there is then nothing to announce.
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    permissions:
+      contents: write # create the tag + aggregated Release
+      # No `id-token`: cutting a Release never publishes.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needs history to locate the version-bump commit
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
       - name: Create aggregated GitHub Release
-        # Deliberately not gated on the `published` output: that only reports
-        # whether this invocation published, so a transient failure here would
-        # leave packages on npm with no Release and no way to recover by rerunning.
-        # Instead derive the version from the checked-out tree (lockstep means all
-        # four agree) and make the step idempotent — it creates the Release only
-        # when that version is actually on npm and has no Release yet, so it is a
-        # no-op on reruns that have nothing to do and self-healing after a failure.
+        # Idempotent by design: derives the version from the checked-out tree
+        # (lockstep means all four agree) and creates the Release only when every
+        # package is on npm and no Release exists yet. So it is a no-op on
+        # ordinary pushes and self-healing after a failed attempt.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -248,18 +276,23 @@ jobs:
             exit 0
           fi
 
-          # Only a confirmed E404 means "not published". A registry or network
-          # failure must not be read as absence: that would skip the Release,
-          # leave the run green, and stop anything from retrying it.
-          if ! out=$(npm view "@toolbx/cli@$version" version 2>&1); then
-            if printf '%s' "$out" | grep -q 'E404'; then
-              echo "v$version is not on npm — no release to create."
+          # Every package must be on the registry: a Release must not announce a
+          # partial publish. Only a confirmed E404 means "not published" — a
+          # registry or network failure must not be read as absence, or the
+          # Release would be skipped with the run still green and nothing to
+          # retry it.
+          for pkg in cli core mcp-gateway custom-tools; do
+            if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
+              continue
+            elif printf '%s' "$out" | grep -q 'E404'; then
+              echo "@toolbx/$pkg@$version is not on npm — no release to create."
               exit 0
+            else
+              echo "::error::could not confirm whether @toolbx/$pkg@$version is published"
+              printf '%s\n' "$out"
+              exit 1
             fi
-            echo "::error::could not confirm whether @toolbx/cli@$version is published"
-            printf '%s\n' "$out"
-            exit 1
-          fi
+          done
 
           # Tag the commit that set this version, not $GITHUB_SHA. They are the
           # same on the run that publishes, but recovery can happen on a later

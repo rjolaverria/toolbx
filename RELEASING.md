@@ -54,7 +54,7 @@ Publishing is **tokenless**: GitHub's OIDC identity authenticates the workflow t
 npm directly, npm attaches a provenance attestation automatically, and there is no
 `NPM_TOKEN` secret to rotate or leak.
 
-The workflow runs as three jobs, because Actions permissions are job-scoped: any
+The workflow runs as four jobs, because Actions permissions are job-scoped: any
 code in a job holding `id-token: write` could mint the credential npm trusts to
 publish `@toolbx/*`. So `build` runs the third-party code (dependency install
 hooks, the build and test toolchain) with no publishing permission; `version`
