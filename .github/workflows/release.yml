@@ -75,16 +75,15 @@ jobs:
       # job. Only the Changesets CLI is executed here; the build already happened
       # in the unprivileged job above. None of the four packages define
       # prepublish/prepack scripts, so publishing runs no package code either.
+      #
+      # This also pins the client that performs the OIDC exchange. In a pnpm
+      # workspace `changeset publish` shells out to `pnpm publish`, and pnpm
+      # implements trusted publishing itself rather than delegating to the npm
+      # CLI — so the OIDC-capable version that matters is pnpm's, taken from the
+      # root `packageManager` field (10.x works; it regressed on 11.0.8).
       - uses: ./.github/actions/setup
         with:
           ignore-scripts: 'true'
-
-      # OIDC trusted publishing requires npm >= 11.5.1, and the publish is
-      # delegated down to the runner's npm executable — Node 22 ships npm 10.x,
-      # which would reach the registry without an OIDC exchange and fail. Pin an
-      # exact npm 11 (npm@latest is 12.x and needs a newer Node than .nvmrc's 22).
-      - name: Pin npm to an OIDC-capable release
-        run: npm install -g npm@11.18.0
 
       - name: Download build output
         uses: actions/download-artifact@v4
