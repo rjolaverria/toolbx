@@ -324,13 +324,19 @@ jobs:
             fi
           done
 
-      # Runs the Changesets CLI directly rather than through changesets/action.
-      # This is the only job that can mint the npm publishing credential, so it
-      # runs no third-party action at all — the action's remaining value here was
-      # just invoking this script (its per-package releases are already disabled,
-      # and the aggregated Release below no longer reads its outputs).
-      # `--no-git-tag` (set in the script) suppresses the per-package tags in
-      # favour of the single aggregated tag created below.
+      # Publishes with `pnpm -r publish` rather than `changeset publish`, for two
+      # reasons. Ordering: pnpm walks the workspace topologically (dependencies
+      # before dependents), whereas `changeset publish` fires them off with
+      # Promise.all — so a partial failure there could put @toolbx/cli on the
+      # registry while a package it depends on was missing, leaving that version
+      # uninstallable. The chain here is core → custom-tools → mcp-gateway → cli,
+      # so ordering means a failure simply stops, and dependents are never
+      # published without their dependencies. Second, this is the command the repo
+      # has actually released with before. Both skip versions already on the
+      # registry, so retrying still completes a partial publish.
+      #
+      # No third-party action runs in this job at all — it is the only one that can
+      # mint the publishing credential.
       - name: Publish to npm
         run: pnpm release
         env:
