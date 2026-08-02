@@ -121,8 +121,18 @@ jobs:
   version:
     name: Version packages
     runs-on: ubuntu-latest
-    needs: build
-    if: needs.build.outputs.has-changesets == 'true'
+    needs: [build, publish]
+    # Waits on `publish` rather than running beside it. When a commit has both an
+    # unpublished version and a new changeset, both jobs have work to do — but if
+    # publishing fails partway, advancing the Version Packages PR would strand the
+    # packages that did not publish: merging that PR moves the manifests on, and
+    # later runs would only ever inspect the newer version, so the half-published
+    # one could never be repaired by the normal flow. Preparing the next bump is
+    # therefore allowed only once publishing has succeeded or had nothing to do.
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped') &&
+      needs.build.outputs.has-changesets == 'true'
     # Grouped so concurrent pushes don't race to update the Version Packages
     # branch. Safe to group precisely because losing a queued run here costs
     # nothing: the run that survives recomputes the PR from every pending
@@ -163,11 +173,11 @@ jobs:
     needs: build
     # Driven by whether this commit's version is actually on the registry, not by
     # the absence of changesets: a Version Packages merge that lands alongside a
-    # newly added changeset must still publish the version it consumed. This job
-    # and `version` can therefore both run for one commit, which is safe — they
-    # touch different things (this publishes the current manifests; `version`
-    # only writes the Version Packages branch). Gated on `build`, so nothing
-    # reaches npm without a green build and full test suite.
+    # newly added changeset must still publish the version it consumed. Both this
+    # job and `version` can have work to do for one commit; `version` waits on
+    # this one so a failed publish cannot be stranded by the manifests moving on.
+    # Gated on `build`, so nothing reaches npm without a green build and full
+    # test suite.
     if: needs.build.outputs.needs-publish == 'true'
     permissions:
       contents: read # only reads the tree; the Release is cut by a separate job
