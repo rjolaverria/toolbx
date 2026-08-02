@@ -143,11 +143,27 @@ jobs:
             exit 0
           fi
 
-          # --target pins the new tag to the exact commit whose packages were
-          # published. Without it `gh release create` tags the default branch's
-          # current HEAD, which may have advanced past this commit while the build,
-          # tests, and publish were running.
+          # Tag the commit that set this version, not $GITHUB_SHA. They are the
+          # same on the run that publishes, but recovery can happen on a later
+          # push — and there $GITHUB_SHA is an unrelated commit whose code was
+          # never published. `-S` reports the newest commit that changed the count
+          # of this exact version string, which for the version currently in the
+          # tree is the commit that introduced it; the check below verifies that
+          # rather than trusting it.
+          needle="\"version\": \"$version\""
+          target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
+          if [ -z "$target" ]; then
+            echo "::error::could not find the commit that set version $version"
+            exit 1
+          fi
+          target_version=$(git show "$target:apps/cli/package.json" |
+            node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          if [ "$target_version" != "$version" ]; then
+            echo "::error::commit $target has version $target_version, expected $version"
+            exit 1
+          fi
+
           gh release create "v$version" \
-            --target "$GITHUB_SHA" \
+            --target "$target" \
             --title "v$version" \
             --generate-notes
