@@ -164,6 +164,10 @@ jobs:
           # on this artifact still existing; RELEASING.md says to re-run all jobs,
           # which rebuilds them regardless.
           retention-days: 14
+          # Re-running all jobs keeps the same run id, so the previous attempt's
+          # artifact is still there and an upload of the same name would otherwise
+          # fail — breaking the documented recovery before publish is even reached.
+          overwrite: true
           if-no-files-found: error
 
   version:
