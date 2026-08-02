@@ -88,8 +88,13 @@ A version is only ever published from the commit that set it. Everything the
 workflow publishes is built from the commit it runs on, the tag points at that
 same commit, and provenance records it — so publishing from anywhere else would
 leave the attestation disagreeing with the tag, which cannot be repaired
-afterwards. A later run that finds the version still unpublished therefore
-refuses, naming the commit that set it.
+afterwards. A later run therefore never publishes a version it did not bump:
+
+- If **some** packages made it to the registry, that half-finished release must be
+  completed from its own commit before anything else happens, so the run fails and
+  no new Version Packages PR is prepared.
+- If **none** did, the run only warns and skips publishing; the `version` job still
+  runs, so you can move on to the next version.
 
 **If the publish itself failed** (registry flake, a job cancelled midway), use
 **Re-run all jobs** on that original run: it rebuilds the same source, and

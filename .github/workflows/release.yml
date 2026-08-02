@@ -97,10 +97,9 @@ jobs:
               exit 1
             fi
           done
+          needs_publish=false
           if [ "$missing" -gt 0 ]; then
-            echo "needs-publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs-publish=false" >> "$GITHUB_OUTPUT"
+            needs_publish=true
           fi
 
           # Everything published from this run is built from this commit, so a
@@ -111,19 +110,28 @@ jobs:
           # the fact. A partial publish is worse still: the version would be
           # assembled from two different sources.
           #
-          # This does block automated fix-forward when a release fails outright,
-          # which is deliberate. That case has cheap remedies that keep the
-          # invariant intact — publish the version-bump commit manually, or add a
-          # changeset and let the next version publish normally, leaving the failed
-          # version unpublished and unreferenced. See RELEASING.md.
-          if [ "$missing" -gt 0 ]; then
+          # Refusing to publish and halting the workflow are separate decisions.
+          # Publishing from a foreign commit is never allowed, but only a partial
+          # publish is a broken state worth blocking on: it must be finished from
+          # the original commit before the manifests move on, so it fails here and
+          # takes the `version` job down with it. A version that reached nothing at
+          # all is merely unpublished — publishing is skipped with a warning while
+          # the `version` job stays free to prepare the next one, which is the
+          # documented way to move past a release that failed outright.
+          if [ "$needs_publish" = "true" ]; then
             needle="\"version\": \"$version\""
             target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
             if [ "$target" != "$GITHUB_SHA" ]; then
-              echo "::error::$version is unpublished ($present of 4 on the registry) but this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Publishing from here would build artifacts whose provenance disagrees with the tag — see RELEASING.md for recovery."
-              exit 1
+              if [ "$present" -gt 0 ]; then
+                echo "::error::$version is partly published ($present of 4) and this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Finish it from that commit before anything else — see RELEASING.md."
+                exit 1
+              fi
+              echo "::warning::$version is unpublished but this commit is not the one that set it (${target:-unknown}); skipping publish so artifacts and provenance cannot disagree with the tag. See RELEASING.md."
+              needs_publish=false
             fi
           fi
+
+          echo "needs-publish=$needs_publish" >> "$GITHUB_OUTPUT"
 
       - run: pnpm build
       - run: pnpm test:run
