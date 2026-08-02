@@ -90,10 +90,17 @@ from the commit it runs on, and mixing sources would put one npm version togethe
 out of two different commits. Any later run refuses with an error naming the
 commit that set the version.
 
-Recover by re-running that original workflow run (**Re-run failed jobs** on it):
-it rebuilds the correct source, and `changeset publish` skips whatever already
-made it to the registry. If the run is too old to re-run, publish that commit
-manually with the break-glass steps below.
+Recover with **Re-run all jobs** on that original run: it rebuilds the correct
+source, and `changeset publish` skips whatever already made it to the registry.
+Re-run _all_ jobs rather than only the failed ones — a failed-jobs re-run does not
+re-run `build`, so it depends on that run's artifacts still existing. If the run
+is too old to re-run, publish that commit manually with the break-glass steps
+below.
+
+This guard applies only to a genuine partial publish. If a release failed before
+anything reached npm — a broken workflow, misconfigured OIDC — just fix it and
+merge: the next run publishes all four from that commit, so they stay consistent
+with each other, and nothing needs re-running.
 
 ### Recovering a missed GitHub Release
 

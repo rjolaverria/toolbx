@@ -83,12 +83,13 @@ jobs:
           # error is never treated as "missing": that would silently skip a
           # release, so fail the run instead.
           version=$(node -p "require('./apps/cli/package.json').version")
-          needs_publish=false
+          present=0
+          missing=0
           for pkg in cli core mcp-gateway custom-tools; do
             if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
-              continue
+              present=$((present + 1))
             elif printf '%s' "$out" | grep -q 'E404'; then
-              needs_publish=true
+              missing=$((missing + 1))
               echo "@toolbx/$pkg@$version is not published yet"
             else
               echo "::error::could not determine whether @toolbx/$pkg@$version is published"
@@ -96,22 +97,30 @@ jobs:
               exit 1
             fi
           done
-          echo "needs-publish=$needs_publish" >> "$GITHUB_OUTPUT"
+          if [ "$missing" -gt 0 ]; then
+            echo "needs-publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs-publish=false" >> "$GITHUB_OUTPUT"
+          fi
 
-          # Anything published from this run is built from this commit, so this
-          # must be the commit that set the version being published. On the normal
-          # path it always is — the Version Packages merge is what triggers the
-          # run. It diverges only when an earlier publish left some packages
-          # behind and another commit has since landed: republishing the stragglers
-          # from newer source would assemble one npm version out of two different
-          # commits, and attest provenance for source that was never published.
-          # Refuse that. Re-running the original failed run rebuilds the right
-          # source, and `changeset publish` skips whatever already landed.
-          if [ "$needs_publish" = "true" ]; then
+          # Everything published from this run is built from this commit. When a
+          # version is *partly* on the registry, publishing the stragglers from a
+          # different commit would assemble one npm version out of two sources and
+          # attest provenance for code that was never published for the rest, so
+          # that case is refused: re-run the original run, where `changeset
+          # publish` skips whatever already landed.
+          #
+          # Scoped to genuine partials. If nothing published at all there is no
+          # mixing to prevent, and blocking would be actively harmful — a release
+          # that failed outright (a broken workflow, misconfigured OIDC) is fixed
+          # by merging a correction, and re-running the original commit would just
+          # re-run the broken workflow. All four then publish from one commit, so
+          # they stay consistent with each other.
+          if [ "$missing" -gt 0 ] && [ "$present" -gt 0 ]; then
             needle="\"version\": \"$version\""
             target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
             if [ "$target" != "$GITHUB_SHA" ]; then
-              echo "::error::$version is unpublished but this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Re-run the workflow for that commit, or publish manually — see RELEASING.md."
+              echo "::error::$version is partly published ($present of 4) and this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Re-run the workflow run for that commit so the remaining packages are built from the same source — see RELEASING.md."
               exit 1
             fi
           fi
@@ -135,7 +144,11 @@ jobs:
             packages/core/dist
             packages/mcp-gateway/dist
             packages/custom-tools/dist
-          retention-days: 1
+          # Long enough that re-running a failed publish still finds them. A
+          # re-run of only the failed jobs does not re-run `build`, so it depends
+          # on this artifact still existing; RELEASING.md says to re-run all jobs,
+          # which rebuilds them regardless.
+          retention-days: 14
           if-no-files-found: error
 
   version:
@@ -167,8 +180,15 @@ jobs:
       contents: write # push the Version Packages branch
       pull-requests: write # open/update the Version Packages PR
     steps:
+      # Checks out the branch tip rather than this run's event SHA. Jobs enter the
+      # concurrency group when their dependencies finish, not in push order, so an
+      # older run can get here last; from its own SHA it would rebuild the shared
+      # Version Packages PR off a stale tree, dropping changesets that landed since
+      # or resurrecting a bump already consumed. The PR should always describe
+      # current main, whichever run happens to write it.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           fetch-depth: 0 # Changesets needs full history to compute releases
 
       - uses: ./.github/actions/setup
