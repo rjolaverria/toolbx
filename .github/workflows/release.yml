@@ -34,11 +34,18 @@ on:
 #
 # The residual risk is that two publish runs overlap if two Version Packages PRs
 # merge within the build window, and an older one finishing last would move the
-# `latest` dist-tag backwards. That is accepted rather than fixed: Actions offers
-# no queue that preserves every run (a concurrency group would reintroduce the
-# dropped-release bug above), it needs two release merges minutes apart, and the
-# recovery is a one-liner — `npm dist-tag add @toolbx/<pkg>@<version> latest`.
-# Nothing is lost in that case; only the tag needs repointing.
+# `latest` dist-tag backwards. That is accepted rather than fixed. Neither remedy
+# is available here:
+#   - Serializing needs a queue that preserves every run; Actions has none, and a
+#     concurrency group reintroduces the dropped-release bug above.
+#   - Repointing `latest` afterwards needs `npm dist-tag add`, which OIDC trusted
+#     publishing does not authorize — the token covers `npm publish` only
+#     (npm/cli#8547). pnpm also mints and consumes that token inside
+#     `pnpm publish`, so no credential survives for a later call. Adding one back
+#     would mean restoring the NPM_TOKEN this workflow exists to remove.
+# It needs two release merges minutes apart, nothing is lost when it happens, and
+# a maintainer can repoint the tag with one authenticated
+# `npm dist-tag add @toolbx/<pkg>@<version> latest`.
 permissions: {}
 
 jobs:
