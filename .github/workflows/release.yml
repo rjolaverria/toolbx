@@ -52,6 +52,8 @@ jobs:
       needs-publish: ${{ steps.detect.outputs.needs-publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to locate the commit that set the current version
 
       - uses: ./.github/actions/setup
 
@@ -95,6 +97,24 @@ jobs:
             fi
           done
           echo "needs-publish=$needs_publish" >> "$GITHUB_OUTPUT"
+
+          # Anything published from this run is built from this commit, so this
+          # must be the commit that set the version being published. On the normal
+          # path it always is — the Version Packages merge is what triggers the
+          # run. It diverges only when an earlier publish left some packages
+          # behind and another commit has since landed: republishing the stragglers
+          # from newer source would assemble one npm version out of two different
+          # commits, and attest provenance for source that was never published.
+          # Refuse that. Re-running the original failed run rebuilds the right
+          # source, and `changeset publish` skips whatever already landed.
+          if [ "$needs_publish" = "true" ]; then
+            needle="\"version\": \"$version\""
+            target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
+            if [ "$target" != "$GITHUB_SHA" ]; then
+              echo "::error::$version is unpublished but this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Re-run the workflow for that commit, or publish manually — see RELEASING.md."
+              exit 1
+            fi
+          fi
 
       - run: pnpm build
       - run: pnpm test:run

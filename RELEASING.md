@@ -82,6 +82,19 @@ the package's **Settings → Trusted Publisher → GitHub Actions**, repository
 works on 10, regressed on 11.0.8) and Node ≥ 22.14 — both already pinned via
 `packageManager` and `.nvmrc`, and the repo must be public.
 
+### Recovering a partial publish
+
+If a publish lands some packages and fails on others, the workflow will not
+republish the stragglers from a later commit — everything it publishes is built
+from the commit it runs on, and mixing sources would put one npm version together
+out of two different commits. Any later run refuses with an error naming the
+commit that set the version.
+
+Recover by re-running that original workflow run (**Re-run failed jobs** on it):
+it rebuilds the correct source, and `changeset publish` skips whatever already
+made it to the registry. If the run is too old to re-run, publish that commit
+manually with the break-glass steps below.
+
 ### Recovering a missed GitHub Release
 
 The `release` job self-heals only for the version in the current manifests. If a
