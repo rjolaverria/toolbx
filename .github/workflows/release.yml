@@ -39,13 +39,20 @@ jobs:
       - run: pnpm test:integration
 
       # Handed to the publish job so it never has to run the build itself.
+      # Paths are listed explicitly rather than globbed: upload-artifact roots the
+      # archive at the least common ancestor of the search paths, and a wildcard
+      # truncates its search path at the first `*`. Naming all four keeps the root
+      # at the repo root, so `apps/cli/dist` and `packages/<name>/dist` survive the
+      # round trip exactly as the publish job's verification expects.
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: |
             apps/cli/dist
-            packages/*/dist
+            packages/core/dist
+            packages/mcp-gateway/dist
+            packages/custom-tools/dist
           retention-days: 1
           if-no-files-found: error
 
