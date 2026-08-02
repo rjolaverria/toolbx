@@ -97,8 +97,11 @@ jobs:
         with:
           ignore-scripts: 'true'
 
+      # Pinned to a commit SHA, not the mutable `v1` branch: this job can push
+      # branches and open PRs, so a moved tag would inherit those rights.
+      # a45c4d5 is release v1.9.0.
       - name: Create or update the Version Packages PR
-        uses: changesets/action@v1
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: pnpm version:packages
           title: 'release: version packages'
@@ -154,16 +157,16 @@ jobs:
             fi
           done
 
+      # Runs the Changesets CLI directly rather than through changesets/action.
+      # This is the only job that can mint the npm publishing credential, so it
+      # runs no third-party action at all — the action's remaining value here was
+      # just invoking this script (its per-package releases are already disabled,
+      # and the aggregated Release below no longer reads its outputs).
+      # `--no-git-tag` (set in the script) suppresses the per-package tags in
+      # favour of the single aggregated tag created below.
       - name: Publish to npm
-        uses: changesets/action@v1
-        with:
-          publish: pnpm release
-          # All four packages are always in lockstep (one fixed group, identical
-          # version), so per-package Releases would be four duplicates of the same
-          # changelog. Create a single aggregated vX.Y.Z Release instead (below).
-          createGithubReleases: false
+        run: pnpm release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
 
       - name: Create aggregated GitHub Release
