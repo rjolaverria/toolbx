@@ -121,14 +121,33 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'true'
 
       - name: Create aggregated GitHub Release
-        # Runs only on an actual publish (not when the step only opened/updated the
-        # Version Packages PR). publishedPackages is a JSON array of
-        # {name, version} for every published package; lockstep guarantees they
-        # share one version, so the first entry's version names the release.
-        if: steps.changesets.outputs.published == 'true'
+        # Deliberately not gated on the `published` output: that only reports
+        # whether this invocation published, so a transient failure here would
+        # leave packages on npm with no Release and no way to recover by rerunning.
+        # Instead derive the version from the checked-out tree (lockstep means all
+        # four agree) and make the step idempotent — it creates the Release only
+        # when that version is actually on npm and has no Release yet, so it is a
+        # no-op on version-PR pushes and self-healing on a rerun.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
         run: |
-          version=$(echo "$PUBLISHED_PACKAGES" | jq -r '.[0].version')
-          gh release create "v$version" --title "v$version" --generate-notes
+          version=$(node -p "require('./apps/cli/package.json').version")
+
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "Release v$version already exists — nothing to do."
+            exit 0
+          fi
+
+          if ! npm view "@toolbx/cli@$version" version >/dev/null 2>&1; then
+            echo "v$version is not on npm — no release to create."
+            exit 0
+          fi
+
+          # --target pins the new tag to the exact commit whose packages were
+          # published. Without it `gh release create` tags the default branch's
+          # current HEAD, which may have advanced past this commit while the build,
+          # tests, and publish were running.
+          gh release create "v$version" \
+            --target "$GITHUB_SHA" \
+            --title "v$version" \
+            --generate-notes
