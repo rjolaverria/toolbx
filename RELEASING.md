@@ -56,13 +56,24 @@ npm directly, npm attaches a provenance attestation automatically, and there is 
 
 The workflow runs as four jobs, because Actions permissions are job-scoped: any
 code in a job holding `id-token: write` could mint the credential npm trusts to
-publish `@toolbx/*`. So `build` runs the third-party code (dependency install
-hooks, the build and test toolchain) with no publishing permission; `version`
-handles the version-PR path with no `id-token` and no publish script, so that path
-cannot publish at all; and `publish` — the only job granted `id-token: write` —
-installs with `--ignore-scripts` and consumes the artifacts built upstream. Both
-downstream jobs are gated on `build`, so nothing reaches npm without a green build
-and test suite.
+publish `@toolbx/*`. So each job holds only what it needs:
+
+- **`build`** runs the third-party code — dependency install hooks, the build and
+  test toolchain — with no publishing permission, and hands the compiled output on
+  as an artifact.
+- **`version`** handles the version-PR path with no `id-token` and no publish
+  script, so that path cannot publish at all.
+- **`publish`** is the only job granted `id-token: write`. It runs no third-party
+  action, installs with `--ignore-scripts`, and consumes the artifacts built
+  upstream. It runs when any package's current version is missing from the
+  registry, which also makes a partial publish recoverable by rerunning.
+- **`release`** cuts the aggregated `vX.Y.Z` GitHub Release with no `id-token`. It
+  runs whether or not this commit published, so a Release that failed after a
+  successful publish is still created later, and it verifies all four packages are
+  on npm first so a Release never announces a partial publish.
+
+Everything downstream is gated on `build`, so nothing reaches npm without a green
+build and test suite.
 
 One-time setup — a **trusted publisher** on npmjs.com for each package. For
 `@toolbx/cli`, `@toolbx/core`, `@toolbx/mcp-gateway`, and `@toolbx/custom-tools`:
