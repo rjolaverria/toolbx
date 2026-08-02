@@ -103,24 +103,24 @@ jobs:
             echo "needs-publish=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # Everything published from this run is built from this commit. When a
-          # version is *partly* on the registry, publishing the stragglers from a
-          # different commit would assemble one npm version out of two sources and
-          # attest provenance for code that was never published for the rest, so
-          # that case is refused: re-run the original run, where `changeset
-          # publish` skips whatever already landed.
+          # Everything published from this run is built from this commit, so a
+          # version may only be published from the commit that set it. The tag the
+          # `release` job creates points at that commit, and provenance records the
+          # commit the artifacts were built from — publishing from anywhere else
+          # makes the attestation contradict the tag, which is not repairable after
+          # the fact. A partial publish is worse still: the version would be
+          # assembled from two different sources.
           #
-          # Scoped to genuine partials. If nothing published at all there is no
-          # mixing to prevent, and blocking would be actively harmful — a release
-          # that failed outright (a broken workflow, misconfigured OIDC) is fixed
-          # by merging a correction, and re-running the original commit would just
-          # re-run the broken workflow. All four then publish from one commit, so
-          # they stay consistent with each other.
-          if [ "$missing" -gt 0 ] && [ "$present" -gt 0 ]; then
+          # This does block automated fix-forward when a release fails outright,
+          # which is deliberate. That case has cheap remedies that keep the
+          # invariant intact — publish the version-bump commit manually, or add a
+          # changeset and let the next version publish normally, leaving the failed
+          # version unpublished and unreferenced. See RELEASING.md.
+          if [ "$missing" -gt 0 ]; then
             needle="\"version\": \"$version\""
             target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
             if [ "$target" != "$GITHUB_SHA" ]; then
-              echo "::error::$version is partly published ($present of 4) and this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Re-run the workflow run for that commit so the remaining packages are built from the same source — see RELEASING.md."
+              echo "::error::$version is unpublished ($present of 4 on the registry) but this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Publishing from here would build artifacts whose provenance disagrees with the tag — see RELEASING.md for recovery."
               exit 1
             fi
           fi

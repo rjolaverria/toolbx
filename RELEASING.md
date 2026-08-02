@@ -82,25 +82,31 @@ the package's **Settings → Trusted Publisher → GitHub Actions**, repository
 works on 10, regressed on 11.0.8) and Node ≥ 22.14 — both already pinned via
 `packageManager` and `.nvmrc`, and the repo must be public.
 
-### Recovering a partial publish
+### Recovering a failed publish
 
-If a publish lands some packages and fails on others, the workflow will not
-republish the stragglers from a later commit — everything it publishes is built
-from the commit it runs on, and mixing sources would put one npm version together
-out of two different commits. Any later run refuses with an error naming the
-commit that set the version.
+A version is only ever published from the commit that set it. Everything the
+workflow publishes is built from the commit it runs on, the tag points at that
+same commit, and provenance records it — so publishing from anywhere else would
+leave the attestation disagreeing with the tag, which cannot be repaired
+afterwards. A later run that finds the version still unpublished therefore
+refuses, naming the commit that set it.
 
-Recover with **Re-run all jobs** on that original run: it rebuilds the correct
-source, and `changeset publish` skips whatever already made it to the registry.
-Re-run _all_ jobs rather than only the failed ones — a failed-jobs re-run does not
-re-run `build`, so it depends on that run's artifacts still existing. If the run
-is too old to re-run, publish that commit manually with the break-glass steps
-below.
+**If the publish itself failed** (registry flake, a job cancelled midway), use
+**Re-run all jobs** on that original run: it rebuilds the same source, and
+`changeset publish` skips whatever already made it to the registry. Re-run _all_
+jobs rather than only the failed ones — a failed-jobs re-run does not re-run
+`build`, so it depends on that run's artifacts still existing.
 
-This guard applies only to a genuine partial publish. If a release failed before
-anything reached npm — a broken workflow, misconfigured OIDC — just fix it and
-merge: the next run publishes all four from that commit, so they stay consistent
-with each other, and nothing needs re-running.
+**If the workflow itself was broken** (misconfigured OIDC, a bug in these jobs),
+re-running will not help, since the old run uses the old workflow. Merge the fix,
+then pick one:
+
+- Publish the version-bump commit once by hand — check it out and follow the
+  break-glass steps below. Then create its Release with
+  `gh release create vX.Y.Z --target <that commit> --generate-notes`.
+- Or skip that version entirely: add a changeset and let the next version publish
+  normally through the fixed workflow. Nothing referenced the failed version, so
+  leaving it unpublished costs only a gap in the number sequence.
 
 ### Recovering a missed GitHub Release
 
