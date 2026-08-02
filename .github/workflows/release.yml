@@ -31,6 +31,14 @@ on:
 # version is never published. Publish runs are therefore never grouped; only the
 # version path is (see that job), where being replaced is harmless because the
 # surviving run regenerates the version PR from the full current state.
+#
+# The residual risk is that two publish runs overlap if two Version Packages PRs
+# merge within the build window, and an older one finishing last would move the
+# `latest` dist-tag backwards. That is accepted rather than fixed: Actions offers
+# no queue that preserves every run (a concurrency group would reintroduce the
+# dropped-release bug above), it needs two release merges minutes apart, and the
+# recovery is a one-liner — `npm dist-tag add @toolbx/<pkg>@<version> latest`.
+# Nothing is lost in that case; only the tag needs repointing.
 permissions: {}
 
 jobs:
@@ -41,18 +49,22 @@ jobs:
       contents: read
     outputs:
       has-changesets: ${{ steps.detect.outputs.has-changesets }}
+      needs-publish: ${{ steps.detect.outputs.needs-publish }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup
 
-      # Decides which of the two downstream jobs runs, and therefore whether the
-      # OIDC credential is granted at all. A pending changeset is any .md in
-      # .changeset/ other than its README, matching what the Changesets CLI
-      # itself consumes.
-      - name: Detect pending changesets
+      # Decides which downstream jobs run, and therefore whether the OIDC
+      # credential is granted at all. The two questions are independent and both
+      # can be true at once: a Version Packages merge can land while a new
+      # changeset is already on main, and that commit must still publish the
+      # version it just consumed rather than letting the next bump skip past it.
+      - name: Detect release work
         id: detect
         run: |
+          # A pending changeset is any .md in .changeset/ other than its README,
+          # matching what the Changesets CLI itself consumes.
           count=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')
           if [ "$count" -gt 0 ]; then
             echo "has-changesets=true" >> "$GITHUB_OUTPUT"
@@ -60,6 +72,22 @@ jobs:
             echo "has-changesets=false" >> "$GITHUB_OUTPUT"
           fi
           echo "pending changesets: $count"
+
+          # Publishing is driven by what is actually on the registry, not by the
+          # absence of changesets. A registry error is never treated as "missing":
+          # that would silently skip a release, so fail the run instead.
+          version=$(node -p "require('./apps/cli/package.json').version")
+          if out=$(npm view "@toolbx/cli@$version" version 2>&1); then
+            echo "needs-publish=false" >> "$GITHUB_OUTPUT"
+            echo "@toolbx/cli@$version is already published"
+          elif printf '%s' "$out" | grep -q 'E404'; then
+            echo "needs-publish=true" >> "$GITHUB_OUTPUT"
+            echo "@toolbx/cli@$version is not published yet"
+          else
+            echo "::error::could not determine whether @toolbx/cli@$version is published"
+            printf '%s\n' "$out"
+            exit 1
+          fi
 
       - run: pnpm build
       - run: pnpm test:run
@@ -126,10 +154,14 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     needs: build
-    # Only when the Version Packages PR has merged and nothing is pending, which
-    # is exactly when changesets/action would publish. Gated on `build`, so
-    # nothing reaches npm without a green build and full test suite.
-    if: needs.build.outputs.has-changesets == 'false'
+    # Driven by whether this commit's version is actually on the registry, not by
+    # the absence of changesets: a Version Packages merge that lands alongside a
+    # newly added changeset must still publish the version it consumed. This job
+    # and `version` can therefore both run for one commit, which is safe — they
+    # touch different things (this publishes the current manifests; `version`
+    # only writes the Version Packages branch). Gated on `build`, so nothing
+    # reaches npm without a green build and full test suite.
+    if: needs.build.outputs.needs-publish == 'true'
     permissions:
       contents: write # create the tag + aggregated Release
       id-token: write # OIDC trusted publishing + provenance attestation
@@ -216,9 +248,17 @@ jobs:
             exit 0
           fi
 
-          if ! npm view "@toolbx/cli@$version" version >/dev/null 2>&1; then
-            echo "v$version is not on npm — no release to create."
-            exit 0
+          # Only a confirmed E404 means "not published". A registry or network
+          # failure must not be read as absence: that would skip the Release,
+          # leave the run green, and stop anything from retrying it.
+          if ! out=$(npm view "@toolbx/cli@$version" version 2>&1); then
+            if printf '%s' "$out" | grep -q 'E404'; then
+              echo "v$version is not on npm — no release to create."
+              exit 0
+            fi
+            echo "::error::could not confirm whether @toolbx/cli@$version is published"
+            printf '%s\n' "$out"
+            exit 1
           fi
 
           # Tag the commit that set this version, not $GITHUB_SHA. They are the
