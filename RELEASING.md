@@ -98,9 +98,13 @@ afterwards. A later run therefore never publishes a version it did not bump:
 
 **If the publish itself failed** (registry flake, a job cancelled midway), use
 **Re-run all jobs** on that original run: it rebuilds the same source, and
-`changeset publish` skips whatever already made it to the registry. Re-run _all_
+`pnpm -r publish` skips whatever already made it to the registry. Re-run _all_
 jobs rather than only the failed ones — a failed-jobs re-run does not re-run
 `build`, so it depends on that run's artifacts still existing.
+
+Packages publish in dependency order (core → custom-tools → mcp-gateway → cli),
+so a failure stops the chain rather than leaving a package published without
+something it depends on.
 
 **If the workflow itself was broken** (misconfigured OIDC, a bug in these jobs),
 re-running will not help, since the old run uses the old workflow. Merge the fix,
