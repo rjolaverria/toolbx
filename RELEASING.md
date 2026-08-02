@@ -54,12 +54,15 @@ Publishing is **tokenless**: GitHub's OIDC identity authenticates the workflow t
 npm directly, npm attaches a provenance attestation automatically, and there is no
 `NPM_TOKEN` secret to rotate or leak.
 
-The workflow runs as two jobs. Actions permissions are job-scoped, so any code in
-a job holding `id-token: write` could mint the credential npm trusts to publish
-`@toolbx/*`. Dependency install hooks and the build/test toolchain are third-party
-code, so they run in an unprivileged `build` job; the privileged `publish` job
-installs with `--ignore-scripts` and consumes the built artifacts. `publish` is
-gated on `build`, so nothing reaches npm without a green build and test suite.
+The workflow runs as three jobs, because Actions permissions are job-scoped: any
+code in a job holding `id-token: write` could mint the credential npm trusts to
+publish `@toolbx/*`. So `build` runs the third-party code (dependency install
+hooks, the build and test toolchain) with no publishing permission; `version`
+handles the version-PR path with no `id-token` and no publish script, so that path
+cannot publish at all; and `publish` — the only job granted `id-token: write` —
+installs with `--ignore-scripts` and consumes the artifacts built upstream. Both
+downstream jobs are gated on `build`, so nothing reaches npm without a green build
+and test suite.
 
 One-time setup — a **trusted publisher** on npmjs.com for each package. For
 `@toolbx/cli`, `@toolbx/core`, `@toolbx/mcp-gateway`, and `@toolbx/custom-tools`:

@@ -9,12 +9,16 @@ name: Release
 # NPM_TOKEN. Each package must have this repository + this workflow registered as
 # a trusted publisher on npmjs.com (see RELEASING.md). Provenance is automatic.
 #
-# The work is split across two jobs on purpose. Actions permissions are
-# job-scoped, so any code running in a job that holds `id-token: write` can mint
-# the OIDC credential npm trusts to publish @toolbx/*. Dependency lifecycle
-# scripts and the build/test toolchain are third-party code, so they run in the
-# unprivileged `build` job; the privileged `publish` job installs with
-# `--ignore-scripts` and consumes the built artifacts.
+# Three jobs, split to keep the publishing credential as narrow as possible.
+# Actions permissions are job-scoped, so anything running in a job that holds
+# `id-token: write` can mint the OIDC credential npm trusts to publish
+# @toolbx/*. So:
+#   - `build` runs the third-party code (dependency install hooks, the build and
+#     test toolchain) with no publishing permission at all;
+#   - `version` handles the version-PR path with no `id-token` and no publish
+#     script, so that path structurally cannot publish;
+#   - `publish` is the only job granted `id-token: write`, installs with
+#     `--ignore-scripts`, and consumes the artifacts built upstream.
 on:
   push:
     branches: [main]
@@ -29,10 +33,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      has-changesets: ${{ steps.detect.outputs.has-changesets }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/setup
+
+      # Decides which of the two downstream jobs runs, and therefore whether the
+      # OIDC credential is granted at all. A pending changeset is any .md in
+      # .changeset/ other than its README, matching what the Changesets CLI
+      # itself consumes.
+      - name: Detect pending changesets
+        id: detect
+        run: |
+          count=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')
+          if [ "$count" -gt 0 ]; then
+            echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pending changesets: $count"
 
       - run: pnpm build
       - run: pnpm test:run
@@ -56,15 +77,45 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  publish:
-    name: Version or publish
+  version:
+    name: Version packages
     runs-on: ubuntu-latest
-    # Gates publication on a green build and full test suite: this job cannot
-    # start unless `build` succeeded.
     needs: build
+    if: needs.build.outputs.has-changesets == 'true'
+    # No `id-token`: opening the version PR never publishes, so this path is
+    # never granted the npm credential. No publish script is passed either, so
+    # changesets/action has nothing to publish with even if it wanted to.
     permissions:
-      contents: write # push the Version Packages branch, create the tag + Release
+      contents: write # push the Version Packages branch
       pull-requests: write # open/update the Version Packages PR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Changesets needs full history to compute releases
+
+      - uses: ./.github/actions/setup
+        with:
+          ignore-scripts: 'true'
+
+      - name: Create or update the Version Packages PR
+        uses: changesets/action@v1
+        with:
+          version: pnpm version:packages
+          title: 'release: version packages'
+          commit: 'release: version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: build
+    # Only when the Version Packages PR has merged and nothing is pending, which
+    # is exactly when changesets/action would publish. Gated on `build`, so
+    # nothing reaches npm without a green build and full test suite.
+    if: needs.build.outputs.has-changesets == 'false'
+    permissions:
+      contents: write # create the tag + aggregated Release
       id-token: write # OIDC trusted publishing + provenance attestation
     steps:
       - uses: actions/checkout@v4
@@ -103,14 +154,10 @@ jobs:
             fi
           done
 
-      - name: Create Version Packages PR or publish
-        id: changesets
+      - name: Publish to npm
         uses: changesets/action@v1
         with:
-          version: pnpm version:packages
           publish: pnpm release
-          title: 'release: version packages'
-          commit: 'release: version packages'
           # All four packages are always in lockstep (one fixed group, identical
           # version), so per-package Releases would be four duplicates of the same
           # changelog. Create a single aggregated vX.Y.Z Release instead (below).
@@ -126,7 +173,7 @@ jobs:
         # Instead derive the version from the checked-out tree (lockstep means all
         # four agree) and make the step idempotent — it creates the Release only
         # when that version is actually on npm and has no Release yet, so it is a
-        # no-op on version-PR pushes and self-healing on a rerun.
+        # no-op on reruns that have nothing to do and self-healing after a failure.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
