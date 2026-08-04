@@ -1,44 +1,425 @@
 name: Release
 
-# Publishes all four @toolbx/* packages to npm when a vX.Y.Z tag is pushed.
-# The first release (0.1.0) is published manually (see RELEASING.md), so its
-# tag is excluded here — otherwise pushing v0.1.0 would re-trigger a publish of
-# versions that already exist on npm and fail the workflow. Every tagged
-# release after 0.1.0 is published by this workflow.
+# Changesets-driven release. On every push to main:
+#   - with pending changesets: open/update the "Version Packages" PR, which bumps
+#     all four @toolbx/* packages in lockstep and writes their CHANGELOGs;
+#   - after that PR merges (no pending changesets): publish to npm and create a
+#     single aggregated vX.Y.Z GitHub Release.
+# Publishing is tokenless via npm OIDC "trusted publishing" — there is no
+# NPM_TOKEN. Each package must have this repository + this workflow registered as
+# a trusted publisher on npmjs.com (see RELEASING.md). Provenance is automatic.
+#
+# Three jobs, split to keep the publishing credential as narrow as possible.
+# Actions permissions are job-scoped, so anything running in a job that holds
+# `id-token: write` can mint the OIDC credential npm trusts to publish
+# @toolbx/*. So:
+#   - `build` runs the third-party code (dependency install hooks, the build and
+#     test toolchain) with no publishing permission at all;
+#   - `version` handles the version-PR path with no `id-token` and no publish
+#     script, so that path structurally cannot publish;
+#   - `publish` is the only job granted `id-token: write`, installs with
+#     `--ignore-scripts`, and consumes the artifacts built upstream.
 on:
   push:
-    tags:
-      - 'v*'
-      - '!v0.1.0'
+    branches: [main]
+
+# No workflow-level concurrency group on purpose. GitHub replaces a *pending* run
+# when a newer one joins the group — `cancel-in-progress: false` only protects
+# runs already executing. A Version Packages merge is the run that publishes, so
+# discarding it while pending would skip that version on npm entirely: a later
+# push carrying a changeset takes the version path instead, and the consumed
+# version is never published. Publish runs are therefore never grouped; only the
+# version path is (see that job), where being replaced is harmless because the
+# surviving run regenerates the version PR from the full current state.
+#
+# The residual risk is that two publish runs overlap if two Version Packages PRs
+# merge within the build window, and an older one finishing last would move the
+# `latest` dist-tag backwards. That is accepted rather than fixed. Neither remedy
+# is available here:
+#   - Serializing needs a queue that preserves every run; Actions has none, and a
+#     concurrency group reintroduces the dropped-release bug above.
+#   - Repointing `latest` afterwards needs `npm dist-tag add`, which OIDC trusted
+#     publishing does not authorize — the token covers `npm publish` only
+#     (npm/cli#8547). pnpm also mints and consumes that token inside
+#     `pnpm publish`, so no credential survives for a later call. Adding one back
+#     would mean restoring the NPM_TOKEN this workflow exists to remove.
+# It needs two release merges minutes apart, nothing is lost when it happens, and
+# a maintainer can repoint the tag with one authenticated
+# `npm dist-tag add @toolbx/<pkg>@<version> latest`.
+permissions: {}
 
 jobs:
-  publish:
-    name: Publish to npm
+  build:
+    name: Build and test
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm provenance
+    outputs:
+      has-changesets: ${{ steps.detect.outputs.has-changesets }}
+      needs-publish: ${{ steps.detect.outputs.needs-publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to locate the commit that set the current version
 
-      # Installs pnpm + Node (.nvmrc) + workspace deps (frozen lockfile).
       - uses: ./.github/actions/setup
 
-      # Re-point Node at the public registry so NODE_AUTH_TOKEN authenticates
-      # the publish. (The composite setup above does not set registry-url.)
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          registry-url: 'https://registry.npmjs.org'
+      # Decides which downstream jobs run, and therefore whether the OIDC
+      # credential is granted at all. The two questions are independent and both
+      # can be true at once: a Version Packages merge can land while a new
+      # changeset is already on main, and that commit must still publish the
+      # version it just consumed rather than letting the next bump skip past it.
+      - name: Detect release work
+        id: detect
+        run: |
+          # A pending changeset is any .md in .changeset/ other than its README,
+          # matching what the Changesets CLI itself consumes.
+          count=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')
+          if [ "$count" -gt 0 ]; then
+            echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pending changesets: $count"
+
+          # Publishing is driven by what is actually on the registry, not by the
+          # absence of changesets. All four packages are checked, not just the
+          # CLI: `changeset publish` decides per package, so a partial publish
+          # must still register as work to do — otherwise a run that published
+          # some packages and failed on others would never be retried. A registry
+          # error is never treated as "missing": that would silently skip a
+          # release, so fail the run instead.
+          version=$(node -p "require('./apps/cli/package.json').version")
+          present=0
+          missing=0
+          for pkg in cli core mcp-gateway custom-tools; do
+            if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
+              present=$((present + 1))
+            elif printf '%s' "$out" | grep -q 'E404'; then
+              missing=$((missing + 1))
+              echo "@toolbx/$pkg@$version is not published yet"
+            else
+              echo "::error::could not determine whether @toolbx/$pkg@$version is published"
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          done
+          needs_publish=false
+          if [ "$missing" -gt 0 ]; then
+            needs_publish=true
+          fi
+
+          # Everything published from this run is built from this commit, so a
+          # version may only be published from the commit that set it. The tag the
+          # `release` job creates points at that commit, and provenance records the
+          # commit the artifacts were built from — publishing from anywhere else
+          # makes the attestation contradict the tag, which is not repairable after
+          # the fact. A partial publish is worse still: the version would be
+          # assembled from two different sources.
+          #
+          # Refusing to publish and halting the workflow are separate decisions.
+          # Publishing from a foreign commit is never allowed, but only a partial
+          # publish is a broken state worth blocking on: it must be finished from
+          # the original commit before the manifests move on, so it fails here and
+          # takes the `version` job down with it. A version that reached nothing at
+          # all is merely unpublished — publishing is skipped with a warning while
+          # the `version` job stays free to prepare the next one, which is the
+          # documented way to move past a release that failed outright.
+          if [ "$needs_publish" = "true" ]; then
+            needle="\"version\": \"$version\""
+            target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
+            if [ "$target" != "$GITHUB_SHA" ]; then
+              if [ "$present" -gt 0 ]; then
+                echo "::error::$version is partly published ($present of 4) and this commit ($GITHUB_SHA) is not the one that set it (${target:-unknown}). Finish it from that commit before anything else — see RELEASING.md."
+                exit 1
+              fi
+              echo "::warning::$version is unpublished but this commit is not the one that set it (${target:-unknown}); skipping publish so artifacts and provenance cannot disagree with the tag. See RELEASING.md."
+              needs_publish=false
+            fi
+          fi
+
+          echo "needs-publish=$needs_publish" >> "$GITHUB_OUTPUT"
 
       - run: pnpm build
       - run: pnpm test:run
       - run: pnpm test:integration
 
-      # pnpm walks the workspace in dependency order and rewrites the internal
-      # workspace:^ refs to real version ranges. --provenance attaches the npm
-      # supply-chain attestation (requires id-token: write above).
-      - name: Publish
-        run: pnpm -r publish --access public --no-git-checks --provenance
+      # Handed to the publish job so it never has to run the build itself.
+      # Paths are listed explicitly rather than globbed: upload-artifact roots the
+      # archive at the least common ancestor of the search paths, and a wildcard
+      # truncates its search path at the first `*`. Naming all four keeps the root
+      # at the repo root, so `apps/cli/dist` and `packages/<name>/dist` survive the
+      # round trip exactly as the publish job's verification expects.
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            apps/cli/dist
+            packages/core/dist
+            packages/mcp-gateway/dist
+            packages/custom-tools/dist
+          # Long enough that re-running a failed publish still finds them. A
+          # re-run of only the failed jobs does not re-run `build`, so it depends
+          # on this artifact still existing; RELEASING.md says to re-run all jobs,
+          # which rebuilds them regardless.
+          retention-days: 14
+          # Re-running all jobs keeps the same run id, so the previous attempt's
+          # artifact is still there and an upload of the same name would otherwise
+          # fail — breaking the documented recovery before publish is even reached.
+          overwrite: true
+          if-no-files-found: error
+
+  version:
+    name: Version packages
+    runs-on: ubuntu-latest
+    needs: [build, publish]
+    # Waits on `publish` rather than running beside it. When a commit has both an
+    # unpublished version and a new changeset, both jobs have work to do — but if
+    # publishing fails partway, advancing the Version Packages PR would strand the
+    # packages that did not publish: merging that PR moves the manifests on, and
+    # later runs would only ever inspect the newer version, so the half-published
+    # one could never be repaired by the normal flow. Preparing the next bump is
+    # therefore allowed only once publishing has succeeded or had nothing to do.
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped') &&
+      needs.build.outputs.has-changesets == 'true'
+    # Grouped so concurrent pushes don't race to update the Version Packages
+    # branch. Safe to group precisely because losing a queued run here costs
+    # nothing: the run that survives recomputes the PR from every pending
+    # changeset. The publish job is deliberately left ungrouped.
+    concurrency:
+      group: release-version-${{ github.ref }}
+      cancel-in-progress: false
+    # No `id-token`: opening the version PR never publishes, so this path is
+    # never granted the npm credential. No publish script is passed either, so
+    # changesets/action has nothing to publish with even if it wanted to.
+    permissions:
+      contents: write # push the Version Packages branch
+      pull-requests: write # open/update the Version Packages PR
+    steps:
+      # Checks out the branch tip rather than this run's event SHA. Jobs enter the
+      # concurrency group when their dependencies finish, not in push order, so an
+      # older run can get here last; from its own SHA it would rebuild the shared
+      # Version Packages PR off a stale tree, dropping changesets that landed since
+      # or resurrecting a bump already consumed. The PR should always describe
+      # current main, whichever run happens to write it.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0 # Changesets needs full history to compute releases
+
+      - uses: ./.github/actions/setup
+        with:
+          ignore-scripts: 'true'
+
+      # `needs: publish` only orders jobs inside this run. A publish started by an
+      # earlier run can still be in flight, or have failed partway, while this job
+      # prepares the next bump — and merging that PR would advance the manifests
+      # past a half-published version, stranding whatever never made it. Re-read
+      # the registry here, as late as possible, and refuse in that case.
+      #
+      # This narrows the window rather than closing it: nothing prevents a publish
+      # from failing immediately after this check. Closing it entirely needs a lock
+      # across workflow runs, which Actions does not provide.
+      - name: Refuse to version past a partial publish
+        run: |
+          version=$(node -p "require('./apps/cli/package.json').version")
+          present=0
+          missing=0
+          for pkg in cli core mcp-gateway custom-tools; do
+            if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
+              present=$((present + 1))
+            elif printf '%s' "$out" | grep -q 'E404'; then
+              missing=$((missing + 1))
+            else
+              echo "::error::could not determine whether @toolbx/$pkg@$version is published"
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          done
+          if [ "$missing" -gt 0 ] && [ "$present" -gt 0 ]; then
+            echo "::error::$version is partly published ($present of 4); refusing to prepare the next version until it is finished — see RELEASING.md."
+            exit 1
+          fi
+
+      # Pinned to a commit SHA, not the mutable `v1` branch: this job can push
+      # branches and open PRs, so a moved tag would inherit those rights.
+      # a45c4d5 is release v1.9.0.
+      - name: Create or update the Version Packages PR
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          version: pnpm version:packages
+          title: 'release: version packages'
+          commit: 'release: version packages'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: build
+    # Driven by whether this commit's version is actually on the registry, not by
+    # the absence of changesets: a Version Packages merge that lands alongside a
+    # newly added changeset must still publish the version it consumed. Both this
+    # job and `version` can have work to do for one commit; `version` waits on
+    # this one so a failed publish cannot be stranded by the manifests moving on.
+    # Gated on `build`, so nothing reaches npm without a green build and full
+    # test suite.
+    if: needs.build.outputs.needs-publish == 'true'
+    permissions:
+      contents: read # only reads the tree; the Release is cut by a separate job
+      id-token: write # OIDC trusted publishing + provenance attestation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Changesets needs full history to compute releases
+
+      # Deliberately not the shared composite setup: that uses pnpm/action-setup,
+      # a third-party action, and this is the only job that can mint the npm
+      # publishing credential. Node comes from a GitHub-owned action and pnpm from
+      # Corepack, which ships with Node — so no third-party action runs here.
+      #
+      # Corepack takes the pnpm version from the root `packageManager` field, which
+      # also pins the client that performs the OIDC exchange: in a pnpm workspace
+      # `changeset publish` shells out to `pnpm publish`, and pnpm implements
+      # trusted publishing itself rather than delegating to the npm CLI (10.x
+      # works; it regressed on 11.0.8).
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Activate pnpm via Corepack
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          corepack enable
+          pnpm --version
+
+      # `--ignore-scripts`: no third-party install hook runs in this privileged
+      # job. Only the Changesets CLI is executed here; the build already happened
+      # in the unprivileged job above. None of the four packages define
+      # prepublish/prepack scripts, so publishing runs no package code either.
+      - name: Install dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download build output
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: .
+
+      # The artifact handoff is a failure mode the single-job pipeline did not
+      # have: an empty or partial download would otherwise publish packages whose
+      # `files: ["dist"]` resolves to nothing. Fail loudly instead.
+      - name: Verify build output is present
+        run: |
+          for pkg in apps/cli packages/core packages/mcp-gateway packages/custom-tools; do
+            if [ ! -d "$pkg/dist" ] || [ -z "$(ls -A "$pkg/dist")" ]; then
+              echo "::error::$pkg/dist is missing or empty — refusing to publish"
+              exit 1
+            fi
+          done
+
+      # Publishes with `pnpm -r publish` rather than `changeset publish`, for two
+      # reasons. Ordering: pnpm walks the workspace topologically (dependencies
+      # before dependents), whereas `changeset publish` fires them off with
+      # Promise.all — so a partial failure there could put @toolbx/cli on the
+      # registry while a package it depends on was missing, leaving that version
+      # uninstallable. The chain here is core → custom-tools → mcp-gateway → cli,
+      # so ordering means a failure simply stops, and dependents are never
+      # published without their dependencies. Second, this is the command the repo
+      # has actually released with before. Both skip versions already on the
+      # registry, so retrying still completes a partial publish.
+      #
+      # No third-party action runs in this job at all — it is the only one that can
+      # mint the publishing credential.
+      - name: Publish to npm
+        run: pnpm release
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, publish]
+    # Runs whether or not this commit published, so a Release that failed to be
+    # created after a successful publish is still recovered by a later push —
+    # gating this on `needs-publish` would make the idempotent logic below
+    # unreachable once the version is on the registry. Skipped only when the
+    # publish attempt itself failed, since there is then nothing to announce.
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    permissions:
+      contents: write # create the tag + aggregated Release
+      # No `id-token`: cutting a Release never publishes.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needs history to locate the version-bump commit
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Create aggregated GitHub Release
+        # Idempotent by design: derives the version from the checked-out tree
+        # (lockstep means all four agree) and creates the Release only when every
+        # package is on npm and no Release exists yet. So it is a no-op on
+        # ordinary pushes and self-healing after a failed attempt.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./apps/cli/package.json').version")
+
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "Release v$version already exists — nothing to do."
+            exit 0
+          fi
+
+          # Every package must be on the registry: a Release must not announce a
+          # partial publish. Only a confirmed E404 means "not published" — a
+          # registry or network failure must not be read as absence, or the
+          # Release would be skipped with the run still green and nothing to
+          # retry it.
+          for pkg in cli core mcp-gateway custom-tools; do
+            if out=$(npm view "@toolbx/$pkg@$version" version 2>&1); then
+              continue
+            elif printf '%s' "$out" | grep -q 'E404'; then
+              echo "@toolbx/$pkg@$version is not on npm — no release to create."
+              exit 0
+            else
+              echo "::error::could not confirm whether @toolbx/$pkg@$version is published"
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          done
+
+          # Tag the commit that set this version, not $GITHUB_SHA. They are the
+          # same on the run that publishes, but recovery can happen on a later
+          # push — and there $GITHUB_SHA is an unrelated commit whose code was
+          # never published. `-S` reports the newest commit that changed the count
+          # of this exact version string, which for the version currently in the
+          # tree is the commit that introduced it; the check below verifies that
+          # rather than trusting it.
+          needle="\"version\": \"$version\""
+          target=$(git log -1 --first-parent --format=%H -S"$needle" -- apps/cli/package.json)
+          if [ -z "$target" ]; then
+            echo "::error::could not find the commit that set version $version"
+            exit 1
+          fi
+          target_version=$(git show "$target:apps/cli/package.json" |
+            node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          if [ "$target_version" != "$version" ]; then
+            echo "::error::commit $target has version $target_version, expected $version"
+            exit 1
+          fi
+
+          gh release create "v$version" \
+            --target "$target" \
+            --title "v$version" \
+            --generate-notes
