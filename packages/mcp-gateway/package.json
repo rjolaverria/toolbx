@@ -2,6 +2,15 @@
   "name": "@toolbx/mcp-gateway",
   "version": "0.1.4",
   "description": "MCP protocol layer for Toolbx (the local MCP gateway): an MCP server for downstream clients and an MCP client for upstream servers.",
+  "homepage": "https://github.com/rjolaverria/toolbx#readme",
+  "bugs": {
+    "url": "https://github.com/rjolaverria/toolbx/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rjolaverria/toolbx.git",
+    "directory": "packages/mcp-gateway"
+  },
   "type": "module",
   "files": [
     "dist",

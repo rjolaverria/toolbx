@@ -13,13 +13,13 @@
     "cli",
     "ai-tools"
   ],
-  "homepage": "https://github.com/rjolaverria/Toolbx#readme",
+  "homepage": "https://github.com/rjolaverria/toolbx#readme",
   "bugs": {
-    "url": "https://github.com/rjolaverria/Toolbx/issues"
+    "url": "https://github.com/rjolaverria/toolbx/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rjolaverria/Toolbx.git",
+    "url": "git+https://github.com/rjolaverria/toolbx.git",
     "directory": "apps/cli"
   },
   "license": "MIT",
