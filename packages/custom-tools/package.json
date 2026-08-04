@@ -1,6 +1,6 @@
 {
   "name": "@toolbx/custom-tools",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Custom-tool runtime for Toolbx (the local MCP gateway): import local TypeScript/JavaScript tools and run them in a best-effort OS-level sandbox when the host supports it.",
   "type": "module",
   "files": [
