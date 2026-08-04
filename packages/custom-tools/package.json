@@ -2,6 +2,15 @@
   "name": "@toolbx/custom-tools",
   "version": "0.1.4",
   "description": "Custom-tool runtime for Toolbx (the local MCP gateway): import local TypeScript/JavaScript tools and run them in a best-effort OS-level sandbox when the host supports it.",
+  "homepage": "https://github.com/rjolaverria/toolbx#readme",
+  "bugs": {
+    "url": "https://github.com/rjolaverria/toolbx/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rjolaverria/toolbx.git",
+    "directory": "packages/custom-tools"
+  },
   "type": "module",
   "files": [
     "dist",
