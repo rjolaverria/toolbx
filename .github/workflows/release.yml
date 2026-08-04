@@ -297,6 +297,24 @@ jobs:
           corepack enable
           pnpm --version
 
+      # `pnpm publish` hands the actual registry upload to the npm CLI, so npm's
+      # version is what decides whether the OIDC exchange happens — and OIDC needs
+      # npm >= 11.5.1. The runner ships 10.9.8 with Node 22, which silently skips
+      # the exchange and fails with ENEEDAUTH after packing.
+      #
+      # This is measured, not assumed: run 30945853609 failed exactly that way,
+      # with npm's own error strings (`npm notice`, ENEEDAUTH, "npm adduser") from
+      # npm 10.9.8. An earlier `pnpm publish --dry-run` probe suggested pnpm never
+      # shells out to npm, but --dry-run returns before the publish, so it never
+      # reached the delegation. Do not remove this step on that reasoning again.
+      #
+      # Pinned rather than @latest: npm 12 requires a newer Node than .nvmrc's 22
+      # guarantees.
+      - name: Pin npm to an OIDC-capable release
+        run: |
+          npm install -g npm@11.18.0
+          npm --version
+
       # `--ignore-scripts`: no third-party install hook runs in this privileged
       # job. Only the Changesets CLI is executed here; the build already happened
       # in the unprivileged job above. None of the four packages define
