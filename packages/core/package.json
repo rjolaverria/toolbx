@@ -1,6 +1,6 @@
 {
   "name": "@toolbx/core",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Shared core of Toolbx (the local MCP gateway): config, server registry, proxy, namespacing, progressive disclosure, and auth.",
   "homepage": "https://github.com/rjolaverria/toolbx#readme",
   "bugs": {

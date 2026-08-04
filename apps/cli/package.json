@@ -1,6 +1,6 @@
 {
   "name": "@toolbx/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local MCP gateway — configure your MCP servers once and connect every MCP client (Claude, Codex, OpenCode) to one place.",
   "keywords": [
     "mcp",
