@@ -1,5 +1,14 @@
 # @toolbx/core
 
+## 0.1.5
+
+### Patch Changes
+
+- e67ba2e: Add `repository`, `homepage`, and `bugs` metadata to every published package. npm
+  validates `repository.url` against the provenance attestation at publish time, so the
+  three library packages could not be published with provenance without it. Package
+  code is unchanged.
+
 ## 0.1.4
 
 ### Patch Changes
