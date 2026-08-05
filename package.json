@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "pnpm": {
+    "overrides": {
+      "typescript": "~6.0.3"
+    }
+  },
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.7.0",
