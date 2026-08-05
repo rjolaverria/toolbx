@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "pnpm": {
+    "overrides": {
+      "typescript": "~6.0.3"
+    }
+  },
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.7.0",
@@ -26,18 +31,18 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
-    "@eslint/js": "latest",
-    "@types/node": "latest",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.6.0",
     "@vitest/coverage-v8": "^4.1.5",
-    "eslint": "latest",
-    "eslint-config-prettier": "latest",
-    "globals": "latest",
-    "husky": "latest",
-    "lint-staged": "latest",
-    "prettier": "latest",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "3.8.3",
     "turbo": "^2.9.6",
-    "typescript": "latest",
-    "typescript-eslint": "latest",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.59.1",
     "vitest": "^4.1.5"
   },
   "lint-staged": {
