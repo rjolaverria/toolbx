@@ -34,7 +34,7 @@
     "typescript": "~6.0.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "jsonc-parser": "^3.3.1",
     "open": "^10.1.2",
     "pino": "^10.3.1",
