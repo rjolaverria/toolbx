@@ -35,24 +35,25 @@ import type {
   SandboxResponse,
 } from './protocol.js';
 
+interface ParseModule {
+  analyzeToolImports: (source: string, filename: string) => ToolImportAnalysis;
+  toolNeedsTranspile: (filename: string, execArgv: readonly string[]) => boolean;
+  transpileToolSource: (source: string, filename: string) => string;
+}
+
 /**
- * Dynamically imports `analyzeToolImports` from parse, resolving the correct extension
+ * Dynamically imports the parse module, resolving the correct extension
  * (.ts in development/test, .js in production) by matching the harness's own extension.
  * A static import of `parse.js` would fail at test time when the harness runs as `.ts`
- * because Node's `--experimental-transform-types` does not auto-rewrite `.js` → `.ts`.
+ * because Node's TypeScript loader does not auto-rewrite `.js` → `.ts`.
  */
-async function loadAnalyzeToolImports(): Promise<
-  (source: string, filename: string) => ToolImportAnalysis
-> {
+async function loadParseModule(): Promise<ParseModule> {
   const here = fileURLToPath(import.meta.url);
   const ext = path.extname(here);
   const parseUrl = pathToFileURL(
     path.join(path.dirname(here), '..', 'manifest', `parse${ext}`),
   ).href;
-  const mod = (await import(parseUrl)) as {
-    analyzeToolImports: (s: string, f: string) => ToolImportAnalysis;
-  };
-  return mod.analyzeToolImports;
+  return (await import(parseUrl)) as ParseModule;
 }
 
 // Capture trusted IPC and exit references at module load, before any tool code can tamper
@@ -246,8 +247,8 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
-  const analyzeToolImports = await loadAnalyzeToolImports();
-  const analysis = analyzeToolImports(source, request.entry);
+  const parse = await loadParseModule();
+  const analysis = parse.analyzeToolImports(source, request.entry);
   if (analysis.syntaxErrors.length > 0) {
     await fail(
       'load-error',
@@ -271,9 +272,29 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
+  // Where Node can only strip types (Node 26+ has no transform flag), serve the tool's
+  // URL from a compiler transpile of the source analysed above, so non-erasable syntax
+  // such as `enum` still loads. Scoped to this one URL; tools have no imports of their own.
   let mod: Record<string, unknown>;
   try {
-    mod = (await import(pathToFileURL(request.entry).href)) as Record<string, unknown>;
+    // The ESM loader resolves file URLs to their real path before load hooks run, so the
+    // hook only matches the canonical URL (e.g. macOS /var -> /private/var, or a config
+    // dir reached through a symlink).
+    const entryUrl = pathToFileURL(await fs.realpath(request.entry)).href;
+    if (parse.toolNeedsTranspile(request.entry, process.execArgv)) {
+      const transpiled = parse.transpileToolSource(source, request.entry);
+      // Loaded lazily: `registerHooks` only exists from Node 22.15, and a static named
+      // import would fail at link time on 22.7–22.14. Those versions still accept
+      // --experimental-transform-types, so they never reach this branch.
+      const { registerHooks } = await import('node:module');
+      registerHooks({
+        load: (url, context, nextLoad) =>
+          url === entryUrl
+            ? { format: 'module', source: transpiled, shortCircuit: true }
+            : nextLoad(url, context),
+      });
+    }
+    mod = (await import(entryUrl)) as Record<string, unknown>;
   } catch (error) {
     await fail('load-error', error instanceof Error ? error.message : String(error));
     return;

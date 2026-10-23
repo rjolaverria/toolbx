@@ -85,6 +85,24 @@ export interface RunToolOptions {
   readonly sandbox?: SandboxOptions;
   /** Test seam: platform probe used by the OS sandbox. Defaults to the real srt probe. */
   readonly sandboxProbe?: PlatformProbe;
+  /**
+   * Test seam: Node flags that let the child load TypeScript. Defaults to
+   * `typeScriptFlags(process.allowedNodeEnvironmentFlags)`; pass `[]` to force the
+   * harness's transpile path on a runtime that still accepts the transform flag.
+   */
+  readonly typeScriptFlags?: readonly string[];
+}
+
+/**
+ * Node flags that let the child load TypeScript. --experimental-transform-types (Node
+ * 22.7 – 25) also handles non-erasable constructs (enum, namespace) so a valid TS tool
+ * doesn't import-OK then fail at call time. Node 26 removed the flag and strips types by
+ * default; there the harness transpiles the tool itself (see `toolNeedsTranspile`).
+ */
+export function typeScriptFlags(allowedFlags: ReadonlySet<string>): string[] {
+  return allowedFlags.has('--experimental-transform-types')
+    ? ['--experimental-transform-types']
+    : [];
 }
 
 /** Resolves the harness file next to this module, matching its extension (.ts/.js). */
@@ -152,13 +170,10 @@ async function executeSandbox(
 
   // The unsandboxed child argv. --disallow-code-generation-from-strings blocks
   // eval/Function-based import bypasses (e.g. `Function('return import("node:fs")')()`).
-  // --experimental-transform-types is a superset of --experimental-strip-types that also
-  // handles non-erasable TS constructs (enum, namespace) so a valid TS tool doesn't
-  // import-OK then fail at call time. Requires Node >= 22.7.0.
   const baseArgv = [
     process.execPath,
     '--disallow-code-generation-from-strings',
-    '--experimental-transform-types',
+    ...(options.typeScriptFlags ?? typeScriptFlags(process.allowedNodeEnvironmentFlags)),
     '--no-warnings',
     harnessPath(),
   ];

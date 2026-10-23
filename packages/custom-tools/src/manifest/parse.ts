@@ -279,6 +279,30 @@ export interface ToolImportAnalysis {
 }
 
 /**
+ * Whether a tool must be transpiled by the harness before Node can load it. Node's
+ * built-in strip-only mode rejects non-erasable syntax (`enum`, `namespace`, parameter
+ * properties); only a child started with `--experimental-transform-types` (accepted up to
+ * Node 25, removed in 26) can run those natively. `execArgv` is the child's
+ * `process.execArgv` — `process.features.typescript` can't be used because it is
+ * undefined before Node 22.10 even when the flag is active.
+ */
+export function toolNeedsTranspile(filename: string, execArgv: readonly string[]): boolean {
+  if (execArgv.includes('--experimental-transform-types')) {
+    return false;
+  }
+  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+  return ext === '.ts' || ext === '.mts';
+}
+
+/** Transpiles a TypeScript tool to plain ESM with the bundled compiler. */
+export function transpileToolSource(source: string, filename: string): string {
+  return ts.transpileModule(source, {
+    fileName: filename,
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
+  }).outputText;
+}
+
+/**
  * Parses a tool source file for runtime imports and syntax errors without
  * requiring the `@toolbx-tool` JSDoc metadata directives. Works on any tool
  * fixture or stored tool file regardless of whether metadata is present.
