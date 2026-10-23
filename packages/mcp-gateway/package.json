@@ -30,7 +30,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@toolbx/core": "workspace:^",
     "@toolbx/custom-tools": "workspace:^",
     "zod": "^4.3.6"

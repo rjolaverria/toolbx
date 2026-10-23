@@ -60,6 +60,9 @@ export function createDownstreamHttpServer(
     resolveDone = resolve;
   });
   let boundUrl: URL | null = null;
+  // Host header values accepted once the listener is bound. Null until then,
+  // so a request can never be admitted before the port is known.
+  let allowedHosts: ReadonlySet<string> | null = null;
 
   let inFlight = 0;
   let drainResolve: (() => void) | null = null;
@@ -84,6 +87,7 @@ export function createDownstreamHttpServer(
     state = 'stopped';
     detachLifecycleListeners();
     boundUrl = null;
+    allowedHosts = null;
     resolveDone();
   }
 
@@ -321,6 +325,18 @@ export function createDownstreamHttpServer(
       return;
     }
 
+    // DNS-rebinding guard: the listener is loopback-only, but a browser page can
+    // still reach it under an attacker-controlled hostname that resolves to
+    // 127.0.0.1, or post to it cross-origin. Admit only loopback Host headers
+    // and, when a browser sends one, a matching loopback Origin.
+    if (allowedHosts === null || !isTrustedLocalRequest(req, allowedHosts)) {
+      writeJsonError(res, 403, 'forbidden host or origin');
+      if (!req.readableEnded) {
+        req.resume();
+      }
+      return;
+    }
+
     trackRequest(req, res);
     try {
       const requestPath = parseRequestPath(req);
@@ -395,6 +411,7 @@ export function createDownstreamHttpServer(
     }
 
     boundUrl = new URL(`http://${formatHost(address.address)}:${address.port}${path}`);
+    allowedHosts = loopbackHostHeaders(address.port);
 
     for (const signal of LIFECYCLE_SIGNALS) {
       proc.on(signal, onSignal);
@@ -571,6 +588,32 @@ function parseRequestPath(req: IncomingMessage): string {
   // exactly so we use a fixed origin to parse without DNS lookups.
   const url = new URL(target, 'http://placeholder.invalid');
   return url.pathname;
+}
+
+const LOOPBACK_HOST_NAMES = ['127.0.0.1', 'localhost', '[::1]'] as const;
+
+function loopbackHostHeaders(port: number): ReadonlySet<string> {
+  return new Set(LOOPBACK_HOST_NAMES.map((name) => `${name}:${port}`));
+}
+
+export function isTrustedLocalRequest(
+  req: Pick<IncomingMessage, 'headers'>,
+  allowedHosts: ReadonlySet<string>,
+): boolean {
+  const host = req.headers.host?.toLowerCase();
+  if (host === undefined || !allowedHosts.has(host)) {
+    return false;
+  }
+  const origin = req.headers.origin;
+  if (origin === undefined) {
+    // Non-browser clients (MCP SDKs, curl) don't send Origin.
+    return true;
+  }
+  const lowered = origin.toLowerCase();
+  if (!lowered.startsWith('http://')) {
+    return false;
+  }
+  return allowedHosts.has(lowered.slice('http://'.length));
 }
 
 function formatHost(addr: string): string {

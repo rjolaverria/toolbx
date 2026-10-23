@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { request as httpRequest } from 'node:http';
 import { createConnection } from 'node:net';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -8,7 +9,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { CONTROL_PLANE_HEADER, CONTROL_PLANE_MARKER, createNoopLogger } from '@toolbx/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createDownstreamHttpServer } from '../http.js';
+import { createDownstreamHttpServer, isTrustedLocalRequest } from '../http.js';
 import type { DownstreamSession } from '../session.js';
 import type { DownstreamHttpServer } from '../types.js';
 
@@ -143,6 +144,50 @@ async function postOversizeBodyUntilServerCloses(url: URL): Promise<string> {
         resolve(Buffer.concat(chunks).toString('utf8'));
       });
     });
+  });
+}
+
+const INITIALIZE_BODY = JSON.stringify({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'initialize',
+  params: {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'rebinding-probe', version: '0.0.0' },
+  },
+});
+
+// fetch() forbids overriding Host, so spoofed-host probes go through node:http.
+function postInitialize(
+  url: URL,
+  headers: Record<string, string>,
+  contentType = 'application/json',
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        host: url.hostname,
+        port: Number(url.port),
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'content-type': contentType,
+          accept: 'application/json, text/event-stream',
+          ...headers,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }),
+        );
+        res.on('error', reject);
+      },
+    );
+    req.on('error', reject);
+    req.end(INITIALIZE_BODY);
   });
 }
 
@@ -297,6 +342,83 @@ describe('createDownstreamHttpServer — protocol surface', () => {
 
     const res404 = await fetch(new URL('/mcp', server.url));
     expect(res404.status).toBe(404);
+  });
+});
+
+describe('createDownstreamHttpServer — DNS rebinding guard', () => {
+  it('rejects a request whose Host header is not a loopback name, before creating a session', async () => {
+    const sessions: DownstreamSession[] = [];
+    const server = makeServer({
+      registerHandlers: (_mcpServer, session) => {
+        sessions.push(session);
+      },
+    });
+    await server.start();
+
+    const res = await postInitialize(server.url, { host: `evil.example:${server.url.port}` });
+
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: 'forbidden host or origin' });
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('rejects a cross-origin browser request even with a loopback Host header', async () => {
+    const server = makeServer();
+    await server.start();
+
+    // text/plain + a smuggled application/json parameter is a CORS "simple"
+    // request, so a browser sends it without a preflight.
+    const res = await postInitialize(
+      server.url,
+      { origin: 'https://evil.example' },
+      'text/plain; charset=application/json',
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  it('accepts a same-origin loopback request that carries an Origin header', async () => {
+    const server = makeServer();
+    await server.start();
+
+    const res = await postInitialize(server.url, { origin: `http://${server.url.host}` });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts the localhost alias for the bound port', async () => {
+    const server = makeServer();
+    await server.start();
+
+    const res = await postInitialize(server.url, { host: `localhost:${server.url.port}` });
+
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('isTrustedLocalRequest', () => {
+  const allowed = new Set(['127.0.0.1:4000', 'localhost:4000', '[::1]:4000']);
+  const check = (headers: Record<string, string>): boolean =>
+    isTrustedLocalRequest({ headers }, allowed);
+
+  it('accepts each loopback host on the bound port, case-insensitively', () => {
+    expect(check({ host: '127.0.0.1:4000' })).toBe(true);
+    expect(check({ host: 'LOCALHOST:4000' })).toBe(true);
+    expect(check({ host: '[::1]:4000' })).toBe(true);
+  });
+
+  it('rejects a missing host, a foreign host, or the wrong port', () => {
+    expect(check({})).toBe(false);
+    expect(check({ host: 'evil.example:4000' })).toBe(false);
+    expect(check({ host: '127.0.0.1:4001' })).toBe(false);
+    expect(check({ host: '127.0.0.1' })).toBe(false);
+  });
+
+  it('accepts a matching loopback origin and rejects foreign, https, or opaque origins', () => {
+    expect(check({ host: '127.0.0.1:4000', origin: 'http://localhost:4000' })).toBe(true);
+    expect(check({ host: '127.0.0.1:4000', origin: 'https://evil.example' })).toBe(false);
+    expect(check({ host: '127.0.0.1:4000', origin: 'https://127.0.0.1:4000' })).toBe(false);
+    expect(check({ host: '127.0.0.1:4000', origin: 'null' })).toBe(false);
   });
 });
 
