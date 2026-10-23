@@ -279,11 +279,6 @@ export interface ToolImportAnalysis {
 }
 
 /**
- * Parses a tool source file for runtime imports and syntax errors without
- * requiring the `@toolbx-tool` JSDoc metadata directives. Works on any tool
- * fixture or stored tool file regardless of whether metadata is present.
- */
-/**
  * Whether a tool must be transpiled by the harness before Node can load it. Node's
  * built-in strip-only mode rejects non-erasable syntax (`enum`, `namespace`, parameter
  * properties); only a child started with `--experimental-transform-types` (accepted up to
@@ -307,6 +302,11 @@ export function transpileToolSource(source: string, filename: string): string {
   }).outputText;
 }
 
+/**
+ * Parses a tool source file for runtime imports and syntax errors without
+ * requiring the `@toolbx-tool` JSDoc metadata directives. Works on any tool
+ * fixture or stored tool file regardless of whether metadata is present.
+ */
 export function analyzeToolImports(source: string, filename: string): ToolImportAnalysis {
   const programFile = programFileFor(filename);
   const sourceFile = ts.createSourceFile(

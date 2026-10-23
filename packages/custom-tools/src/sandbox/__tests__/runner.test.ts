@@ -296,27 +296,41 @@ export default function jsgreet(input) {
     });
   });
 
-  it('runs a non-erasable TypeScript tool whose entry path goes through a symlink', async () => {
-    const os = await import('node:os');
-    const fs = await import('node:fs/promises');
-
-    const realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-symlink-real-'));
-    const linkDir = `${realDir}-link`;
-    try {
-      await fs.copyFile(path.join(FIXTURES, 'uses-enum.ts'), path.join(realDir, 'uses-enum.ts'));
-      await fs.symlink(realDir, linkDir, 'dir');
-      const outcome = await runTool(
-        { ...manifest('uses-enum.ts'), entry: path.join(linkDir, 'uses-enum.ts') },
-        {},
-      );
+  // `typeScriptFlags: []` drops --experimental-transform-types so the harness takes its
+  // own transpile path (the Node 26 path) even on a runtime that still accepts the flag.
+  // That needs Node to strip types by default, which is what lets the .ts harness load.
+  describe.runIf(process.features.typescript === 'strip')('harness transpile path', () => {
+    it('runs a non-erasable TypeScript tool (enum) without the transform flag', async () => {
+      const outcome = await runTool(manifest('uses-enum.ts'), {}, { typeScriptFlags: [] });
       expect(outcome).toEqual({
         outcome: 'ok',
         result: { content: [{ type: 'text', text: 'mode=1' }] },
       });
-    } finally {
-      await fs.rm(linkDir, { force: true });
-      await fs.rm(realDir, { recursive: true, force: true });
-    }
+    });
+
+    it('matches the canonical URL when the entry path goes through a symlink', async () => {
+      const os = await import('node:os');
+      const fs = await import('node:fs/promises');
+
+      const realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'toolbx-symlink-strip-'));
+      const linkDir = `${realDir}-link`;
+      try {
+        await fs.copyFile(path.join(FIXTURES, 'uses-enum.ts'), path.join(realDir, 'uses-enum.ts'));
+        await fs.symlink(realDir, linkDir, 'dir');
+        const outcome = await runTool(
+          { ...manifest('uses-enum.ts'), entry: path.join(linkDir, 'uses-enum.ts') },
+          {},
+          { typeScriptFlags: [] },
+        );
+        expect(outcome).toEqual({
+          outcome: 'ok',
+          result: { content: [{ type: 'text', text: 'mode=1' }] },
+        });
+      } finally {
+        await fs.rm(linkDir, { force: true });
+        await fs.rm(realDir, { recursive: true, force: true });
+      }
+    });
   });
 
   it('never forwards NODE_OPTIONS to the child even when allowlisted', async () => {

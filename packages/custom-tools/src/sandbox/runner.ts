@@ -85,6 +85,12 @@ export interface RunToolOptions {
   readonly sandbox?: SandboxOptions;
   /** Test seam: platform probe used by the OS sandbox. Defaults to the real srt probe. */
   readonly sandboxProbe?: PlatformProbe;
+  /**
+   * Test seam: Node flags that let the child load TypeScript. Defaults to
+   * `typeScriptFlags(process.allowedNodeEnvironmentFlags)`; pass `[]` to force the
+   * harness's transpile path on a runtime that still accepts the transform flag.
+   */
+  readonly typeScriptFlags?: readonly string[];
 }
 
 /**
@@ -167,7 +173,7 @@ async function executeSandbox(
   const baseArgv = [
     process.execPath,
     '--disallow-code-generation-from-strings',
-    ...typeScriptFlags(process.allowedNodeEnvironmentFlags),
+    ...(options.typeScriptFlags ?? typeScriptFlags(process.allowedNodeEnvironmentFlags)),
     '--no-warnings',
     harnessPath(),
   ];
