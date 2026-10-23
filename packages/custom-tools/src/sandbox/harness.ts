@@ -21,6 +21,7 @@
  */
 
 import * as fs from 'node:fs/promises';
+import { registerHooks } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -35,24 +36,25 @@ import type {
   SandboxResponse,
 } from './protocol.js';
 
+interface ParseModule {
+  analyzeToolImports: (source: string, filename: string) => ToolImportAnalysis;
+  toolNeedsTranspile: (filename: string, nativeTypeScript: unknown) => boolean;
+  transpileToolSource: (source: string, filename: string) => string;
+}
+
 /**
- * Dynamically imports `analyzeToolImports` from parse, resolving the correct extension
+ * Dynamically imports the parse module, resolving the correct extension
  * (.ts in development/test, .js in production) by matching the harness's own extension.
  * A static import of `parse.js` would fail at test time when the harness runs as `.ts`
- * because Node's `--experimental-transform-types` does not auto-rewrite `.js` → `.ts`.
+ * because Node's TypeScript loader does not auto-rewrite `.js` → `.ts`.
  */
-async function loadAnalyzeToolImports(): Promise<
-  (source: string, filename: string) => ToolImportAnalysis
-> {
+async function loadParseModule(): Promise<ParseModule> {
   const here = fileURLToPath(import.meta.url);
   const ext = path.extname(here);
   const parseUrl = pathToFileURL(
     path.join(path.dirname(here), '..', 'manifest', `parse${ext}`),
   ).href;
-  const mod = (await import(parseUrl)) as {
-    analyzeToolImports: (s: string, f: string) => ToolImportAnalysis;
-  };
-  return mod.analyzeToolImports;
+  return (await import(parseUrl)) as ParseModule;
 }
 
 // Capture trusted IPC and exit references at module load, before any tool code can tamper
@@ -246,8 +248,8 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
-  const analyzeToolImports = await loadAnalyzeToolImports();
-  const analysis = analyzeToolImports(source, request.entry);
+  const parse = await loadParseModule();
+  const analysis = parse.analyzeToolImports(source, request.entry);
   if (analysis.syntaxErrors.length > 0) {
     await fail(
       'load-error',
@@ -271,9 +273,22 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
+  // Where Node can only strip types (Node 26+ has no transform mode), serve the tool's
+  // URL from a compiler transpile of the source analysed above, so non-erasable syntax
+  // such as `enum` still loads. Scoped to this one URL; tools have no imports of their own.
+  const entryUrl = pathToFileURL(request.entry).href;
   let mod: Record<string, unknown>;
   try {
-    mod = (await import(pathToFileURL(request.entry).href)) as Record<string, unknown>;
+    if (parse.toolNeedsTranspile(request.entry, process.features.typescript)) {
+      const transpiled = parse.transpileToolSource(source, request.entry);
+      registerHooks({
+        load: (url, context, nextLoad) =>
+          url === entryUrl
+            ? { format: 'module', source: transpiled, shortCircuit: true }
+            : nextLoad(url, context),
+      });
+    }
+    mod = (await import(entryUrl)) as Record<string, unknown>;
   } catch (error) {
     await fail('load-error', error instanceof Error ? error.message : String(error));
     return;

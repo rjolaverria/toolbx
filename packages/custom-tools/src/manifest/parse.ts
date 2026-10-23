@@ -283,6 +283,29 @@ export interface ToolImportAnalysis {
  * requiring the `@toolbx-tool` JSDoc metadata directives. Works on any tool
  * fixture or stored tool file regardless of whether metadata is present.
  */
+/**
+ * Whether a tool must be transpiled by the harness before Node can load it. Node's
+ * built-in strip-only mode rejects non-erasable syntax (`enum`, `namespace`, parameter
+ * properties); only Node versions that still accept `--experimental-transform-types`
+ * (removed in Node 26) can run those natively. `nativeTypeScript` is
+ * `process.features.typescript` in the child.
+ */
+export function toolNeedsTranspile(filename: string, nativeTypeScript: unknown): boolean {
+  if (nativeTypeScript === 'transform') {
+    return false;
+  }
+  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+  return ext === '.ts' || ext === '.mts';
+}
+
+/** Transpiles a TypeScript tool to plain ESM with the bundled compiler. */
+export function transpileToolSource(source: string, filename: string): string {
+  return ts.transpileModule(source, {
+    fileName: filename,
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
+  }).outputText;
+}
+
 export function analyzeToolImports(source: string, filename: string): ToolImportAnalysis {
   const programFile = programFileFor(filename);
   const sourceFile = ts.createSourceFile(

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { analyzeToolImports, parseToolMetadata, ToolMetadataParseError } from '../parse.js';
+import {
+  analyzeToolImports,
+  parseToolMetadata,
+  ToolMetadataParseError,
+  toolNeedsTranspile,
+  transpileToolSource,
+} from '../parse.js';
 
 // The canonical example from SPECS §6.2.
 const SPEC_EXAMPLE = `/**
@@ -604,5 +610,31 @@ export default async function f() {
 
       expect(parseToolMetadata(source, './strdefault.ts').hasDefaultFunctionExport).toBe(false);
     });
+  });
+});
+
+describe('toolNeedsTranspile', () => {
+  it('transpiles TypeScript tools only when Node lacks a native transform mode', () => {
+    expect(toolNeedsTranspile('/tools/a.ts', 'strip')).toBe(true);
+    expect(toolNeedsTranspile('/tools/a.MTS', false)).toBe(true);
+    expect(toolNeedsTranspile('/tools/a.ts', 'transform')).toBe(false);
+  });
+
+  it('never transpiles JavaScript tools', () => {
+    expect(toolNeedsTranspile('/tools/a.js', 'strip')).toBe(false);
+    expect(toolNeedsTranspile('/tools/a.mjs', false)).toBe(false);
+  });
+});
+
+describe('transpileToolSource', () => {
+  it('lowers non-erasable syntax to plain ESM and keeps the exports', () => {
+    const out = transpileToolSource(
+      'enum Mode { On, Off }\nexport const x: number = Mode.Off;\nexport default function f() {}',
+      '/tools/a.ts',
+    );
+    expect(out).not.toMatch(/\benum\b/);
+    expect(out).not.toMatch(/: number/);
+    expect(out).toMatch(/export const x = Mode\.Off/);
+    expect(out).toMatch(/export default function f/);
   });
 });

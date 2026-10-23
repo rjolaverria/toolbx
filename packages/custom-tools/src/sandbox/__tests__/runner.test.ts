@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ToolManifest } from '../../manifest/import.js';
 import type { PlatformProbe } from '../os-sandbox.js';
-import { runTool } from '../runner.js';
+import { runTool, typeScriptFlags } from '../runner.js';
 
 const unsupportedProbe: PlatformProbe = {
   isSupportedPlatform: () => false,
@@ -548,5 +548,17 @@ describe('runTool sandbox strict mode', () => {
     if (outcome.outcome === 'error') {
       expect(outcome.message).toContain('aborted');
     }
+  });
+});
+
+describe('typeScriptFlags', () => {
+  it('passes --experimental-transform-types where Node still accepts it', () => {
+    expect(typeScriptFlags(new Set(['--experimental-transform-types']))).toEqual([
+      '--experimental-transform-types',
+    ]);
+  });
+
+  it('passes nothing on Node 26+, which removed the flag', () => {
+    expect(typeScriptFlags(new Set(['--experimental-strip-types']))).toEqual([]);
   });
 });
