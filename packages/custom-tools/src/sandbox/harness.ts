@@ -275,9 +275,12 @@ async function run(request: SandboxRequest): Promise<void> {
   // Where Node can only strip types (Node 26+ has no transform flag), serve the tool's
   // URL from a compiler transpile of the source analysed above, so non-erasable syntax
   // such as `enum` still loads. Scoped to this one URL; tools have no imports of their own.
-  const entryUrl = pathToFileURL(request.entry).href;
   let mod: Record<string, unknown>;
   try {
+    // The ESM loader resolves file URLs to their real path before load hooks run, so the
+    // hook only matches the canonical URL (e.g. macOS /var -> /private/var, or a config
+    // dir reached through a symlink).
+    const entryUrl = pathToFileURL(await fs.realpath(request.entry)).href;
     if (parse.toolNeedsTranspile(request.entry, process.execArgv)) {
       const transpiled = parse.transpileToolSource(source, request.entry);
       // Loaded lazily: `registerHooks` only exists from Node 22.15, and a static named
