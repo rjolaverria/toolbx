@@ -614,15 +614,21 @@ export default async function f() {
 });
 
 describe('toolNeedsTranspile', () => {
-  it('transpiles TypeScript tools only when Node lacks a native transform mode', () => {
-    expect(toolNeedsTranspile('/tools/a.ts', 'strip')).toBe(true);
-    expect(toolNeedsTranspile('/tools/a.MTS', false)).toBe(true);
-    expect(toolNeedsTranspile('/tools/a.ts', 'transform')).toBe(false);
+  const transformArgv = [
+    '--disallow-code-generation-from-strings',
+    '--experimental-transform-types',
+  ];
+  const stripArgv = ['--disallow-code-generation-from-strings'];
+
+  it('transpiles TypeScript tools only when the child lacks the transform flag', () => {
+    expect(toolNeedsTranspile('/tools/a.ts', stripArgv)).toBe(true);
+    expect(toolNeedsTranspile('/tools/a.MTS', [])).toBe(true);
+    expect(toolNeedsTranspile('/tools/a.ts', transformArgv)).toBe(false);
   });
 
   it('never transpiles JavaScript tools', () => {
-    expect(toolNeedsTranspile('/tools/a.js', 'strip')).toBe(false);
-    expect(toolNeedsTranspile('/tools/a.mjs', false)).toBe(false);
+    expect(toolNeedsTranspile('/tools/a.js', stripArgv)).toBe(false);
+    expect(toolNeedsTranspile('/tools/a.mjs', [])).toBe(false);
   });
 });
 

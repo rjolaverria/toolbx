@@ -21,7 +21,6 @@
  */
 
 import * as fs from 'node:fs/promises';
-import { registerHooks } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -38,7 +37,7 @@ import type {
 
 interface ParseModule {
   analyzeToolImports: (source: string, filename: string) => ToolImportAnalysis;
-  toolNeedsTranspile: (filename: string, nativeTypeScript: unknown) => boolean;
+  toolNeedsTranspile: (filename: string, execArgv: readonly string[]) => boolean;
   transpileToolSource: (source: string, filename: string) => string;
 }
 
@@ -273,14 +272,18 @@ async function run(request: SandboxRequest): Promise<void> {
     return;
   }
 
-  // Where Node can only strip types (Node 26+ has no transform mode), serve the tool's
+  // Where Node can only strip types (Node 26+ has no transform flag), serve the tool's
   // URL from a compiler transpile of the source analysed above, so non-erasable syntax
   // such as `enum` still loads. Scoped to this one URL; tools have no imports of their own.
   const entryUrl = pathToFileURL(request.entry).href;
   let mod: Record<string, unknown>;
   try {
-    if (parse.toolNeedsTranspile(request.entry, process.features.typescript)) {
+    if (parse.toolNeedsTranspile(request.entry, process.execArgv)) {
       const transpiled = parse.transpileToolSource(source, request.entry);
+      // Loaded lazily: `registerHooks` only exists from Node 22.15, and a static named
+      // import would fail at link time on 22.7–22.14. Those versions still accept
+      // --experimental-transform-types, so they never reach this branch.
+      const { registerHooks } = await import('node:module');
       registerHooks({
         load: (url, context, nextLoad) =>
           url === entryUrl
