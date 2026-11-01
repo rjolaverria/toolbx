@@ -33,7 +33,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@toolbx/core": "workspace:^",
     "@toolbx/custom-tools": "workspace:^",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
